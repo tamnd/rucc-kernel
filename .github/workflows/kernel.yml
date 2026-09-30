@@ -1,0 +1,97 @@
+# Kernel builds: the default pin on X64, with the reference and with the pinned rucc release, each
+# through rk-cc so that every compiler call lands in compile.jsonl.
+#
+# The reference job must pass. The rucc job is allowed to fail until K2, when every defconfig unit
+# is meant to compile, and its summary and artifacts are what the demand census starts from.
+#
+# The rucc binary is the release tarball, checked against the hash written here, not a build from
+# source, so that a result names exactly one compiler.
+
+name: kernel
+
+on:
+  pull_request:
+    paths:
+      - crates/**
+      - Cargo.lock
+      - pins.toml
+      - personas.toml
+      - rows.toml
+      - .github/workflows/kernel.yml
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: A pinned version, or empty for the default pin
+        required: false
+        default: ""
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RK_CACHE: ${{ github.workspace }}/../rk-cache
+  RUCC_VERSION: v0.17.0
+  RUCC_SHA256: fcf451c3193ddd0f83f13c7f0a1e27c3cedec0f648af08ca7bd83dbdfbdffbb5
+
+jobs:
+  build:
+    name: ${{ matrix.config }} with ${{ matrix.cc }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    continue-on-error: ${{ matrix.cc == 'rucc' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc-14, rucc]
+        config: [tinyconfig, defconfig]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: kernel build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -qy --no-install-recommends gcc-14 flex bison bc libelf-dev libssl-dev cpio
+      - name: rucc ${{ env.RUCC_VERSION }}
+        if: matrix.cc == 'rucc'
+        run: |
+          name="rucc-$RUCC_VERSION-x86_64-unknown-linux-gnu"
+          gh release download "$RUCC_VERSION" -R tamnd/rucc -p "$name.tar.gz" -D "$RUNNER_TEMP"
+          echo "$RUCC_SHA256  $RUNNER_TEMP/$name.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$name.tar.gz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/$name" >> "$GITHUB_PATH"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: build rk
+        run: cargo build --release --workspace
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ${{ env.RK_CACHE }}/archives
+          key: kernel-archives-${{ hashFiles('pins.toml') }}
+          restore-keys: kernel-archives-
+      - name: rk build
+        run: |
+          target/release/rk build ${{ inputs.version }} --row X64 --config ${{ matrix.config }} \
+            --cc ${{ matrix.cc }} --out "$RUNNER_TEMP/out" --keep-going
+      - name: keep the record
+        if: always()
+        run: |
+          mkdir -p record
+          cd "$RUNNER_TEMP/out"
+          cp build.json summary.md config.log build.log .config "$GITHUB_WORKSPACE/record/" 2>/dev/null || true
+          if [ -f compile.jsonl ]; then gzip -c compile.jsonl > "$GITHUB_WORKSPACE/record/compile.jsonl.gz"; fi
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: X64-${{ matrix.config }}-${{ matrix.cc }}
+          path: record
+          include-hidden-files: true
+          retention-days: 30

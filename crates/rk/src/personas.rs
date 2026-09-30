@@ -1,4 +1,4 @@
-//! `personas.toml`: the eras, read and checked.
+//! `personas.toml` and `rows.toml`: the eras and the rows, read and checked.
 //!
 //! Every kernel version falls in exactly one era, and the era says which GCC rucc claims to be
 //! when it builds that version. The eras must not overlap and must leave no gap between them,
@@ -137,6 +137,52 @@ impl Personas {
     }
 }
 
+/// `rows.toml`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Rows {
+    /// Every row.
+    #[serde(rename = "row")]
+    pub rows: Vec<Row>,
+}
+
+/// One row.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Row {
+    /// `X64`, `A64`, `X32` or `R64`.
+    pub name: String,
+    /// kbuild's `ARCH`.
+    pub arch: String,
+    /// The `CROSS_COMPILE` prefix, empty on the row's own architecture.
+    pub cross: String,
+    /// The make target of the boot image.
+    pub image: String,
+    /// The QEMU binary.
+    pub qemu: String,
+    /// The QEMU machine.
+    pub machine: String,
+    /// The QEMU CPU.
+    pub cpu: String,
+    /// The serial console device name.
+    pub console: String,
+}
+
+impl Rows {
+    /// Read `rows.toml`.
+    pub fn load(path: &Path) -> Result<Self, String> {
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| format!("reading {}: {e}", path.display()))?;
+        toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    /// A row by name.
+    pub fn get(&self, name: &str) -> Result<&Row, String> {
+        self.rows
+            .iter()
+            .find(|r| r.name == name)
+            .ok_or_else(|| format!("no row {name} in rows.toml"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,5 +225,12 @@ mod tests {
         for pin in &pins.pins {
             p.era_for(&pin.version).unwrap();
         }
+    }
+
+    #[test]
+    fn the_committed_rows_read() {
+        let rows: Rows = toml::from_str(include_str!("../../../rows.toml")).unwrap();
+        assert_eq!(rows.get("X64").unwrap().arch, "x86_64");
+        assert_eq!(rows.get("A64").unwrap().cross, "aarch64-linux-gnu-");
     }
 }

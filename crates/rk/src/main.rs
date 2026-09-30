@@ -1,6 +1,7 @@
 //! The `rk` command line: fetch pinned Linux trees, build them with rucc and with a reference
 //! compiler, boot and test what comes out, and record what happened.
 
+mod build;
 mod cli;
 mod kernelorg;
 mod personas;
@@ -29,6 +30,7 @@ fn main() -> ExitCode {
             "fetch" => fetch(&repo, &args),
             "sets" => sets_command(&repo, &args),
             "personas" => personas_command(&repo),
+            "build" => build_command(&repo, &args),
             _ => unreachable!("the parser only accepts known commands"),
         }
     });
@@ -95,7 +97,8 @@ fn sets_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// List every pin with its era and persona, which fails when a pin falls in no era or in two.
+/// List every pin with its era and persona, which fails when a pin falls in no era or in two,
+/// and then the rows.
 fn personas_command(repo: &Repo) -> Result<ExitCode, String> {
     let personas = personas::Personas::load(&repo.file("personas.toml"))?;
     let pins = pins::Pins::load(&repo.file("pins.toml"))?;
@@ -116,5 +119,103 @@ fn personas_command(repo: &Repo) -> Result<ExitCode, String> {
             println!("{:<15} {}", "", era.notes);
         }
     }
+    let rows = personas::Rows::load(&repo.file("rows.toml"))?;
+    println!();
+    for row in &rows.rows {
+        println!(
+            "{:<4} ARCH={:<8} {:<8} {} -M {} -cpu {} console={}",
+            row.name, row.arch, row.image, row.qemu, row.machine, row.cpu, row.console
+        );
+    }
     Ok(ExitCode::SUCCESS)
+}
+
+/// Configure and build one kernel through the shim.
+fn build_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+    let pins = pins::Pins::load(&repo.file("pins.toml"))?;
+    let pin = pins.get(args.target.as_deref())?.clone();
+    let personas = personas::Personas::load(&repo.file("personas.toml"))?;
+    let era = personas.era_for(&pin.version)?.clone();
+    let rows = personas::Rows::load(&repo.file("rows.toml"))?;
+    let row = rows.get(args.get("row").unwrap_or("X64"))?.clone();
+    let config = args.get("config").unwrap_or("defconfig").to_string();
+    let compiler = build::Compiler::identify(
+        args.get("cc")
+            .ok_or("rk build needs --cc, the compiler under test or the reference")?,
+    )?;
+    let jobs = match args.get("jobs") {
+        Some(n) => n
+            .parse()
+            .map_err(|_| format!("--jobs {n} is not a number"))?,
+        None => std::thread::available_parallelism().map_or(1, std::num::NonZero::get),
+    };
+    let bringup: Vec<String> = args
+        .get("bringup")
+        .map(|b| b.split(',').map(str::to_string).collect())
+        .unwrap_or_default();
+    let bringup_cc = match args.get("bringup-cc") {
+        Some(cc) => Some(build::Compiler::identify(cc)?.path),
+        None if !bringup.is_empty() => return Err("--bringup needs --bringup-cc".to_string()),
+        None => None,
+    };
+    let targets = args.get("targets").map_or_else(
+        || vec![row.image.clone()],
+        |t| t.split_whitespace().map(str::to_string).collect(),
+    );
+    let out = args.get("out").map_or_else(
+        || {
+            repo.file("work").join(format!(
+                "{}-{}-{}-{}",
+                pin.version,
+                row.name,
+                config,
+                compiler.label()
+            ))
+        },
+        std::path::PathBuf::from,
+    );
+    let source = pins::fetch(&pin, !args.has("no-upstream-check"))?;
+    let plan = build::Plan {
+        pin,
+        source,
+        row,
+        era,
+        config,
+        compiler,
+        out,
+        jobs,
+        keep_going: args.has("keep-going"),
+        config_only: args.has("config-only"),
+        twice: args.has("twice"),
+        bringup,
+        bringup_cc,
+        targets,
+    };
+    eprintln!(
+        "rk: building {} {} {} with {} in {}",
+        plan.pin.version,
+        plan.row.name,
+        plan.config,
+        plan.compiler.version,
+        plan.out.display()
+    );
+    let outcome = build::run(&plan)?;
+    let summary = build::summary(&outcome);
+    print!("{summary}");
+    if let Some(path) = std::env::var_os("GITHUB_STEP_SUMMARY") {
+        use std::io::Write as _;
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(path)
+        {
+            let _ = writeln!(file, "{summary}");
+        }
+    }
+    let done = outcome.configured && (plan.config_only || outcome.built);
+    Ok(if done {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
 }
