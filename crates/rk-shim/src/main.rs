@@ -34,6 +34,10 @@ fn main() -> ExitCode {
         eprintln!("rk-cc: no compiler to run: set RK_REAL_CC or put rk-cc.toml next to the shim");
         return ExitCode::from(127);
     };
+    if let Err(e) = bringup::check(&config.bringup) {
+        eprintln!("rk-cc: RK_BRINGUP: {e}");
+        return ExitCode::from(127);
+    }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let rest = &argv[1..];
     let invocation = args::read(rest, &cwd, &|p| p.is_file());

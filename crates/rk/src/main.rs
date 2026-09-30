@@ -265,6 +265,7 @@ fn build_plan(repo: &Repo, args: &Args) -> Result<build::Plan, String> {
         .get("bringup")
         .map(|b| b.split(',').map(str::to_string).collect())
         .unwrap_or_default();
+    rk_shim::bringup::check(&bringup).map_err(|e| format!("--bringup: {e}"))?;
     let bringup_cc = match args.get("bringup-cc") {
         Some(cc) => Some(build::Compiler::identify(cc)?.path),
         None if !bringup.is_empty() => return Err("--bringup needs --bringup-cc".to_string()),
