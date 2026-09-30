@@ -360,23 +360,46 @@ const REPRODUCIBLE: [(&str, &str); 4] = [
 
 /// The make command for a target, with the shim as `CC`.
 fn make(plan: &Plan, cc: &str, targets: &[String], jobs: usize, keep_going: bool) -> Command {
+    let mut command = make_in(
+        &plan.source,
+        &plan.out,
+        &plan.row,
+        &plan.kcflags,
+        cc,
+        targets,
+        jobs,
+    );
+    if keep_going {
+        command.arg("-k");
+    }
+    command
+}
+
+/// The make command a build ran, for a tree and an output directory, so that `rk mixed` can run
+/// it again in a copy of the output directory.
+pub fn make_in(
+    source: &Path,
+    out: &Path,
+    row: &Row,
+    kcflags: &[String],
+    cc: &str,
+    targets: &[String],
+    jobs: usize,
+) -> Command {
     let mut command = Command::new("make");
     command
         .arg("-C")
-        .arg(&plan.source)
-        .arg(format!("O={}", plan.out.display()))
-        .arg(format!("ARCH={}", plan.row.arch))
+        .arg(source)
+        .arg(format!("O={}", out.display()))
+        .arg(format!("ARCH={}", row.arch))
         .arg(format!("CC={cc}"))
         .arg(format!("-j{jobs}"))
         .envs(REPRODUCIBLE);
-    if !plan.row.cross.is_empty() && !host_is(&plan.row.arch) {
-        command.arg(format!("CROSS_COMPILE={}", plan.row.cross));
+    if !row.cross.is_empty() && !host_is(&row.arch) {
+        command.arg(format!("CROSS_COMPILE={}", row.cross));
     }
-    if !plan.kcflags.is_empty() {
-        command.arg(format!("KCFLAGS={}", plan.kcflags.join(" ")));
-    }
-    if keep_going {
-        command.arg("-k");
+    if !kcflags.is_empty() {
+        command.arg(format!("KCFLAGS={}", kcflags.join(" ")));
     }
     command.args(targets);
     command

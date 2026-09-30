@@ -30,6 +30,7 @@ const SWITCHES: &[&str] = &[
     "config-only",
     "why",
     "stack-usage",
+    "no-fuel",
 ];
 
 /// Options each command accepts, and whether it takes a positional word.
@@ -83,6 +84,20 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
                 "out",
             ],
         ),
+        "mixed" => (
+            false,
+            &[
+                "reference",
+                "other",
+                "row",
+                "unit",
+                "busybox",
+                "timeout",
+                "jobs",
+                "out",
+                "no-fuel",
+            ],
+        ),
         "initramfs" => (false, &["out", "busybox"]),
         "asm-inventory" => (false, &["build", "jobs"]),
         "baseline" => (
@@ -127,6 +142,7 @@ usage:
   rk boot --build DIR [--row X64] [--initramfs FILE | --busybox PATH] [--timeout 300]
           [--append WORDS]
   rk test --reference DIR --other DIR [--kinds boot,smoke,kunit] [--row X64] [--runs 1]
+  rk mixed --reference DIR --other DIR --unit UNIT [--row X64] [--timeout 600] [--no-fuel]
           [--busybox PATH] [--rucc-busybox PATH] [--timeout 600] [--out DIR]
   rk initramfs --out FILE [--busybox PATH]
   rk baseline [VERSION] --cc COMPILER [--row X64] [--config defconfig] [--fragment test]
