@@ -29,6 +29,7 @@ const SWITCHES: &[&str] = &[
     "twice",
     "config-only",
     "why",
+    "stack-usage",
 ];
 
 /// Options each command accepts, and whether it takes a positional word.
@@ -50,6 +51,7 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
                 "fragment",
                 "keep-going",
                 "twice",
+                "stack-usage",
                 "config-only",
                 "no-upstream-check",
             ],
@@ -58,7 +60,7 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
         "probes" | "flags-diff" | "symvers-diff" | "objtool-report" => {
             (false, &["reference", "other"])
         }
-        "sections-diff" => (false, &["reference", "other", "save"]),
+        "sections-diff" | "frames" => (false, &["reference", "other", "save"]),
         "vec-audit" => (false, &["build", "reference", "save"]),
         "modules-audit" => (false, &["build"]),
         "syntax" => (false, &["build", "cc", "allow", "jobs"]),
@@ -80,6 +82,7 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
                 "runs",
                 "busybox",
                 "timeout",
+                "stack-usage",
                 "no-upstream-check",
             ],
         ),
@@ -105,17 +108,19 @@ usage:
   rk vec-audit --build DIR|FILE [--reference DIR|FILE] [--save FILE]
   rk modules-audit --build DIR
   rk objtool-report --reference DIR|LOG --other DIR|LOG
+  rk frames --reference DIR|FILE [--other DIR|FILE] [--save FILE]
   rk syntax --build DIR [--cc rucc] [--allow FILE] [--jobs N]
   rk boot --build DIR [--row X64] [--initramfs FILE | --busybox PATH] [--timeout 300]
           [--append WORDS]
   rk initramfs --out FILE [--busybox PATH]
   rk baseline [VERSION] --cc COMPILER [--row X64] [--config defconfig] [--fragment test]
-              [--runs 3] [--timeout 600]
+              [--runs 3] [--timeout 600] [--stack-usage]
   rk asm-inventory --build DIR [--jobs N]
   rk demands --builds \"DIR DIR ...\" [--limit 40]
   rk build [VERSION] --cc COMPILER [--row X64] [--config defconfig] [--out DIR] [--jobs N]
            [--fragment test]
-           [--targets \"vmlinux bzImage\"] [--keep-going] [--twice] [--config-only]
+           [--targets \"vmlinux bzImage\"] [--keep-going] [--twice] [--stack-usage]
+           [--config-only]
            [--bringup m16,as --bringup-cc gcc]
   rk version
 

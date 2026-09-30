@@ -7,7 +7,8 @@
 #
 # Each build job also reduces its objects to the small JSON files rk sections-diff and rk vec-audit
 # save, and audits its modules, so that the compare job can put the object level diffs of K2 in
-# its summary without carrying the objects between jobs. None of these fail a job yet.
+# its summary without carrying the objects between jobs. None of these fail a job yet. The builds
+# pass -fstack-usage, which changes no code, so that rk frames can compare every function's frame.
 #
 # The rucc binary is the release tarball, checked against the hash written here, not a build from
 # source, so that a result names exactly one compiler. A manual run can name a branch or commit of
@@ -108,7 +109,7 @@ jobs:
       - name: rk build
         run: |
           target/release/rk build ${{ inputs.version }} --row X64 --config ${{ matrix.config }} \
-            --fragment test --cc ${{ matrix.cc }} --out "$RUNNER_TEMP/out" --keep-going
+            --fragment test --cc ${{ matrix.cc }} --out "$RUNNER_TEMP/out" --keep-going --stack-usage
       - name: rk boot
         run: target/release/rk boot --build "$RUNNER_TEMP/out" --timeout 600
       - name: rk asm-inventory
@@ -126,6 +127,7 @@ jobs:
           target/release/rk sections-diff --reference "$out" --save "$out/sections.json" || true
           target/release/rk vec-audit --build "$out" --save "$out/vec.json" > "$out/vec-audit.md" || true
           target/release/rk modules-audit --build "$out" > "$out/modules-audit.md" || true
+          target/release/rk frames --reference "$out" --save "$out/frames.json" || true
           cat "$out/vec-audit.md" "$out/modules-audit.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
       - name: keep the record
         if: always()
@@ -133,7 +135,7 @@ jobs:
           mkdir -p record
           cd "$RUNNER_TEMP/out"
           cp build.json summary.md config.log fragment.log build.log boot.json boot.log asm-inventory.md syntax.md .config \
-            sections.json vec.json vec-audit.md modules-audit.md Module.symvers System.map \
+            sections.json vec.json frames.json vec-audit.md modules-audit.md Module.symvers System.map \
             "$GITHUB_WORKSPACE/record/" 2>/dev/null || true
           if [ -f compile.jsonl ]; then gzip -c compile.jsonl > "$GITHUB_WORKSPACE/record/compile.jsonl.gz"; fi
           find . -path ./rk-bin -prune -o -name '.*.o.cmd' -print | tar -czf "$GITHUB_WORKSPACE/record/cmd.tar.gz" -T -
@@ -201,6 +203,11 @@ jobs:
         run: |
           target/release/rk objtool-report --reference records/X64-${{ matrix.config }}-gcc-14 \
             --other records/X64-${{ matrix.config }}-rucc | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: rk frames
+        if: always()
+        run: |
+          target/release/rk frames --reference records/X64-${{ matrix.config }}-gcc-14/frames.json \
+            --other records/X64-${{ matrix.config }}-rucc/frames.json | tee -a "$GITHUB_STEP_SUMMARY"
 
   demands:
     name: the demand census

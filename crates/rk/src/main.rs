@@ -8,6 +8,7 @@ mod build;
 mod cli;
 mod demands;
 mod flags;
+mod frames;
 mod kconfig;
 mod kernelorg;
 mod modules;
@@ -58,6 +59,7 @@ fn main() -> ExitCode {
             "vec-audit" => vec_audit(&args),
             "modules-audit" => modules_audit(&args),
             "objtool-report" => objtool_report(&args),
+            "frames" => frames_command(&args),
             "demands" => demands_command(&args),
             "boot" => boot_command(&repo, &args),
             "asm-inventory" => asm_inventory(&repo, &args),
@@ -296,6 +298,11 @@ fn build_plan(repo: &Repo, args: &Args) -> Result<build::Plan, String> {
         keep_going: args.has("keep-going"),
         config_only: args.has("config-only"),
         twice: args.has("twice"),
+        kcflags: if args.has("stack-usage") {
+            vec!["-fstack-usage".to_string()]
+        } else {
+            Vec::new()
+        },
         bringup,
         bringup_cc,
         targets,
@@ -539,6 +546,31 @@ fn objtool_report(args: &Args) -> Result<ExitCode, String> {
     let buckets = objtool::bucket(&side("reference")?, &side("other")?);
     print!("{}", objtool::report(&buckets));
     Ok(verdict(objtool::clean(&buckets)))
+}
+
+/// Compare the stack frame of every function in two builds made with `--stack-usage`.
+fn frames_command(args: &Args) -> Result<ExitCode, String> {
+    let reference =
+        std::path::Path::new(args.get("reference").ok_or("rk frames needs --reference")?);
+    let reference = objects::load_or_scan(reference, frames::scan)?;
+    if let Some(path) = args.get("save") {
+        objects::save(std::path::Path::new(path), &reference)?;
+        eprintln!("saved {} frames to {path}", reference.functions.len());
+    }
+    let Some(other) = args.get("other") else {
+        return if args.get("save").is_some() {
+            Ok(ExitCode::SUCCESS)
+        } else {
+            Err("rk frames needs --other, or --save to keep the reference".to_string())
+        };
+    };
+    if reference.functions.is_empty() {
+        return Err("the reference has no .su files; was it built with --stack-usage?".to_string());
+    }
+    let other = objects::load_or_scan(std::path::Path::new(other), frames::scan)?;
+    let comparison = frames::compare(&reference, &other);
+    print!("{}", frames::report(&comparison));
+    Ok(verdict(comparison.clean()))
 }
 
 /// Replay every unit of a reference build through another compiler's front end.
