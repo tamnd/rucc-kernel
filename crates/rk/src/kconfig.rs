@@ -124,6 +124,76 @@ impl Divergences {
     }
 }
 
+/// A configuration fragment: symbols and the values it asks for, in order. Values are cut at a
+/// `#` that follows whitespace, so that a line may carry a comment, which a `.config` may not.
+#[must_use]
+pub fn parse_fragment(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if let Some(symbol) = line
+                .strip_prefix("# CONFIG_")
+                .and_then(|r| r.strip_suffix(" is not set"))
+            {
+                return Some((symbol.to_string(), "n".to_string()));
+            }
+            let (symbol, value) = line.strip_prefix("CONFIG_")?.split_once('=')?;
+            let value = value
+                .find(" #")
+                .or_else(|| value.find("\t#"))
+                .map_or(value, |at| &value[..at]);
+            Some((symbol.to_string(), value.trim().to_string()))
+        })
+        .collect()
+}
+
+/// A `.config` with a fragment laid over it, as `merge_config.sh -m` does: every line that sets
+/// a symbol the fragment names is dropped, and the fragment's lines go at the end. Running
+/// `olddefconfig` afterwards settles dependencies.
+#[must_use]
+pub fn merge(config: &str, fragment: &[(String, String)]) -> String {
+    let named = |line: &str| {
+        let line = line.trim();
+        let symbol = line
+            .strip_prefix("# CONFIG_")
+            .and_then(|r| r.strip_suffix(" is not set"))
+            .or_else(|| {
+                line.strip_prefix("CONFIG_")
+                    .and_then(|r| r.split_once('='))
+                    .map(|(s, _)| s)
+            });
+        symbol.is_some_and(|s| fragment.iter().any(|(f, _)| f == s))
+    };
+    let mut out: String = config
+        .lines()
+        .filter(|l| !named(l))
+        .flat_map(|l| [l, "\n"])
+        .collect();
+    for (symbol, value) in fragment {
+        if value == "n" {
+            let _ = writeln!(out, "# CONFIG_{symbol} is not set");
+        } else {
+            let _ = writeln!(out, "CONFIG_{symbol}={value}");
+        }
+    }
+    out
+}
+
+/// The fragment's requests that did not take effect, usually because the symbol does not exist
+/// in this version or on this architecture, or depends on something that is off. A symbol asked
+/// to be `n` that is missing counts as taken.
+#[must_use]
+pub fn missed(config: &Config, fragment: &[(String, String)]) -> Vec<String> {
+    fragment
+        .iter()
+        .filter(|(symbol, value)| match config.get(symbol) {
+            Some(v) => v != value,
+            None => value != "n",
+        })
+        .map(|(symbol, _)| symbol.clone())
+        .collect()
+}
+
 /// A value for a table cell: missing symbols show as a dash.
 fn cell(value: Option<&String>) -> String {
     value.map_or_else(|| "-".to_string(), |v| format!("`{v}`"))
@@ -231,6 +301,35 @@ CONFIG_GCC_VERSION=140200
     #[test]
     fn a_divergence_needs_a_reason() {
         assert!(Divergences::parse("[[divergence]]\nsymbol = \"X\"\nreason = \" \"\n").is_err());
+    }
+
+    #[test]
+    fn a_fragment_replaces_what_it_names_and_reports_what_did_not_stick() {
+        let fragment = parse_fragment(
+            "# console\nCONFIG_STACKPROTECTOR=y   # on\nCONFIG_SERIAL_AMBA_PL011=y\n# CONFIG_KASAN is not set\n",
+        );
+        assert_eq!(fragment.len(), 3);
+        assert_eq!(fragment[0], ("STACKPROTECTOR".to_string(), "y".to_string()));
+        let merged = merge(RUCC, &fragment);
+        assert!(!merged.contains("# CONFIG_STACKPROTECTOR is not set"));
+        assert!(merged.ends_with("CONFIG_SERIAL_AMBA_PL011=y\n# CONFIG_KASAN is not set\n"));
+        let settled = parse(RUCC);
+        assert_eq!(
+            missed(&settled, &fragment),
+            ["STACKPROTECTOR", "SERIAL_AMBA_PL011"]
+        );
+    }
+
+    #[test]
+    fn the_committed_fragments_read() {
+        for era in ["E8", "E9", "E10", "E11"] {
+            let path = format!(
+                "{}/../../configs/test.fragment.{era}",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let text = std::fs::read_to_string(&path).unwrap();
+            assert!(parse_fragment(&text).len() > 20, "{path}");
+        }
     }
 
     #[test]

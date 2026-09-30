@@ -1,5 +1,6 @@
-# Kernel builds: the default pin on X64, with the reference and with the pinned rucc release, each
-# through rk-cc so that every compiler call lands in compile.jsonl.
+# Kernel builds: the default pin on X64 with the test fragment, with the reference and with the
+# pinned rucc release, each through rk-cc so that every compiler call lands in compile.jsonl, and
+# then a boot of whatever built.
 #
 # The reference job must pass. The rucc job is allowed to fail until K2, when every defconfig unit
 # is meant to compile, and its summary and artifacts are what the demand census starts from.
@@ -59,7 +60,14 @@ jobs:
       - name: kernel build dependencies
         run: |
           sudo apt-get update -q
-          sudo apt-get install -qy --no-install-recommends gcc-14 flex bison bc libelf-dev libssl-dev cpio
+          sudo apt-get install -qy --no-install-recommends gcc-14 flex bison bc libelf-dev libssl-dev \
+            cpio qemu-system-x86 busybox-static
+      - name: let the runner user open /dev/kvm
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
       - name: rucc ${{ env.RUCC_VERSION }}
         if: matrix.cc == 'rucc'
         run: |
@@ -80,13 +88,19 @@ jobs:
       - name: rk build
         run: |
           target/release/rk build ${{ inputs.version }} --row X64 --config ${{ matrix.config }} \
-            --cc ${{ matrix.cc }} --out "$RUNNER_TEMP/out" --keep-going
+            --fragment test --cc ${{ matrix.cc }} --out "$RUNNER_TEMP/out" --keep-going
+      - name: rk boot
+        run: target/release/rk boot --build "$RUNNER_TEMP/out" --timeout 600
+      - name: rk asm-inventory
+        if: matrix.cc == 'gcc-14'
+        run: target/release/rk asm-inventory --build "$RUNNER_TEMP/out"
       - name: keep the record
         if: always()
         run: |
           mkdir -p record
           cd "$RUNNER_TEMP/out"
-          cp build.json summary.md config.log build.log .config "$GITHUB_WORKSPACE/record/" 2>/dev/null || true
+          cp build.json summary.md config.log fragment.log build.log boot.json boot.log asm-inventory.md .config \
+            "$GITHUB_WORKSPACE/record/" 2>/dev/null || true
           if [ -f compile.jsonl ]; then gzip -c compile.jsonl > "$GITHUB_WORKSPACE/record/compile.jsonl.gz"; fi
       - uses: actions/upload-artifact@v7.0.1
         if: always()

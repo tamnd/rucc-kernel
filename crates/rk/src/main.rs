@@ -1,6 +1,9 @@
 //! The `rk` command line: fetch pinned Linux trees, build them with rucc and with a reference
 //! compiler, boot and test what comes out, and record what happened.
 
+mod asm;
+mod baseline;
+mod boot;
 mod build;
 mod cli;
 mod demands;
@@ -37,6 +40,10 @@ fn main() -> ExitCode {
             "config-diff" => config_diff(&repo, &args),
             "probes" => probes_command(&args),
             "demands" => demands_command(&args),
+            "boot" => boot_command(&repo, &args),
+            "asm-inventory" => asm_inventory(&repo, &args),
+            "baseline" => baseline_command(&repo, &args),
+            "initramfs" => initramfs_command(&args).map(|_| ExitCode::SUCCESS),
             _ => unreachable!("the parser only accepts known commands"),
         }
     });
@@ -136,8 +143,27 @@ fn personas_command(repo: &Repo) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// Configure and build one kernel through the shim.
-fn build_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+/// A fragment by name, for an era: `configs/<name>.fragment.<era>`.
+fn fragment_for(
+    repo: &Repo,
+    name: Option<&str>,
+    era: &str,
+) -> Result<Option<(String, std::path::PathBuf)>, String> {
+    let Some(name) = name else {
+        return Ok(None);
+    };
+    let path = repo.file("configs").join(format!("{name}.fragment.{era}"));
+    if !path.is_file() {
+        return Err(format!(
+            "no fragment {name} for era {era}: {}",
+            path.display()
+        ));
+    }
+    Ok(Some((name.to_string(), path)))
+}
+
+/// The build that the options of `rk build` or `rk baseline` describe.
+fn build_plan(repo: &Repo, args: &Args) -> Result<build::Plan, String> {
     let pins = pins::Pins::load(&repo.file("pins.toml"))?;
     let pin = pins.get(args.target.as_deref())?.clone();
     let personas = personas::Personas::load(&repo.file("personas.toml"))?;
@@ -147,7 +173,7 @@ fn build_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     let config = args.get("config").unwrap_or("defconfig").to_string();
     let compiler = build::Compiler::identify(
         args.get("cc")
-            .ok_or("rk build needs --cc, the compiler under test or the reference")?,
+            .ok_or("--cc is needed, the compiler under test or the reference")?,
     )?;
     let jobs = match args.get("jobs") {
         Some(n) => n
@@ -168,13 +194,18 @@ fn build_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         || vec![row.image.clone()],
         |t| t.split_whitespace().map(str::to_string).collect(),
     );
+    let fragment = fragment_for(repo, args.get("fragment"), &era.id)?;
+    let config_name = match &fragment {
+        Some((name, _)) => format!("{config}+{name}"),
+        None => config.clone(),
+    };
     let out = args.get("out").map_or_else(
         || {
             repo.file("work").join(format!(
                 "{}-{}-{}-{}",
                 pin.version,
                 row.name,
-                config,
+                config_name,
                 compiler.label()
             ))
         },
@@ -196,7 +227,14 @@ fn build_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         bringup,
         bringup_cc,
         targets,
+        fragment,
     };
+    Ok(plan)
+}
+
+/// Configure and build one kernel through the shim.
+fn build_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+    let plan = build_plan(repo, args)?;
     eprintln!(
         "rk: building {} {} {} with {} in {}",
         plan.pin.version,
@@ -208,16 +246,7 @@ fn build_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     let outcome = build::run(&plan)?;
     let summary = build::summary(&outcome);
     print!("{summary}");
-    if let Some(path) = std::env::var_os("GITHUB_STEP_SUMMARY") {
-        use std::io::Write as _;
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .append(true)
-            .create(true)
-            .open(path)
-        {
-            let _ = writeln!(file, "{summary}");
-        }
-    }
+    step_summary(&summary);
     let done = outcome.configured && (plan.config_only || outcome.built);
     Ok(if done {
         ExitCode::SUCCESS
@@ -289,4 +318,171 @@ fn demands_command(args: &Args) -> Result<ExitCode, String> {
     }
     print!("{}", demands::report(&demands::ranked(census), limit));
     Ok(ExitCode::SUCCESS)
+}
+
+/// Write the initramfs for a static busybox, and say where.
+fn initramfs_command(args: &Args) -> Result<std::path::PathBuf, String> {
+    let out = std::path::PathBuf::from(args.get("out").ok_or("rk initramfs needs --out")?);
+    write_initramfs(&out, args.get("busybox"))?;
+    println!("{}", out.display());
+    Ok(out)
+}
+
+/// Write the initramfs for a busybox, `/bin/busybox` by default, which must be static.
+fn write_initramfs(out: &std::path::Path, busybox: Option<&str>) -> Result<(), String> {
+    let busybox = busybox.unwrap_or("/bin/busybox");
+    let bytes = std::fs::read(busybox).map_err(|e| format!("reading {busybox}: {e}"))?;
+    if !boot::is_static_elf(&bytes) {
+        return Err(format!(
+            "{busybox} is not a static ELF program; install busybox-static or pass --busybox"
+        ));
+    }
+    std::fs::write(out, boot::initramfs(&bytes))
+        .map_err(|e| format!("writing {}: {e}", out.display()))
+}
+
+/// Boot a build under QEMU and run the smoke checks.
+fn boot_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+    let build = std::path::PathBuf::from(args.get("build").ok_or("rk boot needs --build")?);
+    let build =
+        std::fs::canonicalize(&build).map_err(|e| format!("resolving {}: {e}", build.display()))?;
+    let row_name = match args.get("row") {
+        Some(row) => row.to_string(),
+        None => std::fs::read_to_string(build.join("build.json"))
+            .ok()
+            .and_then(|text| serde_json::from_str::<build::Outcome>(&text).ok())
+            .map_or_else(|| "X64".to_string(), |o| o.row),
+    };
+    let rows = personas::Rows::load(&repo.file("rows.toml"))?;
+    let row = rows.get(&row_name)?.clone();
+    let initramfs = if let Some(path) = args.get("initramfs") {
+        std::path::PathBuf::from(path)
+    } else {
+        let path = build.join("initramfs.cpio");
+        write_initramfs(&path, args.get("busybox"))?;
+        path
+    };
+    let timeout = match args.get("timeout") {
+        Some(n) => n
+            .parse()
+            .map_err(|_| format!("--timeout {n} is not a number"))?,
+        None => 300,
+    };
+    let plan = boot::Plan {
+        build,
+        row,
+        initramfs,
+        timeout,
+        append: args.get("append").unwrap_or_default().to_string(),
+    };
+    let outcome = boot::run(&plan)?;
+    let summary = boot::summary(&outcome);
+    print!("{summary}");
+    step_summary(&summary);
+    Ok(if outcome.passed() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
+}
+
+/// Add to the GitHub job summary, when there is one.
+fn step_summary(text: &str) {
+    if let Some(path) = std::env::var_os("GITHUB_STEP_SUMMARY") {
+        use std::io::Write as _;
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(path)
+        {
+            let _ = writeln!(file, "{text}");
+        }
+    }
+}
+
+/// Replay a reference build's units to text and count the instructions the kernel writes itself.
+fn asm_inventory(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+    let build =
+        std::path::PathBuf::from(args.get("build").ok_or("rk asm-inventory needs --build")?);
+    let text = std::fs::read_to_string(build.join("build.json"))
+        .map_err(|e| format!("reading {}: {e}", build.join("build.json").display()))?;
+    let outcome: build::Outcome =
+        serde_json::from_str(&text).map_err(|e| format!("reading build.json: {e}"))?;
+    let pins = pins::Pins::load(&repo.file("pins.toml"))?;
+    let tree = pins.get(Some(&outcome.version))?.source_dir();
+    let rows = personas::Rows::load(&repo.file("rows.toml"))?;
+    let x86 = boot::srcarch(&rows.get(&outcome.row)?.arch) == "x86";
+    let jobs = match args.get("jobs") {
+        Some(n) => n
+            .parse()
+            .map_err(|_| format!("--jobs {n} is not a number"))?,
+        None => std::thread::available_parallelism().map_or(1, std::num::NonZero::get),
+    };
+    let log = build.join("compile.jsonl");
+    let (records, _) =
+        rk_shim::record::read_log(&log).map_err(|e| format!("reading {}: {e}", log.display()))?;
+    let inventory = asm::collect(&records, &tree, x86, jobs);
+    let report = inventory.report();
+    let path = build.join("asm-inventory.md");
+    std::fs::write(&path, &report).map_err(|e| format!("writing {}: {e}", path.display()))?;
+    println!("{}", report.lines().next().unwrap_or_default());
+    println!("wrote {}", path.display());
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Build and boot with the reference several times, and write the result under
+/// `results/baseline`.
+fn baseline_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+    let plan = build_plan(repo, args)?;
+    let runs: usize = match args.get("runs") {
+        Some(n) => n
+            .parse()
+            .map_err(|_| format!("--runs {n} is not a number"))?,
+        None => 3,
+    };
+    let timeout = match args.get("timeout") {
+        Some(n) => n
+            .parse()
+            .map_err(|_| format!("--timeout {n} is not a number"))?,
+        None => 600,
+    };
+    let mut results = Vec::new();
+    for run in 1..=runs {
+        let out = plan.out.join(format!("run{run}"));
+        eprintln!("rk: baseline run {run} of {runs} in {}", out.display());
+        let built = build::run(&build::Plan {
+            out: out.clone(),
+            ..plan.clone()
+        })?;
+        let booted = if built.built {
+            let initramfs = out.join("initramfs.cpio");
+            write_initramfs(&initramfs, args.get("busybox"))?;
+            Some(boot::run(&boot::Plan {
+                build: std::fs::canonicalize(&out).map_err(|e| e.to_string())?,
+                row: plan.row.clone(),
+                initramfs,
+                timeout,
+                append: String::new(),
+            })?)
+        } else {
+            None
+        };
+        results.push(baseline::Run::from(&built, booted.as_ref()));
+    }
+    let fragment = plan.fragment.as_ref().map(|(name, _)| name.clone());
+    let baseline = baseline::Baseline::new(&plan, fragment, results);
+    let path = repo
+        .file("results")
+        .join("baseline")
+        .join(baseline.file_name());
+    baseline.write(&path)?;
+    let summary = baseline.summary();
+    print!("{summary}");
+    step_summary(&summary);
+    println!("wrote {}", path.display());
+    Ok(if baseline.passed() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
 }

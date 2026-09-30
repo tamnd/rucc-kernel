@@ -9,6 +9,7 @@
 //! What comes out is `build.json`, a summary of the run that a report or a later command reads,
 //! and `summary.md`, the same for a person. `compile.jsonl` holds every compiler call.
 
+use crate::kconfig;
 use crate::personas::{Era, Row};
 use crate::pins::Pin;
 use rk_shim::config::ShimConfig;
@@ -52,10 +53,12 @@ pub struct Plan {
     pub bringup_cc: Option<PathBuf>,
     /// The make targets, by default the row's image.
     pub targets: Vec<String>,
+    /// A fragment to merge after the configuration target, by name and path.
+    pub fragment: Option<(String, PathBuf)>,
 }
 
 /// The compiler under test or the reference, identified.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct Compiler {
     /// The absolute path.
@@ -138,6 +141,12 @@ pub struct Outcome {
     pub persona: Vec<String>,
     /// The make targets.
     pub targets: Vec<String>,
+    /// The fragment merged after the configuration target, if any.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub fragment: String,
+    /// The fragment's requests that did not take effect.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fragment_missed: Vec<String>,
     /// Whether the configuration step succeeded.
     pub configured: bool,
     /// Whether the build step succeeded. False when it did not run.
@@ -145,6 +154,9 @@ pub struct Outcome {
     /// The SHA-256 of the `.config` that came out, if one did.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub config_sha256: String,
+    /// The SHA-256 of the boot image, if one was built.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub image_sha256: String,
     /// Seconds spent configuring and building.
     pub wall_seconds: f64,
     /// Counts over `compile.jsonl`.
@@ -307,6 +319,15 @@ fn shim_binary() -> Result<PathBuf, String> {
     }
 }
 
+/// What kbuild would otherwise take from the clock and the machine, fixed so that two builds of
+/// the same inputs give the same image.
+const REPRODUCIBLE: [(&str, &str); 4] = [
+    ("KBUILD_BUILD_TIMESTAMP", "Thu Jan  1 00:00:00 UTC 1970"),
+    ("KBUILD_BUILD_USER", "rk"),
+    ("KBUILD_BUILD_HOST", "rk"),
+    ("KBUILD_BUILD_VERSION", "1"),
+];
+
 /// The make command for a target, with the shim as `CC`.
 fn make(plan: &Plan, cc: &str, targets: &[String], jobs: usize, keep_going: bool) -> Command {
     let mut command = Command::new("make");
@@ -316,7 +337,8 @@ fn make(plan: &Plan, cc: &str, targets: &[String], jobs: usize, keep_going: bool
         .arg(format!("O={}", plan.out.display()))
         .arg(format!("ARCH={}", plan.row.arch))
         .arg(format!("CC={cc}"))
-        .arg(format!("-j{jobs}"));
+        .arg(format!("-j{jobs}"))
+        .envs(REPRODUCIBLE);
     if !plan.row.cross.is_empty() && !host_is(&plan.row.arch) {
         command.arg(format!("CROSS_COMPILE={}", plan.row.cross));
     }
@@ -350,6 +372,27 @@ fn run_logged(mut command: Command, log: &Path) -> Result<bool, String> {
     Ok(status.success())
 }
 
+/// Lay a fragment over the `.config` in the output directory and settle it with `olddefconfig`.
+/// Says whether that worked, and which requests did not take.
+fn merge_fragment(plan: &Plan, cc: &str, path: &Path) -> Result<(bool, Vec<String>), String> {
+    let text =
+        std::fs::read_to_string(path).map_err(|e| format!("reading {}: {e}", path.display()))?;
+    let fragment = kconfig::parse_fragment(&text);
+    let dot_config = plan.out.join(".config");
+    let before = std::fs::read_to_string(&dot_config)
+        .map_err(|e| format!("reading {}: {e}", dot_config.display()))?;
+    std::fs::write(&dot_config, kconfig::merge(&before, &fragment))
+        .map_err(|e| format!("writing {}: {e}", dot_config.display()))?;
+    let settled = run_logged(
+        make(plan, cc, &["olddefconfig".to_string()], 1, false),
+        &plan.out.join("fragment.log"),
+    )?;
+    Ok((
+        settled,
+        kconfig::missed(&kconfig::load(&dot_config)?, &fragment),
+    ))
+}
+
 /// Configure and build, and write `build.json` and `summary.md` in the output directory.
 pub fn run(plan: &Plan) -> Result<Outcome, String> {
     std::fs::create_dir_all(&plan.out)
@@ -378,21 +421,24 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
     } else {
         Vec::new()
     };
-    let mut cc = shim.display().to_string();
-    for arg in &persona {
-        cc.push(' ');
-        cc.push_str(arg);
-    }
+    let cc = std::iter::once(shim.display().to_string())
+        .chain(persona.iter().cloned())
+        .collect::<Vec<_>>()
+        .join(" ");
 
     let plan = Plan {
         out: out.clone(),
         ..plan.clone()
     };
     let clock = Instant::now();
-    let configured = run_logged(
+    let mut configured = run_logged(
         make(&plan, &cc, std::slice::from_ref(&plan.config), 1, false),
         &out.join("config.log"),
     )? && out.join(".config").is_file();
+    let mut fragment_missed = Vec::new();
+    if let (true, Some((_, path))) = (configured, &plan.fragment) {
+        (configured, fragment_missed) = merge_fragment(&plan, &cc, path)?;
+    }
     let built = if configured && !plan.config_only {
         run_logged(
             make(&plan, &cc, &plan.targets, plan.jobs, plan.keep_going),
@@ -424,9 +470,15 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
         compiler: plan.compiler.clone(),
         persona,
         targets: plan.targets.clone(),
+        fragment: plan
+            .fragment
+            .as_ref()
+            .map_or_else(String::new, |(name, _)| name.clone()),
+        fragment_missed,
         configured,
         built,
         config_sha256: sha256_file(&out.join(".config")).unwrap_or_default(),
+        image_sha256: sha256_file(&image_path(&out, &plan.row)).unwrap_or_default(),
         wall_seconds,
         graded: calls.delegated == 0,
         errors: error_census(&records),
@@ -505,6 +557,14 @@ pub fn summary(o: &Outcome) -> String {
         let _ = writeln!(s, "| persona | `{}` ({}) |", o.persona.join(" "), o.era);
     }
     let _ = writeln!(s, "| configured | {} |", state(o.configured));
+    if !o.fragment.is_empty() {
+        let missed = if o.fragment_missed.is_empty() {
+            "every request took".to_string()
+        } else {
+            format!("did not take: {}", o.fragment_missed.join(", "))
+        };
+        let _ = writeln!(s, "| fragment {} | {missed} |", o.fragment);
+    }
     let _ = writeln!(
         s,
         "| built `{}` | {} |",
@@ -542,6 +602,16 @@ pub fn summary(o: &Outcome) -> String {
         let _ = writeln!(s, "\nThe end of {log}:\n\n```\n{}\n```", lines.join("\n"));
     }
     s
+}
+
+/// Where kbuild leaves a row's boot image in an output directory.
+#[must_use]
+pub fn image_path(out: &Path, row: &Row) -> PathBuf {
+    let srcarch = match row.arch.as_str() {
+        "x86_64" | "i386" => "x86",
+        other => other,
+    };
+    out.join("arch").join(srcarch).join("boot").join(&row.image)
 }
 
 #[cfg(test)]

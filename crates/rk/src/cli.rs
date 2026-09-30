@@ -46,6 +46,7 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
                 "targets",
                 "bringup",
                 "bringup-cc",
+                "fragment",
                 "keep-going",
                 "twice",
                 "config-only",
@@ -54,6 +55,26 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
         ),
         "config-diff" | "probes" => (false, &["reference", "other"]),
         "demands" => (false, &["builds", "limit"]),
+        "boot" => (
+            false,
+            &["build", "row", "initramfs", "busybox", "timeout", "append"],
+        ),
+        "initramfs" => (false, &["out", "busybox"]),
+        "asm-inventory" => (false, &["build", "jobs"]),
+        "baseline" => (
+            true,
+            &[
+                "row",
+                "config",
+                "cc",
+                "fragment",
+                "jobs",
+                "runs",
+                "busybox",
+                "timeout",
+                "no-upstream-check",
+            ],
+        ),
         "personas" | "help" | "version" => (false, &[]),
         _ => return None,
     })
@@ -69,8 +90,15 @@ usage:
   rk personas
   rk config-diff --reference DIR --other DIR
   rk probes --reference DIR --other DIR
+  rk boot --build DIR [--row X64] [--initramfs FILE | --busybox PATH] [--timeout 300]
+          [--append WORDS]
+  rk initramfs --out FILE [--busybox PATH]
+  rk baseline [VERSION] --cc COMPILER [--row X64] [--config defconfig] [--fragment test]
+              [--runs 3] [--timeout 600]
+  rk asm-inventory --build DIR [--jobs N]
   rk demands --builds \"DIR DIR ...\" [--limit 40]
   rk build [VERSION] --cc COMPILER [--row X64] [--config defconfig] [--out DIR] [--jobs N]
+           [--fragment test]
            [--targets \"vmlinux bzImage\"] [--keep-going] [--twice] [--config-only]
            [--bringup m16,as --bringup-cc gcc]
   rk version
