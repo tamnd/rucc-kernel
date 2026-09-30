@@ -27,7 +27,7 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
     Some(match command {
         "fetch" => (true, &["set", "no-upstream-check", "all"]),
         "sets" => (false, &["releases", "write"]),
-        "help" | "version" => (false, &[]),
+        "personas" | "help" | "version" => (false, &[]),
         _ => return None,
     })
 }
@@ -39,6 +39,7 @@ rk: build, boot and test pinned Linux kernels with rucc and with a reference com
 usage:
   rk fetch [VERSION] [--set NAME] [--all] [--no-upstream-check]
   rk sets [--releases FILE] [--write]
+  rk personas
   rk version
 
 The repository is found by walking up to pins.toml, or from RK_ROOT. Downloads and unpacked

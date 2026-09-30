@@ -3,6 +3,7 @@
 
 mod cli;
 mod kernelorg;
+mod personas;
 mod pins;
 mod repo;
 mod sets;
@@ -27,6 +28,7 @@ fn main() -> ExitCode {
         match args.command.as_str() {
             "fetch" => fetch(&repo, &args),
             "sets" => sets_command(&repo, &args),
+            "personas" => personas_command(&repo),
             _ => unreachable!("the parser only accepts known commands"),
         }
     });
@@ -89,6 +91,30 @@ fn sets_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         std::fs::write(&path, new.to_file())
             .map_err(|e| format!("writing {}: {e}", path.display()))?;
         println!("wrote {}", path.display());
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// List every pin with its era and persona, which fails when a pin falls in no era or in two.
+fn personas_command(repo: &Repo) -> Result<ExitCode, String> {
+    let personas = personas::Personas::load(&repo.file("personas.toml"))?;
+    let pins = pins::Pins::load(&repo.file("pins.toml"))?;
+    for pin in &pins.pins {
+        let era = personas.era_for(&pin.version)?;
+        println!(
+            "{:<10} {:<4} -fgnuc-version={:<8} as {:<7} -std={:<6} reference gcc {} binutils {} in {}",
+            pin.version,
+            era.id,
+            era.gnuc,
+            era.gnu_as,
+            era.std,
+            era.reference.gcc,
+            era.reference.binutils,
+            era.reference.container
+        );
+        if !era.notes.is_empty() {
+            println!("{:<15} {}", "", era.notes);
+        }
     }
     Ok(ExitCode::SUCCESS)
 }
