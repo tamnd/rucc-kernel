@@ -421,11 +421,10 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
     } else {
         Vec::new()
     };
-    let mut cc = shim.display().to_string();
-    for arg in &persona {
-        cc.push(' ');
-        cc.push_str(arg);
-    }
+    let cc = std::iter::once(shim.display().to_string())
+        .chain(persona.iter().cloned())
+        .collect::<Vec<_>>()
+        .join(" ");
 
     let plan = Plan {
         out: out.clone(),
