@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/rk",
+    "crates/rk-shim",
 ]
 resolver = "3"
 
@@ -12,6 +13,7 @@ license = "Apache-2.0"
 repository = "https://github.com/tamnd/rucc-kernel"
 
 [workspace.dependencies]
+rk-shim = { path = "crates/rk-shim", version = "0.0.1" }
 libc = "0.2"
 regex = "1"
 serde = { version = "1", features = ["derive"] }
