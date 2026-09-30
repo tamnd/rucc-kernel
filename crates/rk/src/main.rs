@@ -14,6 +14,7 @@ mod pins;
 mod probes;
 mod repo;
 mod sets;
+mod toolchains;
 
 use cli::Args;
 use repo::Repo;
@@ -35,7 +36,9 @@ fn main() -> ExitCode {
         match args.command.as_str() {
             "fetch" => fetch(&repo, &args),
             "sets" => sets_command(&repo, &args),
-            "personas" => personas_command(&repo),
+            "personas" if args.target.as_deref() == Some("check") => personas_check(&repo, &args),
+            "personas" if args.target.is_none() => personas_command(&repo),
+            "personas" => Err("rk personas takes only the word check".to_string()),
             "build" => build_command(&repo, &args),
             "config-diff" => config_diff(&repo, &args),
             "probes" => probes_command(&args),
@@ -139,6 +142,59 @@ fn personas_command(repo: &Repo) -> Result<ExitCode, String> {
             "{:<4} ARCH={:<8} {:<8} {} -M {} -cpu {} console={}",
             row.name, row.arch, row.image, row.qemu, row.machine, row.cpu, row.console
         );
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `rk personas check`: run every era's reference container and compare what it holds with
+/// `personas.toml`. Eras sharing a container are checked with one run.
+fn personas_check(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+    let personas = personas::Personas::load(&repo.file("personas.toml"))?;
+    let toolchains = toolchains::Toolchains::load(&repo.file("toolchains.toml"))?;
+    let engine = args.get("engine").unwrap_or("docker");
+    let wanted: Option<Vec<&str>> = args
+        .get("era")
+        .map(|e| e.split(',').map(str::trim).collect());
+    let mut runs: std::collections::BTreeMap<String, Result<toolchains::Found, String>> =
+        std::collections::BTreeMap::new();
+    let mut rows = Vec::new();
+    for era in &personas.eras {
+        if wanted
+            .as_ref()
+            .is_some_and(|w| !w.contains(&era.id.as_str()))
+        {
+            continue;
+        }
+        let container = toolchains.get(&era.reference.container)?;
+        let found = runs
+            .entry(container.name.clone())
+            .or_insert_with(|| {
+                let image = container.reference();
+                eprintln!("checking {} in {image}", era.id);
+                toolchains::probe(engine, &image)
+            })
+            .clone();
+        let problems = match &found {
+            Ok(f) => toolchains::problems(era, f),
+            Err(e) => vec![e.clone()],
+        };
+        rows.push(toolchains::Checked {
+            era: era.id.clone(),
+            container: container.name.clone(),
+            found,
+            problems,
+        });
+    }
+    if rows.is_empty() {
+        return Err("no era matches --era".to_string());
+    }
+    let report = toolchains::report(&rows);
+    print!("{report}");
+    step_summary(&format!("### rk personas check\n\n{report}"));
+    let failed = rows.iter().filter(|r| !r.problems.is_empty()).count();
+    if failed > 0 {
+        eprintln!("{failed} of {} eras do not match personas.toml", rows.len());
+        return Ok(ExitCode::FAILURE);
     }
     Ok(ExitCode::SUCCESS)
 }

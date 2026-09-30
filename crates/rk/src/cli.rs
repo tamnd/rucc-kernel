@@ -75,7 +75,8 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
                 "no-upstream-check",
             ],
         ),
-        "personas" | "help" | "version" => (false, &[]),
+        "personas" => (true, &["era", "engine"]),
+        "help" | "version" => (false, &[]),
         _ => return None,
     })
 }
@@ -87,7 +88,7 @@ rk: build, boot and test pinned Linux kernels with rucc and with a reference com
 usage:
   rk fetch [VERSION] [--set NAME] [--all] [--no-upstream-check]
   rk sets [--releases FILE] [--write]
-  rk personas
+  rk personas [check] [--era E9,E10,E11] [--engine docker]
   rk config-diff --reference DIR --other DIR
   rk probes --reference DIR --other DIR
   rk boot --build DIR [--row X64] [--initramfs FILE | --busybox PATH] [--timeout 300]
