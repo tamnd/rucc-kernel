@@ -117,6 +117,12 @@ dependencies = [
 [[package]]
 name = "rk"
 version = "0.0.1"
+dependencies = [
+ "rk-shim",
+ "serde",
+ "serde_json",
+ "toml",
+]
 
 [[package]]
 name = "rk-shim"

@@ -1,0 +1,14 @@
+# The rules that decide which kernel trees are pinned, from section 04.1 of the plan.
+#
+# `rk sets` applies them to kernel.org's releases.json and prints how pins.toml would change, and
+# `rk sets --write` writes it. The later sets (releases, last points, museum) arrive with the
+# milestones that grade them.
+
+# The default pin, used when a command is not told which tree, is the newest stable release.
+default-moniker = "stable"
+
+# Every line kernel.org still maintains: the stable line and each longterm line, at its latest
+# point release. This is the set the nightly run grades.
+[[set]]
+name = "current"
+monikers = ["stable", "longterm"]
