@@ -153,7 +153,7 @@ usage:
            [--fragment test]
            [--targets \"vmlinux bzImage\"] [--keep-going] [--twice] [--stack-usage]
            [--config-only]
-           [--bringup m16,as --bringup-cc gcc]
+           [--bringup m16 --bringup-cc gcc]
   rk version
 
 The repository is found by walking up to pins.toml, or from RK_ROOT. Downloads and unpacked

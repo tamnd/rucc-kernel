@@ -1,21 +1,50 @@
 //! The bring-up delegation of the plan's document 00.
 //!
 //! While rucc cannot yet build some classes of unit, a run may hand them to another compiler so
-//! that the rest of the kernel can be built and booted. Two classes exist:
+//! that the rest of the kernel can be built and booted. One class is left:
 //!
 //! - `m16`: every call with `-m16` or `-m32`, which on x86-64 is the real mode setup code and the
 //!   32-bit vDSO, and which needs the i686 back end of K4.
-//! - `as`: every call whose input is a `.S` file, for the assembler work of K2.
+//!
+//! The `as` class, which sent every `.S` file away, is retired. K2 made rucc assemble the kernel,
+//! and its exit criterion allows bring-up for `-m16` and `-m32` only, so asking for `as` is an
+//! error rather than a quiet way around the assembler.
 //!
 //! A delegated call is written on the record with its class, and a run with any delegated call is
 //! ungraded. This module only decides the class. It is the one place such a decision is made, so
 //! that delegation can never happen by accident.
 
 use crate::args::{Invocation, Mode};
-use std::path::Path;
 
 /// The classes that exist, for checking a user's `RK_BRINGUP`.
-pub const CLASSES: &[&str] = &["m16", "as"];
+pub const CLASSES: &[&str] = &["m16"];
+
+/// Classes that existed once and are refused now, with the reason.
+const RETIRED: &[(&str, &str)] = &[(
+    "as",
+    "rucc assembles every .S unit since K2, and only -m16 and -m32 may be delegated",
+)];
+
+/// Checks a list of classes before any call is made, so that a typo or a retired class fails
+/// the whole run up front instead of building everything with rucc and grading it.
+///
+/// # Errors
+///
+/// Names the first class that is retired or unknown.
+pub fn check(enabled: &[String]) -> Result<(), String> {
+    for class in enabled {
+        if let Some((_, why)) = RETIRED.iter().find(|(name, _)| name == class) {
+            return Err(format!("bring-up class {class} is retired: {why}"));
+        }
+        if !CLASSES.contains(&class.as_str()) {
+            return Err(format!(
+                "bring-up class {class} is unknown, the classes are {}",
+                CLASSES.join(", ")
+            ));
+        }
+    }
+    Ok(())
+}
 
 /// The first enabled class the call falls in, if any.
 #[must_use]
@@ -27,16 +56,6 @@ pub fn class_of(args: &[String], invocation: &Invocation, enabled: &[String]) ->
     if on("m16") && args.iter().any(|a| a == "-m16" || a == "-m32") {
         return Some("m16".to_string());
     }
-    let assembles = invocation.inputs.iter().any(|input| {
-        Path::new(input)
-            .extension()
-            .is_some_and(|ext| ext == "S" || ext == "s")
-    }) || args
-        .windows(2)
-        .any(|w| w[0] == "-x" && w[1] == "assembler-with-cpp");
-    if on("as") && assembles {
-        return Some("as".to_string());
-    }
     None
 }
 
@@ -44,6 +63,7 @@ pub fn class_of(args: &[String], invocation: &Invocation, enabled: &[String]) ->
 mod tests {
     use super::*;
     use crate::args::read;
+    use std::path::Path;
 
     fn class(args: &[&str], files: &[&str], enabled: &[&str]) -> Option<String> {
         let args: Vec<String> = args.iter().map(|s| (*s).to_string()).collect();
@@ -77,13 +97,40 @@ mod tests {
     }
 
     #[test]
-    fn as_takes_preprocessed_assembly_but_not_c() {
-        let on = &["as"];
+    fn assembly_stays_with_the_compiler_under_test() {
+        let on = &["m16", "as"];
+        assert_eq!(class(&["-c", "entry_64.S"], &["entry_64.S"], on), None);
         assert_eq!(
-            class(&["-c", "entry_64.S"], &["entry_64.S"], on).as_deref(),
-            Some("as")
+            class(
+                &["-x", "assembler-with-cpp", "-c", "head_64.S"],
+                &["head_64.S"],
+                on
+            ),
+            None
         );
-        assert_eq!(class(&["-c", "fork.c"], &["fork.c"], on), None);
+    }
+
+    fn list(classes: &[&str]) -> Vec<String> {
+        classes.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn m16_is_the_only_class_accepted() {
+        assert_eq!(check(&list(&["m16"])), Ok(()));
+        assert_eq!(check(&[]), Ok(()));
+    }
+
+    #[test]
+    fn the_retired_as_class_is_refused_with_its_reason() {
+        let err = check(&list(&["m16", "as"])).unwrap_err();
+        assert!(err.contains("as is retired"), "{err}");
+        assert!(err.contains("-m16 and -m32"), "{err}");
+    }
+
+    #[test]
+    fn an_unknown_class_is_refused() {
+        let err = check(&list(&["m61"])).unwrap_err();
+        assert_eq!(err, "bring-up class m61 is unknown, the classes are m16");
     }
 
     #[test]
