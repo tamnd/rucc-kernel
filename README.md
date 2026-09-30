@@ -40,6 +40,16 @@ A row is an architecture with a QEMU machine and a reference toolchain. X64 is x
 
 `cargo build --release` builds `rk`. The rust toolchain is pinned in `rust-toolchain.toml`. The kernel builds themselves need Linux, GNU make, flex, bison, bc and the usual kernel build dependencies, and QEMU for the boots.
 
+## Using rk
+
+`rk fetch 7.2.8` downloads a pinned tree into `~/.cache/rk` (or `RK_CACHE`), checks its SHA-256 and unpacks it. `rk sets` compares `pins.toml` with what kernel.org lists today and rewrites it with `--write`. `rk personas` prints the era, the GCC version rucc claims and the reference toolchain for every pin.
+
+`rk build 7.2.8 --row X64 --config defconfig --fragment test --cc gcc-14` configures and builds a kernel through `rk-cc`, with the test fragment from `configs/` merged in. Pass `--cc rucc` for rucc and `--keep-going` to see every failing unit, not just the first. The build directory ends up with `build.json`, `summary.md` and `compile.jsonl`, which has one line per compiler call.
+
+`rk boot --build DIR` boots a build under QEMU with `rk-init/init.sh` as PID 1 and a static busybox, and reads the smoke checks off the serial console. `rk baseline` builds and boots with the reference three times and writes the result under `results/baseline`.
+
+`rk config-diff`, `rk probes`, `rk demands` and `rk asm-inventory` read build directories and write markdown tables: the `.config` differences, the compiler probes the two compilers answered differently, the failed units by error, and the instructions the kernel writes itself.
+
 ## House style
 
 Prose in this repository is plain English with one paragraph per line, no em or en dashes and no horizontal rules. `scripts/style.sh` checks it on every pull request.
