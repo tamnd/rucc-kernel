@@ -4,13 +4,13 @@
 # reference. The GCC plugin headers are left out on purpose, which keeps GCC_PLUGINS off on both
 # sides (plan 5.4). rk personas check reads the versions back and fails if they drift.
 
-FROM debian:bullseye
+FROM debian/eol:bullseye
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG TARGETARCH
 
-RUN apt-get update \
- && apt-get install -y --no-install-recommends \
+RUN apt-get -o Acquire::Check-Valid-Until=false update \
+ && apt-get install -y --no-install-recommends -o APT::Get::AllowUnauthenticated=true \
     gcc-10 cpp-10 make perl bc bison flex binutils libc6-dev libelf-dev libssl-dev kmod cpio xz-utils bzip2 patch python3 rsync ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
