@@ -157,6 +157,10 @@ pub struct Outcome {
     pub failed_units: Vec<String>,
     /// Whether the run can be graded: no call was delegated.
     pub graded: bool,
+    /// When a step failed for a reason that is not a failed unit, the log and its last lines
+    /// that are not make's own, which is where kbuild says why.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped: Option<(String, Vec<String>)>,
 }
 
 /// Counts over the compile log.
@@ -426,6 +430,13 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
         wall_seconds,
         graded: calls.delegated == 0,
         errors: error_census(&records),
+        stopped: stopped(
+            &out,
+            configured,
+            built,
+            plan.config_only,
+            calls.units_failed,
+        ),
         failed_units,
         calls,
     };
@@ -435,6 +446,44 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
     std::fs::write(out.join("summary.md"), summary(&outcome))
         .map_err(|e| format!("writing summary.md: {e}"))?;
     Ok(outcome)
+}
+
+/// The last lines of a log that say why kbuild stopped: not make's own lines, and not kbuild's
+/// quiet progress lines, which are indented.
+#[must_use]
+pub fn failure_lines(log: &str, n: usize) -> Vec<String> {
+    let lines: Vec<&str> = log
+        .lines()
+        .filter(|l| {
+            !l.trim().is_empty()
+                && !l.starts_with("make:")
+                && !l.starts_with("make[")
+                && !l.starts_with("  ")
+        })
+        .collect();
+    lines[lines.len().saturating_sub(n)..]
+        .iter()
+        .map(|l| (*l).to_string())
+        .collect()
+}
+
+/// Why a build stopped, when no failed unit explains it.
+fn stopped(
+    out: &Path,
+    configured: bool,
+    built: bool,
+    config_only: bool,
+    units_failed: usize,
+) -> Option<(String, Vec<String>)> {
+    let log = if !configured {
+        "config.log"
+    } else if !built && !config_only && units_failed == 0 {
+        "build.log"
+    } else {
+        return None;
+    };
+    let text = std::fs::read_to_string(out.join(log)).ok()?;
+    Some((log.to_string(), failure_lines(&text, 6)))
 }
 
 /// The summary for a person, in markdown.
@@ -489,6 +538,9 @@ pub fn summary(o: &Outcome) -> String {
             let _ = writeln!(s, "| {n} | `{}` |", message.replace('|', "\\|"));
         }
     }
+    if let Some((log, lines)) = &o.stopped {
+        let _ = writeln!(s, "\nThe end of {log}:\n\n```\n{}\n```", lines.join("\n"));
+    }
     s
 }
 
@@ -503,6 +555,25 @@ mod tests {
 {"started":1,"argv":["rk-cc","-c","-o","mm/slub.o","/src/mm/slub.c"],"compiler":"/r","cwd":"/o","inputs":[{"path":"/src/mm/slub.c","sha256":"a"}],"wall-seconds":0.1,"exit":1,"stderr":"/src/mm/slub.c:99:1: error: unknown attribute 'cold' on line 7\n"}
 {"started":1,"argv":["rk-cc","-m16","-c","-o","arch/x86/boot/a20.o","/src/arch/x86/boot/a20.c"],"compiler":"/g","cwd":"/o","inputs":[{"path":"/src/arch/x86/boot/a20.c","sha256":"a"}],"wall-seconds":0.1,"exit":0,"delegated":"m16"}
 "#;
+
+    #[test]
+    fn the_reason_kbuild_stopped_is_not_make_noise() {
+        let log = "  HOSTLD  scripts/kconfig/conf
+/tmp/out/rk-bin/rk-cc -fgnuc-version=14.2.0: unknown assembler invoked
+scripts/Kconfig.include:51: Sorry, this assembler is not supported.
+make[5]: *** [scripts/kconfig/Makefile:85: allnoconfig] Error 1
+make: *** [Makefile:248: __sub-make] Error 2
+make: Leaving directory '/src/linux-7.2.8'
+";
+        assert_eq!(
+            failure_lines(log, 6),
+            vec![
+                "/tmp/out/rk-bin/rk-cc -fgnuc-version=14.2.0: unknown assembler invoked",
+                "scripts/Kconfig.include:51: Sorry, this assembler is not supported."
+            ]
+        );
+        assert_eq!(failure_lines(log, 1).len(), 1);
+    }
 
     #[test]
     fn the_log_is_counted_by_kind() {
