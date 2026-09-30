@@ -12,6 +12,7 @@ mod flags;
 mod frames;
 mod kconfig;
 mod kernelorg;
+mod mixed;
 mod modules;
 mod objects;
 mod objtool;
@@ -66,6 +67,7 @@ fn main() -> ExitCode {
             "demands" => demands_command(&args),
             "boot" => boot_command(&repo, &args),
             "test" => test_command(&repo, &args),
+            "mixed" => mixed_command(&repo, &args),
             "asm-inventory" => asm_inventory(&repo, &args),
             "baseline" => baseline_command(&repo, &args),
             "initramfs" => initramfs_command(&args).map(|_| ExitCode::SUCCESS),
@@ -805,6 +807,64 @@ fn test_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     step_summary(&summary);
     println!("wrote {}", plan.out.join("test.json").display());
     Ok(verdict(outcome.passed()))
+}
+
+/// Find the rucc objects, and then the transformation, that make one unit fail.
+fn mixed_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+    let dir = |name: &str| -> Result<std::path::PathBuf, String> {
+        let path = args
+            .get(name)
+            .ok_or_else(|| format!("rk mixed needs --{name}, a build directory"))?;
+        std::fs::canonicalize(path).map_err(|e| format!("resolving {path}: {e}"))
+    };
+    let reference = dir("reference")?;
+    let other = dir("other")?;
+    let unit = args
+        .get("unit")
+        .ok_or("rk mixed needs --unit, the unit that fails, as rk test names it")?
+        .to_string();
+    let built = outcome_of(&other)?;
+    let rows = personas::Rows::load(&repo.file("rows.toml"))?;
+    let row = rows.get(args.get("row").unwrap_or(&built.row))?.clone();
+    let number = |name: &str, default: u64| -> Result<u64, String> {
+        args.get(name).map_or(Ok(default), |n| {
+            n.parse()
+                .map_err(|_| format!("--{name} {n} is not a number"))
+        })
+    };
+    let jobs = match args.get("jobs") {
+        Some(n) => n
+            .parse()
+            .map_err(|_| format!("--jobs {n} is not a number"))?,
+        None => std::thread::available_parallelism().map_or(1, std::num::NonZero::get),
+    };
+    let out = args.get("out").map_or_else(
+        || {
+            let name = unit.replace([':', '/', '.'], "-");
+            repo.file("work").join(format!(
+                "mixed-{}-{}-{}-{name}",
+                built.version, built.row, built.config
+            ))
+        },
+        std::path::PathBuf::from,
+    );
+    let plan = mixed::Plan {
+        reference,
+        other,
+        row,
+        unit,
+        busybox: read_busybox(args.get("busybox"))?,
+        timeout: number("timeout", 600)?,
+        jobs,
+        fuel: !args.has("no-fuel"),
+        out,
+    };
+    let outcome = mixed::run(&plan)?;
+    let summary = mixed::summary(&outcome);
+    print!("{summary}");
+    step_summary(&summary);
+    println!("wrote {}", plan.out.join("mixed.json").display());
+    Ok(verdict(outcome.found()))
 }
 
 /// Add to the GitHub job summary, when there is one.
