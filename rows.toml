@@ -1,13 +1,13 @@
 # The rows of the plan (02.6): an architecture with a QEMU machine and a reference toolchain.
 #
-# `arch` is kbuild's ARCH. `cross` is the CROSS_COMPILE prefix a build on another host needs, and
-# is empty when the host is the row's own architecture. `image` is the make target for the boot
-# image. The QEMU fields are read by `rk boot`.
+# `arch` is kbuild's ARCH. `cross` is the CROSS_COMPILE prefix a build on another host needs. rk
+# leaves it out when the host is the row's own architecture, so a row can name it and still build
+# natively. `image` is the make target for the boot image. The QEMU fields are read by `rk boot`.
 
 [[row]]
 name = "X64"
 arch = "x86_64"
-cross = ""
+cross = "x86_64-linux-gnu-"
 image = "bzImage"
 qemu = "qemu-system-x86_64"
 machine = "q35"
@@ -27,7 +27,7 @@ console = "ttyAMA0"
 [[row]]
 name = "X32"
 arch = "i386"
-cross = ""
+cross = "x86_64-linux-gnu-"
 image = "bzImage"
 qemu = "qemu-system-i386"
 machine = "pc"
