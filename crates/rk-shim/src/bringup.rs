@@ -59,6 +59,18 @@ pub fn class_of(args: &[String], invocation: &Invocation, enabled: &[String]) ->
     None
 }
 
+/// The arguments a call hands to its compiler.
+///
+/// rk puts the era's persona in `CC` as `-fgnuc-version=`, which only rucc knows. GCC refuses
+/// it, so a delegated call leaves it out. Every other argument goes through as kbuild wrote it.
+#[must_use]
+pub fn passed_on(args: &[String], delegated: bool) -> Vec<String> {
+    args.iter()
+        .filter(|a| !(delegated && a.starts_with("-fgnuc-version=")))
+        .cloned()
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,5 +148,15 @@ mod tests {
     #[test]
     fn questions_are_never_delegated() {
         assert_eq!(class(&["-m32", "--version"], &[], &["m16"]), None);
+    }
+
+    #[test]
+    fn the_persona_is_not_passed_on_to_the_other_compiler() {
+        let args: Vec<String> = ["-fgnuc-version=14.2.0", "-m16", "-c", "-o", "a.o", "a.S"]
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect();
+        assert_eq!(passed_on(&args, true), ["-m16", "-c", "-o", "a.o", "a.S"]);
+        assert_eq!(passed_on(&args, false), args, "rucc keeps it");
     }
 }

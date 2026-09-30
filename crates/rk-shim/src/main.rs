@@ -52,6 +52,7 @@ fn main() -> ExitCode {
         Some(_) => config.bringup_cc.clone(),
         None => config.real.clone(),
     };
+    let passed = bringup::passed_on(rest, delegated.is_some());
 
     let inputs = digests(&cwd, &invocation.inputs);
     let trace_file =
@@ -67,7 +68,7 @@ fn main() -> ExitCode {
     let before = usage::children();
     let clock = Instant::now();
     let stdin = probe_input(probe, rest);
-    let run = match run(&compiler, rest, &added, true, stdin.as_deref(), probe) {
+    let run = match run(&compiler, &passed, &added, true, stdin.as_deref(), probe) {
         Ok(run) => run,
         Err(e) => {
             eprintln!("rk-cc: could not run {}: {e}", compiler.display());
@@ -90,7 +91,7 @@ fn main() -> ExitCode {
         && matches!(invocation.mode, Mode::Compile | Mode::Assemble)
         && !outputs.is_empty()
     {
-        twice = Some(compile_again(&compiler, rest, &cwd, &outputs));
+        twice = Some(compile_again(&compiler, &passed, &cwd, &outputs));
     }
 
     let record = CompileRecord {
