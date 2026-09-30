@@ -1,0 +1,46 @@
+# The rows of the plan (02.6): an architecture with a QEMU machine and a reference toolchain.
+#
+# `arch` is kbuild's ARCH. `cross` is the CROSS_COMPILE prefix a build on another host needs, and
+# is empty when the host is the row's own architecture. `image` is the make target for the boot
+# image. The QEMU fields are read by `rk boot`.
+
+[[row]]
+name = "X64"
+arch = "x86_64"
+cross = ""
+image = "bzImage"
+qemu = "qemu-system-x86_64"
+machine = "q35"
+cpu = "max"
+console = "ttyS0"
+
+[[row]]
+name = "A64"
+arch = "arm64"
+cross = "aarch64-linux-gnu-"
+image = "Image"
+qemu = "qemu-system-aarch64"
+machine = "virt"
+cpu = "max"
+console = "ttyAMA0"
+
+[[row]]
+name = "X32"
+arch = "i386"
+cross = ""
+image = "bzImage"
+qemu = "qemu-system-i386"
+machine = "pc"
+cpu = "max"
+console = "ttyS0"
+
+# Waits for rucc's RISC-V back end (K7). Listed so the name is taken.
+[[row]]
+name = "R64"
+arch = "riscv"
+cross = "riscv64-linux-gnu-"
+image = "Image"
+qemu = "qemu-system-riscv64"
+machine = "virt"
+cpu = "rv64"
+console = "ttyS0"

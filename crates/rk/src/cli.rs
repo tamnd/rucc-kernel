@@ -20,13 +20,40 @@ pub struct Args {
 }
 
 /// Options that take no value.
-const SWITCHES: &[&str] = &["no-upstream-check", "write", "help", "all"];
+const SWITCHES: &[&str] = &[
+    "no-upstream-check",
+    "write",
+    "help",
+    "all",
+    "keep-going",
+    "twice",
+    "config-only",
+];
 
 /// Options each command accepts, and whether it takes a positional word.
 fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
     Some(match command {
         "fetch" => (true, &["set", "no-upstream-check", "all"]),
         "sets" => (false, &["releases", "write"]),
+        "build" => (
+            true,
+            &[
+                "row",
+                "config",
+                "cc",
+                "out",
+                "jobs",
+                "targets",
+                "bringup",
+                "bringup-cc",
+                "keep-going",
+                "twice",
+                "config-only",
+                "no-upstream-check",
+            ],
+        ),
+        "config-diff" | "probes" => (false, &["reference", "other"]),
+        "demands" => (false, &["builds", "limit"]),
         "personas" | "help" | "version" => (false, &[]),
         _ => return None,
     })
@@ -40,6 +67,12 @@ usage:
   rk fetch [VERSION] [--set NAME] [--all] [--no-upstream-check]
   rk sets [--releases FILE] [--write]
   rk personas
+  rk config-diff --reference DIR --other DIR
+  rk probes --reference DIR --other DIR
+  rk demands --builds \"DIR DIR ...\" [--limit 40]
+  rk build [VERSION] --cc COMPILER [--row X64] [--config defconfig] [--out DIR] [--jobs N]
+           [--targets \"vmlinux bzImage\"] [--keep-going] [--twice] [--config-only]
+           [--bringup m16,as --bringup-cc gcc]
   rk version
 
 The repository is found by walking up to pins.toml, or from RK_ROOT. Downloads and unpacked
