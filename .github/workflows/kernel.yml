@@ -126,3 +126,22 @@ jobs:
         run: |
           target/release/rk probes --reference records/X64-${{ matrix.config }}-gcc-14 \
             --other records/X64-${{ matrix.config }}-rucc | tee -a "$GITHUB_STEP_SUMMARY"
+
+  demands:
+    name: the demand census
+    needs: build
+    if: always()
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: X64-*-rucc
+          path: records
+      - name: rk demands
+        run: |
+          cargo build --release -p rk
+          gunzip -f records/*/compile.jsonl.gz
+          target/release/rk demands --builds "$(echo records/*)" | tee -a "$GITHUB_STEP_SUMMARY"

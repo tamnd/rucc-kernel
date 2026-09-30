@@ -53,6 +53,7 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
             ],
         ),
         "config-diff" | "probes" => (false, &["reference", "other"]),
+        "demands" => (false, &["builds", "limit"]),
         "personas" | "help" | "version" => (false, &[]),
         _ => return None,
     })
@@ -68,6 +69,7 @@ usage:
   rk personas
   rk config-diff --reference DIR --other DIR
   rk probes --reference DIR --other DIR
+  rk demands --builds \"DIR DIR ...\" [--limit 40]
   rk build [VERSION] --cc COMPILER [--row X64] [--config defconfig] [--out DIR] [--jobs N]
            [--targets \"vmlinux bzImage\"] [--keep-going] [--twice] [--config-only]
            [--bringup m16,as --bringup-cc gcc]

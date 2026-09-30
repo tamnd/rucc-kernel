@@ -3,6 +3,7 @@
 
 mod build;
 mod cli;
+mod demands;
 mod kconfig;
 mod kernelorg;
 mod personas;
@@ -35,6 +36,7 @@ fn main() -> ExitCode {
             "build" => build_command(&repo, &args),
             "config-diff" => config_diff(&repo, &args),
             "probes" => probes_command(&args),
+            "demands" => demands_command(&args),
             _ => unreachable!("the parser only accepts known commands"),
         }
     });
@@ -264,4 +266,27 @@ fn probes_command(args: &Args) -> Result<ExitCode, String> {
     } else {
         ExitCode::from(1)
     })
+}
+
+/// Count the failed units of several builds by error, most units first.
+fn demands_command(args: &Args) -> Result<ExitCode, String> {
+    let builds = args.get("builds").ok_or("rk demands needs --builds")?;
+    let limit = match args.get("limit") {
+        Some(n) => n
+            .parse()
+            .map_err(|_| format!("--limit {n} is not a number"))?,
+        None => 40,
+    };
+    let mut census = std::collections::BTreeMap::new();
+    for dir in builds.split_whitespace() {
+        let path = std::path::Path::new(dir).join("compile.jsonl");
+        let (records, _) = rk_shim::record::read_log(&path)
+            .map_err(|e| format!("reading {}: {e}", path.display()))?;
+        let name = std::path::Path::new(dir)
+            .file_name()
+            .map_or_else(|| dir.to_string(), |n| n.to_string_lossy().into_owned());
+        demands::add(&mut census, &name, &records);
+    }
+    print!("{}", demands::report(&demands::ranked(census), limit));
+    Ok(ExitCode::SUCCESS)
 }
