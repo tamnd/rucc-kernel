@@ -68,7 +68,24 @@ fn push_entry(out: &mut Vec<u8>, ino: u32, entry: &Entry) {
 /// The initramfs for a busybox binary, as bytes.
 #[must_use]
 pub fn initramfs(busybox: &[u8]) -> Vec<u8> {
-    let entries = [
+    initramfs_with(busybox, &[])
+}
+
+/// The initramfs for a busybox binary with more files, each given by its path inside and its
+/// bytes. The directories they need are made first.
+#[must_use]
+pub fn initramfs_with(busybox: &[u8], files: &[(String, Vec<u8>)]) -> Vec<u8> {
+    let base = ["bin", "dev", "proc", "sys", "tmp"];
+    let mut dirs: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for (path, _) in files {
+        for dir in Path::new(path).ancestors().skip(1) {
+            let dir = dir.to_string_lossy();
+            if !dir.is_empty() && !base.contains(&dir.as_ref()) {
+                dirs.insert(dir.into_owned());
+            }
+        }
+    }
+    let mut entries = vec![
         Entry {
             name: "bin",
             mode: 0o040_755,
@@ -118,6 +135,18 @@ pub fn initramfs(busybox: &[u8]) -> Vec<u8> {
             rdev: (0, 0),
         },
     ];
+    entries.extend(dirs.iter().map(|dir| Entry {
+        name: dir,
+        mode: 0o040_755,
+        data: &[],
+        rdev: (0, 0),
+    }));
+    entries.extend(files.iter().map(|(path, data)| Entry {
+        name: path,
+        mode: 0o100_644,
+        data,
+        rdev: (0, 0),
+    }));
     let mut out = Vec::new();
     for (ino, entry) in (1..).zip(entries.iter()) {
         push_entry(&mut out, ino, entry);
@@ -177,6 +206,9 @@ pub struct Plan {
     pub timeout: u64,
     /// Extra words for the kernel command line.
     pub append: String,
+    /// Where the console and the outcome go, as `<stem>.log` and `<stem>.json`. By default they
+    /// are `boot.log` and `boot.json` in the build directory.
+    pub stem: Option<PathBuf>,
 }
 
 /// What a boot showed, written to `boot.json`.
@@ -235,7 +267,8 @@ impl Outcome {
 }
 
 /// A console line without the `[    1.234567] ` printk time in front.
-fn strip_timestamp(line: &str) -> &str {
+#[must_use]
+pub fn strip_timestamp(line: &str) -> &str {
     line.trim_start()
         .strip_prefix('[')
         .and_then(|rest| rest.split_once("] "))
@@ -324,7 +357,8 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
         accel: if kvm { "kvm" } else { "tcg" }.to_string(),
         ..Outcome::default()
     };
-    let log_path = plan.build.join("boot.log");
+    let stem = plan.stem.clone().unwrap_or_else(|| plan.build.join("boot"));
+    let log_path = stem.with_extension("log");
     let mut log = std::fs::File::create(&log_path)
         .map_err(|e| format!("creating {}: {e}", log_path.display()))?;
     let clock = Instant::now();
@@ -370,8 +404,9 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
     let _ = child.wait();
     outcome.seconds = clock.elapsed().as_secs_f64();
     let json = serde_json::to_string_pretty(&outcome).unwrap_or_default();
-    std::fs::write(plan.build.join("boot.json"), json + "\n")
-        .map_err(|e| format!("writing boot.json: {e}"))?;
+    let json_path = stem.with_extension("json");
+    std::fs::write(&json_path, json + "\n")
+        .map_err(|e| format!("writing {}: {e}", json_path.display()))?;
     Ok(outcome)
 }
 
@@ -419,6 +454,20 @@ mod tests {
         assert!(text.contains("#!/bin/busybox sh"));
         assert!(text.ends_with("TRAILER!!!\0\0\0\0"));
         assert_eq!(initramfs(b"x"), initramfs(b"x"));
+    }
+
+    #[test]
+    fn extra_files_come_with_their_directories() {
+        let archive = initramfs_with(
+            b"x",
+            &[("lib/modules/rk/kernel/a.ko".to_string(), b"ko".to_vec())],
+        );
+        let text = String::from_utf8_lossy(&archive);
+        let lib = text.find("lib\0").unwrap();
+        let rk = text.find("lib/modules/rk\0").unwrap();
+        let ko = text.find("lib/modules/rk/kernel/a.ko\0").unwrap();
+        assert!(lib < rk && rk < ko);
+        assert_eq!(text.matches("bin\0").count(), 1);
     }
 
     #[test]
