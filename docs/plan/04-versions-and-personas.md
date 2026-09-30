@@ -59,8 +59,8 @@ An era is a range of versions that share a reference toolchain, a persona, a dia
 | E0 museum | 1.0 to 1.2.13 | GCC 2.5.8 and 2.7.2.3 (1.2), binutils 2.5 era with a.out | a built from source toolchain on `debian/etch` i386 | 2.7.2 | gnu89, `-traditional` in `.S` | none |
 | E1 | 2.0.40, 2.2.26 | GCC 2.7.2.3, binutils 2.9.1 | `debian/etch` i386, built from source | 2.7.2 | gnu89 | none |
 | E2 | 2.4.37.11 | GCC 2.95.3 (2.4 prefers it), binutils 2.12 | `debian/etch` i386, built from source | 2.95.3 | gnu89 | none |
-| E3 | 2.6.12 to 2.6.15 | GCC 3.4.6, binutils 2.16 | `debian/etch` | 3.4.6 | gnu89 | `compiler-gcc{2,3,4}.h` by `__GNUC__` |
-| E4 | 2.6.16 to 2.6.39 | GCC 4.1.2 up to 2.6.25, then 4.3.5 | `debian/etch`, then `debian/lenny` | 4.1.2, then 4.3.5 | gnu89 | `compiler-gcc{3,4}.h` |
+| E3 | 2.6.12 to 2.6.15 | GCC 3.4.6, binutils 2.17 | `debian/etch` | 3.4.6 | gnu89 | `compiler-gcc{2,3,4}.h` by `__GNUC__` |
+| E4 | 2.6.16 to 2.6.39 | GCC 4.1.2 up to 2.6.25, then 4.3.2 | `debian/etch`, then `debian/lenny` | 4.1.2, then 4.3.2 | gnu89 | `compiler-gcc{3,4}.h` |
 | E5 | 3.0 to 3.17 | GCC 4.7.2 | `debian/wheezy` | 4.7.2 | gnu89 | `compiler-gcc{3,4}.h` |
 | E6 | 3.18 to 4.1 | GCC 4.9.2 | `debian/jessie` | 4.9.2 | `-std=gnu89` passed | `compiler-gcc{3,4,5}.h`, so a GCC 6 persona fails |
 | E7 | 4.2 to 4.17 | GCC 6.3 | `debian/stretch` | 6.3.0 | `-std=gnu89` | unified `compiler-gcc.h`, `cc-name` by `-v`, `gcc-version.sh` |
@@ -142,7 +142,7 @@ Every era has a container image, built by `rucc-kernel/provision/eras/<id>/`:
 
 | Image | Base | Contents |
 |---|---|---|
-| `rk-era-etch` | `debian/eol:etch` from the Debian snapshot archive, i386 and amd64 | make 3.81, perl 5.8, GCC 4.1.2, plus from-source GCC 2.7.2.3, 2.95.3, 3.4.6 and binutils 2.9.1, 2.12, 2.16 under `/opt` |
+| `rk-era-etch` | `debian/eol:etch` from the Debian snapshot archive, i386 and amd64 | make 3.81, perl 5.8, GCC 4.1.2, GCC 3.4.6 and binutils 2.17, plus from-source GCC 2.7.2.3 and 2.95.3 and binutils 2.9.1 and 2.12 under `/opt` |
 | `rk-era-lenny`, `-wheezy`, `-jessie`, `-stretch`, `-buster`, `-bullseye`, `-bookworm`, `-trixie` | `debian/eol:<name>` or the official image | the distribution's GCC, binutils, make, perl, bc, bison, flex, libelf, openssl, the cross binutils for arm64 from wheezy on |
 | `rk-era-forky` | `debian:testing` | GCC 16, the second reference |
 | `rk-rucc` | any of the above plus a mounted `rucc` binary | rucc is statically linked (musl) so it runs in all of them |

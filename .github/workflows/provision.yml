@@ -1,0 +1,145 @@
+# The era containers of plan 4.4, built from provision/eras and checked with rk personas check.
+#
+# Every image is built natively on each platform it has, amd64 for every release and arm64 from
+# stretch on, since cross building an old Debian under emulation takes most of an hour. The
+# image is loaded into the runner and rk personas check reads its GCC and binutils back before
+# anything is pushed. On main the platforms are pushed by digest and joined into one manifest,
+# and the digest goes into the job summary to be pinned in toolchains.toml.
+
+name: provision
+
+on:
+  pull_request:
+    paths:
+      - provision/**
+      - toolchains.toml
+      - personas.toml
+      - .github/workflows/provision.yml
+  push:
+    branches: [main]
+    paths:
+      - provision/**
+      - .github/workflows/provision.yml
+  schedule:
+    # Monthly, so that a rebuilt Debian archive shows up here before it shows up in a build.
+    - cron: "17 4 1 * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  REGISTRY: ghcr.io/tamnd/rucc-kernel
+
+jobs:
+  image:
+    name: rk-era-${{ matrix.release }} on ${{ matrix.platform }}
+    runs-on: ${{ matrix.platform == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        release: [etch, lenny, wheezy, jessie, stretch, bullseye, bookworm, trixie]
+        platform: [amd64, arm64]
+        exclude:
+          - { release: etch, platform: arm64 }
+          - { release: lenny, platform: arm64 }
+          - { release: wheezy, platform: arm64 }
+          - { release: jessie, platform: arm64 }
+        include:
+          # E0 to E2 need the from-source GCCs of provision/eras/etch/museum.sh, which the image
+          # does not build yet, so etch is checked for E3 alone.
+          - { release: etch, eras: E3 }
+          - { release: lenny, eras: E4 }
+          - { release: wheezy, eras: E5 }
+          - { release: jessie, eras: E6 }
+          - { release: stretch, eras: E7 }
+          - { release: bullseye, eras: "E8,E9" }
+          - { release: bookworm, eras: E10 }
+          - { release: trixie, eras: E11 }
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: docker/setup-buildx-action@v4.4.1
+      - name: build and load
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: provision/eras/${{ matrix.release }}
+          platforms: linux/${{ matrix.platform }}
+          tags: ${{ env.REGISTRY }}/rk-era-${{ matrix.release }}:latest
+          load: true
+          cache-from: type=gha,scope=${{ matrix.release }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.release }}-${{ matrix.platform }}
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: build rk
+        run: cargo build --release -p rk
+      - name: rk personas check
+        run: ./target/release/rk personas check --era "${{ matrix.eras }}"
+      - name: log in to the registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: push by digest
+        id: push
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: provision/eras/${{ matrix.release }}
+          platforms: linux/${{ matrix.platform }}
+          outputs: type=image,name=${{ env.REGISTRY }}/rk-era-${{ matrix.release }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.release }}-${{ matrix.platform }}
+      - name: keep the digest
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+      - uses: actions/upload-artifact@v7.0.1
+        if: github.event_name != 'pull_request'
+        with:
+          name: digest-${{ matrix.release }}-${{ matrix.platform }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  manifest:
+    name: rk-era-${{ matrix.release }} manifest
+    if: github.event_name != 'pull_request'
+    needs: image
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        release: [etch, lenny, wheezy, jessie, stretch, bullseye, bookworm, trixie]
+    steps:
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: digest-${{ matrix.release }}-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v4.4.1
+      - uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: join the platforms
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          image="$REGISTRY/rk-era-${{ matrix.release }}"
+          docker buildx imagetools create -t "$image:latest" -t "$image:${GITHUB_SHA::12}" $(printf "$image@sha256:%s " *)
+          digest=$(docker buildx imagetools inspect "$image:latest" --format '{{json .Manifest}}' | jq -r .digest)
+          echo "rk-era-${{ matrix.release }}: \`$digest\`" >> "$GITHUB_STEP_SUMMARY"

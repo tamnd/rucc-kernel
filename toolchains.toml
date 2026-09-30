@@ -1,0 +1,46 @@
+# The era containers of plan 4.4, one per Debian release that an era in personas.toml names.
+#
+# Each is built from provision/eras/<release>/Dockerfile by the provision workflow and pushed to
+# the GitHub container registry. The digest is filled in from the workflow's summary after the
+# push, and a graded build uses the image by digest so that it can be repeated. An empty digest
+# means the latest tag, which rk personas check accepts but reports.
+
+[[container]]
+name = "rk-era-etch"
+image = "ghcr.io/tamnd/rucc-kernel/rk-era-etch"
+digest = ""
+
+[[container]]
+name = "rk-era-lenny"
+image = "ghcr.io/tamnd/rucc-kernel/rk-era-lenny"
+digest = ""
+
+[[container]]
+name = "rk-era-wheezy"
+image = "ghcr.io/tamnd/rucc-kernel/rk-era-wheezy"
+digest = ""
+
+[[container]]
+name = "rk-era-jessie"
+image = "ghcr.io/tamnd/rucc-kernel/rk-era-jessie"
+digest = ""
+
+[[container]]
+name = "rk-era-stretch"
+image = "ghcr.io/tamnd/rucc-kernel/rk-era-stretch"
+digest = ""
+
+[[container]]
+name = "rk-era-bullseye"
+image = "ghcr.io/tamnd/rucc-kernel/rk-era-bullseye"
+digest = ""
+
+[[container]]
+name = "rk-era-bookworm"
+image = "ghcr.io/tamnd/rucc-kernel/rk-era-bookworm"
+digest = ""
+
+[[container]]
+name = "rk-era-trixie"
+image = "ghcr.io/tamnd/rucc-kernel/rk-era-trixie"
+digest = ""

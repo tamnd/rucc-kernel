@@ -39,20 +39,20 @@ id = "E3"
 from = "2.6.12"
 to = "2.6.15"
 gnuc = "3.4.6"
-gnu-as = "2.16"
-reference = { gcc = "3.4.6", binutils = "2.16", container = "rk-era-etch" }
+gnu-as = "2.17"
+reference = { gcc = "3.4.6", binutils = "2.17", container = "rk-era-etch" }
 std = "gnu89"
-notes = "compiler-gcc2.h, 3.h or 4.h chosen by __GNUC__"
+notes = "compiler-gcc2.h, 3.h or 4.h chosen by __GNUC__; binutils 2.17 is what etch ships, and 2.6.12 to 2.6.15 assemble with it"
 
 [[era]]
 id = "E4"
 from = "2.6.16"
 to = "2.6.39"
-gnuc = "4.3.5"
+gnuc = "4.3.2"
 gnu-as = "2.18"
-reference = { gcc = "4.3.5", binutils = "2.18", container = "rk-era-lenny" }
+reference = { gcc = "4.3.2", binutils = "2.18", container = "rk-era-lenny" }
 std = "gnu89"
-notes = "GCC 4.1.2 up to 2.6.25 in the real era; one persona for the whole range until K10 says otherwise"
+notes = "GCC 4.1.2 up to 2.6.25 in the real era; one persona for the whole range until K10 says otherwise; 4.3.2 is what lenny ships as gcc-4.3"
 
 [[era]]
 id = "E5"
