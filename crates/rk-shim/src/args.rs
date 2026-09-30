@@ -183,18 +183,28 @@ pub fn is_probe(args: &[String], invocation: &Invocation) -> bool {
     if invocation.mode == Mode::Query {
         return true;
     }
-    let mut previous = "";
-    for arg in args {
-        if arg == "/dev/null" || (arg == "-" && previous != "-o") {
-            return true;
-        }
-        previous = arg;
+    if reads_stdin(args) || args.iter().any(|a| a == "/dev/null") {
+        return true;
     }
     invocation.outputs.iter().any(|out| {
         Path::new(out)
             .components()
             .any(|part| part.as_os_str().to_string_lossy().starts_with(".tmp_"))
     })
+}
+
+/// Whether a call reads its source from standard input, which is a `-` that is not the value of
+/// `-o`.
+#[must_use]
+pub fn reads_stdin(args: &[String]) -> bool {
+    let mut previous = "";
+    for arg in args {
+        if arg == "-" && previous != "-o" {
+            return true;
+        }
+        previous = arg;
+    }
+    false
 }
 
 /// Whether a path is something the compiler turns into an object, as opposed to one it links.
@@ -359,5 +369,16 @@ mod tests {
             split_response_file("a.o 'b c.o'\n\"d\\\"e\" f\\ g"),
             ["a.o", "b c.o", "d\"e", "f g"]
         );
+    }
+
+    #[test]
+    fn a_dash_is_standard_input_unless_it_is_the_output() {
+        let words = |s: &str| s.split(' ').map(String::from).collect::<Vec<_>>();
+        assert!(reads_stdin(&words("-E -P -x c -")));
+        assert!(reads_stdin(&words(
+            "-c -x assembler-with-cpp -o /dev/null -"
+        )));
+        assert!(!reads_stdin(&words("-E -x c /dev/null -o -")));
+        assert!(!reads_stdin(&words("--version")));
     }
 }

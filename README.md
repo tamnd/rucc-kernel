@@ -46,7 +46,7 @@ A row is an architecture with a QEMU machine and a reference toolchain. X64 is x
 
 The reference compilers live in era containers built from `provision/eras` and pinned in `toolchains.toml`. `rk personas check` runs each one and fails when its GCC or binutils is not the version `personas.toml` names for the era, or when GCC finds plugin headers, which would turn on `GCC_PLUGINS` for the reference and never for rucc.
 
-`rk build 7.2.8 --row X64 --config defconfig --fragment test --cc gcc-14` configures and builds a kernel through `rk-cc`, with the test fragment from `configs/` merged in. Pass `--cc rucc` for rucc and `--keep-going` to see every failing unit, not just the first. The build directory ends up with `build.json`, `summary.md` and `compile.jsonl`, which has one line per compiler call.
+`rk build 7.2.8 --row X64 --config defconfig --fragment test --cc gcc-14` configures and builds a kernel through `rk-cc`, with the test fragment from `configs/` merged in. Pass `--cc rucc` for rucc and `--keep-going` to see every failing unit, not just the first. The build directory ends up with `build.json`, `summary.md` and `compile.jsonl`, which has one line per compiler call. For a probe that line also keeps what the probe read on standard input and printed on standard output, so tools like the `kernel-probes` corpus in rucc-compat can ask it again, and `build.json` names the source tree and the era's `__GNUC__` version and `-std=` so they can give rucc the same persona.
 
 `rk boot --build DIR` boots a build under QEMU with `rk-init/init.sh` as PID 1 and a static busybox, and reads the smoke checks off the serial console. `rk baseline` builds and boots with the reference three times and writes the result under `results/baseline`.
 

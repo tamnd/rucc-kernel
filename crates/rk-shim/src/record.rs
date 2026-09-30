@@ -76,6 +76,14 @@ pub struct CompileRecord {
     /// The first KiB of what the compiler wrote on standard error.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub stderr: String,
+    /// What a probe read on standard input, when it read it from there, so that the question
+    /// can be asked again. Only kept for probes, and only the first 64 KiB.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub stdin: String,
+    /// What a probe wrote on standard output, the first 64 KiB. Some probes are answered there
+    /// and not by the exit status: the `-E` version macros, `--version` and `-print-file-name`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub stdout: String,
     /// The lines rucc wrote for `-frucc-trace`, one per file it compiled, parsed and kept whole.
     ///
     /// A list because one rucc call can compile several files. Kept as JSON values rather than a
@@ -185,6 +193,8 @@ mod tests {
             exit: Some(0),
             signal: None,
             stderr: String::new(),
+            stdin: String::new(),
+            stdout: String::new(),
             rucc: vec![],
             twice: None,
             probe: false,

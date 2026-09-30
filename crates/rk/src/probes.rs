@@ -5,7 +5,9 @@
 //! compiler call with its output in `/dev/null` or a `.tmp_` file, which the shim records with
 //! `probe` set. A probe the reference passes and rucc fails is a flag or feature kbuild will
 //! silently leave out, which changes the kernel before a single unit is compiled. This module
-//! lines the probes of two logs up by what they ask, so that those show.
+//! lines the probes of two logs up by what they ask, so that those show. Some probes are answered
+//! on standard output rather than by the exit status, the version macros and `-print-file-name`
+//! among them, so two probes that both pass but print different things are reported too.
 
 use crate::build::error_key;
 use rk_shim::record::CompileRecord;
@@ -13,7 +15,8 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 /// What a probe asks, as its arguments without the compiler, the persona, the output and the
-/// names of temporary files, which change from run to run.
+/// names of temporary files, which change from run to run, followed by what it read on standard
+/// input after `<<<`. Every `as-instr` probe has the same arguments and differs only there.
 #[must_use]
 pub fn question(record: &CompileRecord) -> String {
     let mut words = Vec::new();
@@ -32,6 +35,15 @@ pub fn question(record: &CompileRecord) -> String {
         }
         words.push(arg.clone());
     }
+    let input: Vec<&str> = record
+        .stdin
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    if !input.is_empty() {
+        words.push(format!("<<< {}", input.join("; ")));
+    }
     words.join(" ")
 }
 
@@ -44,6 +56,8 @@ pub struct Answers {
     pub no: usize,
     /// The first error of a failure, normalized.
     pub error: Option<String>,
+    /// What the first success printed on standard output, if anything.
+    pub output: Option<String>,
 }
 
 impl Answers {
@@ -67,6 +81,9 @@ pub fn collect(records: &[CompileRecord]) -> BTreeMap<String, Answers> {
         let answers = out.entry(question(record)).or_default();
         if record.succeeded() {
             answers.yes += 1;
+            if answers.output.is_none() && !record.stdout.is_empty() {
+                answers.output = Some(record.stdout.clone());
+            }
         } else {
             answers.no += 1;
             if answers.error.is_none() {
@@ -101,7 +118,8 @@ pub fn compare(
         .filter_map(|q| {
             let r = reference.get(q).cloned().unwrap_or_default();
             let o = other.get(q).cloned().unwrap_or_default();
-            (r.word() != o.word()).then(|| Disagreement {
+            let printed_otherwise = r.word() == "yes" && r.output != o.output;
+            (r.word() != o.word() || printed_otherwise).then(|| Disagreement {
                 question: q.clone(),
                 reference: r,
                 other: o,
@@ -137,14 +155,26 @@ pub fn report(
                 d.reference.word(),
                 d.other.word(),
                 d.question.replace('|', "\\|"),
-                d.other
-                    .error
-                    .as_deref()
-                    .map_or_else(String::new, |e| format!("`{}`", e.replace('|', "\\|")))
+                d.other.error.as_deref().map_or_else(
+                    || printed(&d.other),
+                    |e| format!("`{}`", e.replace('|', "\\|"))
+                )
             );
         }
     }
     s
+}
+
+/// The first line of what a probe printed, for the table, when it printed anything.
+fn printed(answers: &Answers) -> String {
+    answers
+        .output
+        .as_deref()
+        .and_then(|o| o.lines().next())
+        .map_or_else(String::new, |line| {
+            let line: String = line.chars().take(60).collect();
+            format!("printed `{}`", line.replace('|', "\\|"))
+        })
 }
 
 #[cfg(test)]
@@ -190,5 +220,30 @@ mod tests {
             report(&gcc, &rucc, &found)
                 .starts_with("2 probes in the reference, 2 in the other, 1 answered")
         );
+    }
+
+    #[test]
+    fn standard_input_is_part_of_the_question_and_output_part_of_the_answer() {
+        let gcc = r#"{"started":1,"argv":["/o/rk-bin/rk-cc","-c","-x","assembler-with-cpp","-o","/dev/null","-"],"compiler":"/g","cwd":"/o","wall-seconds":0.1,"exit":0,"stdin":"endbr64\n","probe":true}
+{"started":1,"argv":["/o/rk-bin/rk-cc","-c","-x","assembler-with-cpp","-o","/dev/null","-"],"compiler":"/g","cwd":"/o","wall-seconds":0.1,"exit":0,"stdin":"wrussq %rax,(%rbx)\n","probe":true}
+{"started":1,"argv":["/o/rk-bin/rk-cc","-E","-P","-x","c","-"],"compiler":"/g","cwd":"/o","wall-seconds":0.1,"exit":0,"stdin":"__GNUC__ __GNUC_MINOR__\n","stdout":"14 2\n","probe":true}
+"#;
+        let rucc = r#"{"started":1,"argv":["/p/rk-bin/rk-cc","-fgnuc-version=14.2.0","-c","-x","assembler-with-cpp","-o","/dev/null","-"],"compiler":"/r","cwd":"/p","wall-seconds":0.1,"exit":0,"stdin":"endbr64\n","probe":true}
+{"started":1,"argv":["/p/rk-bin/rk-cc","-fgnuc-version=14.2.0","-c","-x","assembler-with-cpp","-o","/dev/null","-"],"compiler":"/r","cwd":"/p","wall-seconds":0.1,"exit":1,"stdin":"wrussq %rax,(%rbx)\n","probe":true}
+{"started":1,"argv":["/p/rk-bin/rk-cc","-fgnuc-version=14.2.0","-E","-P","-x","c","-"],"compiler":"/r","cwd":"/p","wall-seconds":0.1,"exit":0,"stdin":"__GNUC__ __GNUC_MINOR__\n","stdout":"14 0\n","probe":true}
+"#;
+        let gcc = collect(&parse_log(gcc).0);
+        let rucc = collect(&parse_log(rucc).0);
+        assert_eq!(gcc.len(), 3);
+        let found = compare(&gcc, &rucc);
+        let questions: Vec<&str> = found.iter().map(|d| d.question.as_str()).collect();
+        assert_eq!(
+            questions,
+            [
+                "-E -P -x c - <<< __GNUC__ __GNUC_MINOR__",
+                "-c -x assembler-with-cpp - <<< wrussq %rax,(%rbx)"
+            ]
+        );
+        assert!(report(&gcc, &rucc, &found).contains("printed `14 0`"));
     }
 }

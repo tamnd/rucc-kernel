@@ -135,6 +135,16 @@ pub struct Outcome {
     pub config: String,
     /// The era.
     pub era: String,
+    /// The era's `__GNUC__` version and default `-std=`, whatever the compiler, so that a tool
+    /// reading the build can give rucc the same persona.
+    #[serde(default)]
+    pub gnuc: String,
+    /// See `gnuc`.
+    #[serde(default)]
+    pub std: String,
+    /// Where the kernel tree was unpacked.
+    #[serde(default)]
+    pub source: PathBuf,
     /// The compiler.
     pub compiler: Compiler,
     /// The arguments that were part of `CC` after the shim, which is the persona.
@@ -393,6 +403,18 @@ fn merge_fragment(plan: &Plan, cc: &str, path: &Path) -> Result<(bool, Vec<Strin
     ))
 }
 
+/// The failed units, as sources relative to the tree, sorted and without repeats.
+fn failed_units(records: &[CompileRecord], source: &Path) -> Vec<String> {
+    let mut units: Vec<String> = records
+        .iter()
+        .filter(|r| is_unit(r) && !r.succeeded())
+        .map(|r| unit_source(r, source))
+        .collect();
+    units.sort();
+    units.dedup();
+    units
+}
+
 /// Configure and build, and write `build.json` and `summary.md` in the output directory.
 pub fn run(plan: &Plan) -> Result<Outcome, String> {
     std::fs::create_dir_all(&plan.out)
@@ -455,18 +477,14 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
         (Vec::new(), 0)
     };
     let calls = count(&records, unreadable);
-    let mut failed_units: Vec<String> = records
-        .iter()
-        .filter(|r| is_unit(r) && !r.succeeded())
-        .map(|r| unit_source(r, &plan.source))
-        .collect();
-    failed_units.sort();
-    failed_units.dedup();
     let outcome = Outcome {
         version: plan.pin.version.clone(),
         row: plan.row.name.clone(),
         config: plan.config.clone(),
         era: plan.era.id.clone(),
+        gnuc: plan.era.gnuc.clone(),
+        std: plan.era.std.clone(),
+        source: plan.source.clone(),
         compiler: plan.compiler.clone(),
         persona,
         targets: plan.targets.clone(),
@@ -489,7 +507,7 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
             plan.config_only,
             calls.units_failed,
         ),
-        failed_units,
+        failed_units: failed_units(&records, &plan.source),
         calls,
     };
     let json = serde_json::to_string_pretty(&outcome).unwrap_or_default();
