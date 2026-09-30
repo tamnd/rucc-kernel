@@ -263,9 +263,14 @@ mod tests {
             Found::parse("gcc 3.4.6\nas GNU assembler 2.17 Debian GNU/Linux\nplugin none\n");
         assert_eq!(found.gcc, "3.4.6");
         assert_eq!(found.binutils, "2.17");
+        assert!(problems(&era("E3"), &found).is_empty());
+        let older = Found {
+            binutils: "2.16.1".to_string(),
+            ..found
+        };
         assert_eq!(
-            problems(&era("E3"), &found),
-            vec!["binutils is 2.17, not 2.16".to_string()]
+            problems(&era("E3"), &older),
+            vec!["binutils is 2.16.1, not 2.17".to_string()]
         );
     }
 

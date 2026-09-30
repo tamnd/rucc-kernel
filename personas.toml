@@ -39,10 +39,10 @@ id = "E3"
 from = "2.6.12"
 to = "2.6.15"
 gnuc = "3.4.6"
-gnu-as = "2.16"
-reference = { gcc = "3.4.6", binutils = "2.16", container = "rk-era-etch" }
+gnu-as = "2.17"
+reference = { gcc = "3.4.6", binutils = "2.17", container = "rk-era-etch" }
 std = "gnu89"
-notes = "compiler-gcc2.h, 3.h or 4.h chosen by __GNUC__"
+notes = "compiler-gcc2.h, 3.h or 4.h chosen by __GNUC__; binutils 2.17 is what etch ships, and 2.6.12 to 2.6.15 assemble with it"
 
 [[era]]
 id = "E4"

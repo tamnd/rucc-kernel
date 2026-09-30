@@ -21,7 +21,6 @@ jobs=$(nproc)
 tarballs=(
   "binutils-2.9.1 binutils/binutils-2.9.1.tar.gz 58d01daa576d8779e064922171276795f00ff1388b1b0f87aa1a00eb0da6c6bb"
   "binutils-2.12.1 binutils/binutils-2.12.1.tar.bz2 05bb06c02b197066986d91b53269d12d2580bc52956575fc203eb52a57bcd335"
-  "binutils-2.16.1 binutils/binutils-2.16.1.tar.bz2 d78a6ff982ab2f73721706e7bfd3285ac647804664e7ea4786e66d01f91c56c5"
   "gcc-2.7.2.3 gcc/gcc-2.7.2.3.tar.gz 16166e0f0f2064bb3114716650569065ef3855ae2331d7a29b85d4b9aa73773c"
   "gcc-2.95.3 gcc/gcc-2.95.3/gcc-everything-2.95.3.tar.gz 2a950e220c2f64c4abf781be3bb6d4c472ef8b3685873e77061788df85c6d5da"
 )
@@ -74,5 +73,4 @@ for t in "${toolchains[@]}"; do
   build_gcc "$gcc" "$prefix"
 done
 
-# E3's GCC 3.4.6 is etch's own package, and only the binutils of its era come from source.
-build_binutils binutils-2.16.1 /opt/binutils-2.16.1
+# E3 needs nothing from here: GCC 3.4.6 and binutils 2.17 are etch's own packages.

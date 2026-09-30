@@ -9,6 +9,11 @@ FROM debian/eol:bullseye
 ARG DEBIAN_FRONTEND=noninteractive
 ARG TARGETARCH
 
+# Bullseye's security pool is being moved to the archive and its index names files that are
+# already gone, so the image takes the last point release from the archive and nothing else.
+RUN echo "deb http://archive.debian.org/debian bullseye main" > /etc/apt/sources.list \
+ && rm -f /etc/apt/sources.list.d/*
+
 RUN apt-get -o Acquire::Check-Valid-Until=false update \
  && apt-get install -y --no-install-recommends -o APT::Get::AllowUnauthenticated=true \
     gcc-10 cpp-10 make perl bc bison flex binutils libc6-dev libelf-dev libssl-dev kmod cpio xz-utils bzip2 patch python3 rsync ca-certificates \
