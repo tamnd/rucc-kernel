@@ -2,7 +2,8 @@
 //!
 //! Runs the real compiler with the arguments it was given, passes standard output through
 //! untouched, copies standard error through while keeping its first KiB, and appends one record
-//! to `compile.jsonl`. It prints nothing of its own unless it cannot run the compiler at all or
+//! to `compile.jsonl`. For a probe it also keeps what went in on standard input and what came out
+//! on standard output, so that the question can be asked again and its answer compared. It prints nothing of its own unless it cannot run the compiler at all or
 //! `RK_TWICE` finds a difference, because kbuild probes judge a compiler by what it writes on
 //! standard error, and a shim that chatters there changes the answers it is meant to record.
 
@@ -13,13 +14,16 @@ use rk_shim::digest::sha256_file;
 use rk_shim::record::{CompileRecord, FileDigest, Twice};
 use rk_shim::usage::{self, Usage};
 use std::collections::BTreeMap;
-use std::io::{Read, Write};
+use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 /// How much of standard error goes on the record.
 const STDERR_KEEP: usize = 1024;
+
+/// How much of a probe's standard input and output goes on the record.
+const PROBE_KEEP: usize = 64 * 1024;
 
 fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().collect();
@@ -58,7 +62,8 @@ fn main() -> ExitCode {
         .map_or(0.0, |d| d.as_secs_f64());
     let before = usage::children();
     let clock = Instant::now();
-    let run = match run(&compiler, rest, &added, true) {
+    let stdin = probe_input(probe, rest);
+    let run = match run(&compiler, rest, &added, true, stdin.as_deref(), probe) {
         Ok(run) => run,
         Err(e) => {
             eprintln!("rk-cc: could not run {}: {e}", compiler.display());
@@ -100,6 +105,8 @@ fn main() -> ExitCode {
         exit: run.exit,
         signal: run.signal,
         stderr: String::from_utf8_lossy(&run.stderr_head).into_owned(),
+        stdin: text_head(stdin.as_deref().unwrap_or_default()),
+        stdout: text_head(&run.stdout_head),
         rucc,
         twice: twice.clone(),
         probe,
@@ -122,6 +129,11 @@ fn main() -> ExitCode {
         );
         return ExitCode::from(1);
     }
+    exit_code(&run)
+}
+
+/// The shim exits the way the compiler did, with 128 plus the signal when it was killed.
+fn exit_code(run: &Run) -> ExitCode {
     match (run.exit, run.signal) {
         (Some(code), _) => ExitCode::from(u8::try_from(code & 0xff).unwrap_or(1)),
         (None, Some(signal)) => ExitCode::from(u8::try_from(128 + signal).unwrap_or(1)),
@@ -129,31 +141,99 @@ fn main() -> ExitCode {
     }
 }
 
+/// The first [`PROBE_KEEP`] bytes as text.
+fn text_head(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(&bytes[..bytes.len().min(PROBE_KEEP)]).into_owned()
+}
+
+/// A probe's standard input, read whole to be handed on, when it reads one. It is a line or two
+/// from echo or printf. A terminal is left alone, since reading it would wait for someone to type.
+fn probe_input(probe: bool, args: &[String]) -> Option<Vec<u8>> {
+    (probe && args::reads_stdin(args) && !std::io::stdin().is_terminal()).then(|| {
+        let mut buffer = Vec::new();
+        let _ = std::io::stdin().read_to_end(&mut buffer);
+        buffer
+    })
+}
+
 /// How a compiler run ended.
 struct Run {
     exit: Option<i32>,
     signal: Option<i32>,
     stderr_head: Vec<u8>,
+    stdout_head: Vec<u8>,
 }
 
-/// Run the compiler, copying its standard error to ours when `echo` is set.
-fn run(real: &Path, args: &[String], added: &[String], echo: bool) -> std::io::Result<Run> {
+/// Run the compiler, copying its standard error to ours when `echo` is set. `stdin` is fed to it
+/// when given, and its standard output is kept as well as passed on when `keep_stdout` is set.
+fn run(
+    real: &Path,
+    args: &[String],
+    added: &[String],
+    echo: bool,
+    stdin: Option<&[u8]>,
+    keep_stdout: bool,
+) -> std::io::Result<Run> {
     let mut child = Command::new(real)
         .args(args)
         .args(added)
-        .stdin(Stdio::inherit())
-        .stdout(if echo {
-            Stdio::inherit()
+        .stdin(if stdin.is_some() {
+            Stdio::piped()
         } else {
-            Stdio::null()
+            Stdio::inherit()
+        })
+        .stdout(match (echo, keep_stdout) {
+            (_, true) => Stdio::piped(),
+            (true, false) => Stdio::inherit(),
+            (false, false) => Stdio::null(),
         })
         .stderr(Stdio::piped())
         .spawn()?;
-    let mut pipe = child.stderr.take().expect("stderr was piped");
-    let copier = std::thread::spawn(move || {
+    let feeder = child
+        .stdin
+        .take()
+        .zip(stdin.map(<[u8]>::to_vec))
+        .map(|(mut pipe, bytes)| {
+            // The pipe closes when the thread ends, which is the end of input the compiler waits for.
+            std::thread::spawn(move || {
+                let _ = pipe.write_all(&bytes);
+            })
+        });
+    let stdout = child
+        .stdout
+        .take()
+        .map(|pipe| copy_keeping(pipe, std::io::stdout(), echo, PROBE_KEEP));
+    let stderr = copy_keeping(
+        child.stderr.take().expect("stderr was piped"),
+        std::io::stderr(),
+        echo,
+        STDERR_KEEP,
+    );
+    let status = child.wait()?;
+    if let Some(feeder) = feeder {
+        let _ = feeder.join();
+    }
+    Ok(Run {
+        exit: status.code(),
+        signal: signal_of(status),
+        stderr_head: stderr.join().unwrap_or_default(),
+        stdout_head: stdout
+            .map(|t| t.join().unwrap_or_default())
+            .unwrap_or_default(),
+    })
+}
+
+/// Copy a pipe to one of our streams on a thread when `echo` is set, and keep its first `keep`
+/// bytes.
+fn copy_keeping(
+    mut pipe: impl Read + Send + 'static,
+    mut ours: impl Write + Send + 'static,
+    echo: bool,
+    keep: usize,
+) -> std::thread::JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
         let mut head = Vec::new();
         let mut buffer = [0_u8; 8192];
-        let mut ours = std::io::stderr();
         loop {
             match pipe.read(&mut buffer) {
                 Ok(0) | Err(_) => break,
@@ -161,19 +241,13 @@ fn run(real: &Path, args: &[String], added: &[String], echo: bool) -> std::io::R
                     if echo {
                         let _ = ours.write_all(&buffer[..n]);
                     }
-                    let room = STDERR_KEEP.saturating_sub(head.len());
+                    let room = keep.saturating_sub(head.len());
                     head.extend_from_slice(&buffer[..n.min(room)]);
                 }
             }
         }
+        let _ = ours.flush();
         head
-    });
-    let status = child.wait()?;
-    let stderr_head = copier.join().unwrap_or_default();
-    Ok(Run {
-        exit: status.code(),
-        signal: signal_of(status),
-        stderr_head,
     })
 }
 
@@ -190,7 +264,7 @@ fn signal_of(_status: std::process::ExitStatus) -> Option<i32> {
 
 /// Compile again, quietly, and compare every output with the first compile's.
 fn compile_again(real: &Path, args: &[String], cwd: &Path, first: &[FileDigest]) -> Twice {
-    let ran = run(real, args, &[], false);
+    let ran = run(real, args, &[], false, None, false);
     if !matches!(ran, Ok(Run { exit: Some(0), .. })) {
         return Twice {
             identical: false,
