@@ -7,6 +7,7 @@ mod boot;
 mod build;
 mod cli;
 mod demands;
+mod flags;
 mod kconfig;
 mod kernelorg;
 mod personas;
@@ -14,7 +15,9 @@ mod pins;
 mod probes;
 mod repo;
 mod sets;
+mod syntax;
 mod toolchains;
+mod why;
 
 use cli::Args;
 use repo::Repo;
@@ -42,6 +45,8 @@ fn main() -> ExitCode {
             "build" => build_command(&repo, &args),
             "config-diff" => config_diff(&repo, &args),
             "probes" => probes_command(&args),
+            "flags-diff" => flags_diff(&repo, &args),
+            "syntax" => syntax_command(&repo, &args),
             "demands" => demands_command(&args),
             "boot" => boot_command(&repo, &args),
             "asm-inventory" => asm_inventory(&repo, &args),
@@ -324,7 +329,158 @@ fn config_diff(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     let divergences = kconfig::Divergences::load(&repo.file("config-divergences.toml"))?;
     let differences = kconfig::diff(&reference, &other, &divergences);
     print!("{}", kconfig::report(&differences));
+    if args.has("why") {
+        let unexplained: Vec<kconfig::Difference> = differences
+            .iter()
+            .filter(|d| d.reason.is_none())
+            .cloned()
+            .collect();
+        print!("{}", config_why(repo, args, &unexplained)?);
+    }
     Ok(if differences.iter().all(|d| d.reason.is_some()) {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
+}
+
+/// A build directory's `build.json`.
+fn outcome_of(dir: &std::path::Path) -> Result<build::Outcome, String> {
+    let path = dir.join("build.json");
+    let text =
+        std::fs::read_to_string(&path).map_err(|e| format!("reading {}: {e}", path.display()))?;
+    serde_json::from_str(&text).map_err(|e| format!("reading {}: {e}", path.display()))
+}
+
+/// The probes of a build directory by question.
+fn probes_of(dir: &std::path::Path) -> Result<BTreeMap<String, probes::Answers>, String> {
+    let path = dir.join("compile.jsonl");
+    let (records, _) =
+        rk_shim::record::read_log(&path).map_err(|e| format!("reading {}: {e}", path.display()))?;
+    Ok(probes::collect(&records))
+}
+
+/// The Kconfig expressions and probes behind each difference, for `--why`. Both sides must be
+/// build directories, and the tree is `--source` or the one the reference's `build.json` names.
+fn config_why(
+    repo: &Repo,
+    args: &Args,
+    differences: &[kconfig::Difference],
+) -> Result<String, String> {
+    let reference = std::path::Path::new(args.get("reference").unwrap_or_default());
+    let other = std::path::Path::new(args.get("other").unwrap_or_default());
+    if !reference.is_dir() || !other.is_dir() {
+        return Err("--why needs --reference and --other to be build directories".to_string());
+    }
+    let outcome = outcome_of(reference)?;
+    let tree = match args.get("source") {
+        Some(dir) => std::path::PathBuf::from(dir),
+        None if !outcome.source.as_os_str().is_empty() => outcome.source.clone(),
+        None => pins::Pins::load(&repo.file("pins.toml"))?
+            .get(Some(&outcome.version))?
+            .source_dir(),
+    };
+    let rows = personas::Rows::load(&repo.file("rows.toml"))?;
+    let srcarch = boot::srcarch(&rows.get(&outcome.row)?.arch).to_string();
+    let symbols = why::load(&tree, &srcarch)?;
+    let disagreements = probes::compare(&probes_of(reference)?, &probes_of(other)?);
+    Ok(why::report(
+        &why::explain(differences, &symbols, &disagreements),
+        &disagreements,
+    ))
+}
+
+/// Compare the flags every unit was compiled with in two builds.
+fn flags_diff(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+    let side = |name: &str| -> Result<flags::Commands, String> {
+        let dir = args
+            .get(name)
+            .ok_or_else(|| format!("rk flags-diff needs --{name}"))?;
+        let dir = std::path::Path::new(dir);
+        let raw = flags::load(dir)?;
+        // The commands name the output directory the build ran in, which is where the shim was,
+        // and the tree build.json names. The directory given may be a copy somewhere else.
+        let ran_in = raw
+            .values()
+            .filter_map(|words| words.first())
+            .find_map(|cc| cc.strip_suffix("/rk-bin/rk-cc"))
+            .map(str::to_string)
+            .unwrap_or_default();
+        let source = outcome_of(dir)
+            .map(|o| o.source.display().to_string())
+            .unwrap_or_default();
+        let here = std::fs::canonicalize(dir)
+            .map(|d| d.display().to_string())
+            .unwrap_or_default();
+        let dirs = [
+            (ran_in.as_str(), "OUT"),
+            (here.as_str(), "OUT"),
+            (source.as_str(), "SRC"),
+        ];
+        Ok(raw
+            .into_iter()
+            .map(|(object, words)| (object, flags::normalize(&words, &dirs)))
+            .collect())
+    };
+    let reference = side("reference")?;
+    let other = side("other")?;
+    if reference.is_empty() {
+        return Err("the reference has no .cmd files; was it built?".to_string());
+    }
+    let divergences = kconfig::Divergences::load(&repo.file("config-divergences.toml"))?;
+    let comparison = flags::compare(&reference, &other, &divergences);
+    print!("{}", flags::report(&comparison));
+    Ok(if comparison.clean() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
+}
+
+/// Replay every unit of a reference build through another compiler's front end.
+fn syntax_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+    let build = std::path::PathBuf::from(args.get("build").ok_or("rk syntax needs --build")?);
+    let outcome = outcome_of(&build)?;
+    let compiler = build::Compiler::identify(args.get("cc").unwrap_or("rucc"))?;
+    let persona = if compiler.rucc {
+        let gnuc = if outcome.gnuc.is_empty() {
+            personas::Personas::load(&repo.file("personas.toml"))?
+                .eras
+                .into_iter()
+                .find(|e| e.id == outcome.era)
+                .map(|e| e.gnuc)
+                .ok_or_else(|| format!("{} is not in personas.toml", outcome.era))?
+        } else {
+            outcome.gnuc.clone()
+        };
+        vec![format!("-fgnuc-version={gnuc}")]
+    } else {
+        Vec::new()
+    };
+    let known = match args.get("allow") {
+        Some(path) => syntax::Known::load(std::path::Path::new(path))?,
+        None if repo.file("syntax-known.toml").is_file() => {
+            syntax::Known::load(&repo.file("syntax-known.toml"))?
+        }
+        None => syntax::Known::default(),
+    };
+    let jobs = match args.get("jobs") {
+        Some(n) => n
+            .parse()
+            .map_err(|_| format!("--jobs {n} is not a number"))?,
+        None => std::thread::available_parallelism().map_or(1, std::num::NonZero::get),
+    };
+    let fallback = pins::Pins::load(&repo.file("pins.toml"))?
+        .get(Some(&outcome.version))?
+        .source_dir();
+    let tree = syntax::tree(&outcome.source, fallback);
+    let log = build.join("compile.jsonl");
+    let (records, _) =
+        rk_shim::record::read_log(&log).map_err(|e| format!("reading {}: {e}", log.display()))?;
+    let results = syntax::run(&records, &tree, &compiler.path, &persona, jobs);
+    let summary = syntax::Summary::new(&results, &known);
+    print!("{}", summary.report());
+    Ok(if summary.passed() {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)
@@ -337,10 +493,7 @@ fn probes_command(args: &Args) -> Result<ExitCode, String> {
         let dir = args
             .get(name)
             .ok_or_else(|| format!("rk probes needs --{name}"))?;
-        let path = std::path::Path::new(dir).join("compile.jsonl");
-        let (records, _) = rk_shim::record::read_log(&path)
-            .map_err(|e| format!("reading {}: {e}", path.display()))?;
-        Ok(probes::collect(&records))
+        probes_of(std::path::Path::new(dir))
     };
     let reference = side("reference")?;
     let other = side("other")?;
