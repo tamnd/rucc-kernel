@@ -41,8 +41,9 @@ on:
         required: false
         default: ""
 
+# A manual run is its own group, so that a push to main queued behind it does not cancel it.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
