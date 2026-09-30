@@ -6,6 +6,10 @@
 //! compiler is rucc, the era's persona is part of `CC`, as `rk-cc -fgnuc-version=14.2.0`, which
 //! is what a user building by hand would write too.
 //!
+//! Nothing else is added to the command line, with one exception that changes no code:
+//! `--stack-usage` passes `KCFLAGS=-fstack-usage`, as the kernel's own `scripts/stackusage` does,
+//! so that both compilers write the `.su` files `rk frames` reads.
+//!
 //! What comes out is `build.json`, a summary of the run that a report or a later command reads,
 //! and `summary.md`, the same for a person. `compile.jsonl` holds every compiler call.
 
@@ -47,6 +51,9 @@ pub struct Plan {
     pub config_only: bool,
     /// Whether the shim compiles every unit twice.
     pub twice: bool,
+    /// Words for kbuild's `KCFLAGS`, which are only ever flags that change no code, such as
+    /// `-fstack-usage` for `rk frames`.
+    pub kcflags: Vec<String>,
     /// The bring-up classes to delegate, and to which compiler.
     pub bringup: Vec<String>,
     /// The compiler delegated calls go to.
@@ -151,6 +158,9 @@ pub struct Outcome {
     pub persona: Vec<String>,
     /// The make targets.
     pub targets: Vec<String>,
+    /// What the build passed in `KCFLAGS`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kcflags: Vec<String>,
     /// The fragment merged after the configuration target, if any.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub fragment: String,
@@ -362,6 +372,9 @@ fn make(plan: &Plan, cc: &str, targets: &[String], jobs: usize, keep_going: bool
     if !plan.row.cross.is_empty() && !host_is(&plan.row.arch) {
         command.arg(format!("CROSS_COMPILE={}", plan.row.cross));
     }
+    if !plan.kcflags.is_empty() {
+        command.arg(format!("KCFLAGS={}", plan.kcflags.join(" ")));
+    }
     if keep_going {
         command.arg("-k");
     }
@@ -498,6 +511,7 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
         compiler: plan.compiler.clone(),
         persona,
         targets: plan.targets.clone(),
+        kcflags: plan.kcflags.clone(),
         fragment: plan
             .fragment
             .as_ref()
