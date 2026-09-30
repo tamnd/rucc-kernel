@@ -70,11 +70,15 @@ impl Toolchains {
 /// The shell script run in the container, one keyed line per fact. The GCC version comes from
 /// the `__GNUC__` macros, which is what the kernel reads, because `-dumpversion` prints only part
 /// of it on Debian's 4.7 to 4.9 and on everything from 7, and `-dumpfullversion` is new in 7.
+/// The plugin line names the plugin directory only when it has `include/plugin-version.h`, which
+/// is the file kbuild tests for. The directory itself ships with every GCC package, and the
+/// header only with `gcc-<v>-plugin-dev`.
 pub const PROBE: &str = "echo \"gcc $(gcc -E -dM - </dev/null | awk '\
 $2 == \"__GNUC__\" { a = $3 } $2 == \"__GNUC_MINOR__\" { b = $3 } \
 $2 == \"__GNUC_PATCHLEVEL__\" { c = $3 } END { print a \".\" b \".\" c }')\"; \
 echo \"as $(as --version | head -n 1)\"; \
-echo \"plugin $(gcc -print-file-name=plugin)\"";
+p=$(gcc -print-file-name=plugin); \
+if [ -e \"$p/include/plugin-version.h\" ]; then echo \"plugin $p\"; else echo \"plugin none\"; fi";
 
 /// What a container holds.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -83,7 +87,7 @@ pub struct Found {
     pub gcc: String,
     /// The binutils version from the first line of `as --version`.
     pub binutils: String,
-    /// What `gcc -print-file-name=plugin` printed.
+    /// The plugin directory when it has the headers kbuild looks for, or `none`.
     pub plugin: String,
 }
 
@@ -140,8 +144,8 @@ pub fn problems(era: &Era, found: &Found) -> Vec<String> {
             era.reference.binutils
         ));
     }
-    if found.plugin != "plugin" {
-        out.push(format!("gcc finds plugins in {}", found.plugin));
+    if found.plugin != "none" {
+        out.push(format!("gcc finds plugin headers in {}", found.plugin));
     }
     out
 }
@@ -189,11 +193,7 @@ pub fn report(rows: &[Checked]) -> String {
             Ok(f) => (
                 f.gcc.as_str(),
                 f.binutils.as_str(),
-                if f.plugin == "plugin" {
-                    "none"
-                } else {
-                    "found"
-                },
+                if f.plugin == "none" { "none" } else { "found" },
             ),
             Err(_) => ("", "", ""),
         };
@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn trixie_output_reads_and_passes() {
         let found = Found::parse(
-            "gcc 14.2.0\nas GNU assembler (GNU Binutils for Debian) 2.44\nplugin plugin\n",
+            "gcc 14.2.0\nas GNU assembler (GNU Binutils for Debian) 2.44\nplugin none\n",
         );
         assert_eq!(found.gcc, "14.2.0");
         assert_eq!(found.binutils, "2.44");
@@ -260,7 +260,7 @@ mod tests {
     #[test]
     fn an_old_assembler_banner_still_reads() {
         let found =
-            Found::parse("gcc 3.4.6\nas GNU assembler 2.17 Debian GNU/Linux\nplugin plugin\n");
+            Found::parse("gcc 3.4.6\nas GNU assembler 2.17 Debian GNU/Linux\nplugin none\n");
         assert_eq!(found.gcc, "3.4.6");
         assert_eq!(found.binutils, "2.17");
         assert_eq!(
@@ -280,7 +280,7 @@ mod tests {
         };
         let p = problems(&era("E10"), &found);
         assert_eq!(p.len(), 1);
-        assert!(p[0].starts_with("gcc finds plugins"));
+        assert!(p[0].starts_with("gcc finds plugin headers"));
         assert!(
             report(&[Checked {
                 era: "E10".to_string(),

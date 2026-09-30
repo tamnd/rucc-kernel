@@ -60,7 +60,7 @@ An era is a range of versions that share a reference toolchain, a persona, a dia
 | E1 | 2.0.40, 2.2.26 | GCC 2.7.2.3, binutils 2.9.1 | `debian/etch` i386, built from source | 2.7.2 | gnu89 | none |
 | E2 | 2.4.37.11 | GCC 2.95.3 (2.4 prefers it), binutils 2.12 | `debian/etch` i386, built from source | 2.95.3 | gnu89 | none |
 | E3 | 2.6.12 to 2.6.15 | GCC 3.4.6, binutils 2.16 | `debian/etch` | 3.4.6 | gnu89 | `compiler-gcc{2,3,4}.h` by `__GNUC__` |
-| E4 | 2.6.16 to 2.6.39 | GCC 4.1.2 up to 2.6.25, then 4.3.5 | `debian/etch`, then `debian/lenny` | 4.1.2, then 4.3.5 | gnu89 | `compiler-gcc{3,4}.h` |
+| E4 | 2.6.16 to 2.6.39 | GCC 4.1.2 up to 2.6.25, then 4.3.2 | `debian/etch`, then `debian/lenny` | 4.1.2, then 4.3.2 | gnu89 | `compiler-gcc{3,4}.h` |
 | E5 | 3.0 to 3.17 | GCC 4.7.2 | `debian/wheezy` | 4.7.2 | gnu89 | `compiler-gcc{3,4}.h` |
 | E6 | 3.18 to 4.1 | GCC 4.9.2 | `debian/jessie` | 4.9.2 | `-std=gnu89` passed | `compiler-gcc{3,4,5}.h`, so a GCC 6 persona fails |
 | E7 | 4.2 to 4.17 | GCC 6.3 | `debian/stretch` | 6.3.0 | `-std=gnu89` | unified `compiler-gcc.h`, `cc-name` by `-v`, `gcc-version.sh` |
