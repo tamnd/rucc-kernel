@@ -8,6 +8,10 @@ repository.workspace = true
 description = "Fetch, build, boot and test pinned Linux kernels with rucc and a reference compiler, and record the results"
 
 [dependencies]
+rk-shim.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
 
 [lints]
 workspace = true

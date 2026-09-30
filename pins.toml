@@ -1,0 +1,55 @@
+# The kernel trees this repository builds, each a tarball on kernel.org and its SHA-256.
+#
+# Written by `rk sets --write` from the rules in sets.toml and kernel.org's releases.json, with the
+# hashes taken from the sha256sums.asc of each directory. `rk fetch` checks the hash on every use.
+
+default = "7.2.8"
+
+[[pin]]
+version = "7.2.8"
+moniker = "stable"
+sets = ["current"]
+url = "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.2.8.tar.xz"
+sha256 = "12e8d5a973d1ad7c5a5c69882e4022b131ed715db7003fdcd760ddf8c3e51941"
+
+[[pin]]
+version = "6.18.54"
+moniker = "longterm"
+sets = ["current"]
+url = "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.54.tar.xz"
+sha256 = "9df30b02dd8102bbd0be52556288ef6889ddbe7f1ddb96fbf847d0becf3eacac"
+
+[[pin]]
+version = "6.12.111"
+moniker = "longterm"
+sets = ["current"]
+url = "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.111.tar.xz"
+sha256 = "9e59dc67624188fa12a6601f9598499cd6662a9066be572b59f935e3d7849810"
+
+[[pin]]
+version = "6.6.157"
+moniker = "longterm"
+sets = ["current"]
+url = "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.157.tar.xz"
+sha256 = "b74a43d0630809b7871cc906ac155e956cbc0b2e78a7451f5e6c8bfcb1208c30"
+
+[[pin]]
+version = "6.1.188"
+moniker = "longterm"
+sets = ["current"]
+url = "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.1.188.tar.xz"
+sha256 = "ed4d0acb1307c235230c89efc094e210e6290593f94a7e617f28b1001101a33a"
+
+[[pin]]
+version = "5.15.221"
+moniker = "longterm"
+sets = ["current"]
+url = "https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-5.15.221.tar.xz"
+sha256 = "c07882e1e528efe206567a26de30b192db8dc4369974d4ef4ce708691fa1148c"
+
+[[pin]]
+version = "5.10.270"
+moniker = "longterm"
+sets = ["current"]
+url = "https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-5.10.270.tar.xz"
+sha256 = "de73d528b04be91f6eb86660aa67a4d53b96bbf20bb5a326e78f802d744debe7"
