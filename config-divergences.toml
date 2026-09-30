@@ -1,0 +1,10 @@
+# Differences between the reference's .config and rucc's that are expected, and why.
+#
+# rk config-diff reads this file. A difference that is not listed here is a finding: either rucc
+# answers a Kconfig probe differently from the reference and has work to do, or the difference is
+# fine and belongs here with a reason. A trailing star in a symbol matches every symbol with that
+# prefix. Every entry must say why, and name the rucc issue that removes it when there is one.
+
+[[divergence]]
+symbol = "CC_VERSION_TEXT"
+reason = "the first line of --version, which names the compiler and so always differs"

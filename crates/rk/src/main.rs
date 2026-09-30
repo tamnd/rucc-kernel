@@ -3,6 +3,7 @@
 
 mod build;
 mod cli;
+mod kconfig;
 mod kernelorg;
 mod personas;
 mod pins;
@@ -31,6 +32,7 @@ fn main() -> ExitCode {
             "sets" => sets_command(&repo, &args),
             "personas" => personas_command(&repo),
             "build" => build_command(&repo, &args),
+            "config-diff" => config_diff(&repo, &args),
             _ => unreachable!("the parser only accepts known commands"),
         }
     });
@@ -214,6 +216,26 @@ fn build_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     }
     let done = outcome.configured && (plan.config_only || outcome.built);
     Ok(if done {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
+}
+
+/// Compare two builds' `.config`, and fail when a difference has no reason on file.
+fn config_diff(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+    let side = |name: &str| -> Result<kconfig::Config, String> {
+        let path = args
+            .get(name)
+            .ok_or_else(|| format!("rk config-diff needs --{name}"))?;
+        kconfig::load(std::path::Path::new(path))
+    };
+    let reference = side("reference")?;
+    let other = side("other")?;
+    let divergences = kconfig::Divergences::load(&repo.file("config-divergences.toml"))?;
+    let differences = kconfig::diff(&reference, &other, &divergences);
+    print!("{}", kconfig::report(&differences));
+    Ok(if differences.iter().all(|d| d.reason.is_some()) {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)
