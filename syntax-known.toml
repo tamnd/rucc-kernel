@@ -1,0 +1,10 @@
+# Units of the reference build that rk syntax expects rucc to fail on, each with the issue that
+# fixes it.
+#
+# rk syntax replays every unit the reference compiled through rucc's front end, and fails when a
+# unit fails that is not listed here. A trailing star in a unit matches every unit with that
+# prefix. When a listed unit passes, the report says so, and the entry should come off.
+#
+# [[known]]
+# unit = "arch/x86/entry/entry_64.S"
+# issue = "tamnd/rucc#2270"

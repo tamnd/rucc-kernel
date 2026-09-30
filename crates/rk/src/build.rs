@@ -300,7 +300,7 @@ pub fn error_census(records: &[CompileRecord]) -> Vec<(String, usize)> {
 }
 
 /// The source file of a unit, relative to the tree when it is inside it.
-fn unit_source(record: &CompileRecord, tree: &Path) -> String {
+pub fn unit_source(record: &CompileRecord, tree: &Path) -> String {
     let input = record
         .inputs
         .iter()
@@ -310,7 +310,17 @@ fn unit_source(record: &CompileRecord, tree: &Path) -> String {
                 .is_some_and(|e| e == "c" || e == "S")
         })
         .map_or("", |i| i.path.as_str());
-    let full = Path::new(&record.cwd).join(input);
+    // Resolve `..` by the words alone, since an out-of-tree build names its sources through it.
+    let mut full = PathBuf::new();
+    for part in Path::new(&record.cwd).join(input).components() {
+        match part {
+            std::path::Component::ParentDir => {
+                full.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => full.push(other),
+        }
+    }
     full.strip_prefix(tree)
         .map_or_else(|_| input.to_string(), |p| p.display().to_string())
 }

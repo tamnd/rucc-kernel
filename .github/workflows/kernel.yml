@@ -69,7 +69,6 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm || true
       - name: rucc ${{ env.RUCC_VERSION }}
-        if: matrix.cc == 'rucc'
         run: |
           name="rucc-$RUCC_VERSION-x86_64-unknown-linux-gnu"
           gh release download "$RUCC_VERSION" -R tamnd/rucc -p "$name.tar.gz" -D "$RUNNER_TEMP"
@@ -94,14 +93,20 @@ jobs:
       - name: rk asm-inventory
         if: matrix.cc == 'gcc-14'
         run: target/release/rk asm-inventory --build "$RUNNER_TEMP/out"
+      - name: rk syntax
+        if: matrix.cc == 'gcc-14'
+        run: |
+          target/release/rk syntax --build "$RUNNER_TEMP/out" --cc rucc > "$RUNNER_TEMP/out/syntax.md" || true
+          cat "$RUNNER_TEMP/out/syntax.md" >> "$GITHUB_STEP_SUMMARY"
       - name: keep the record
         if: always()
         run: |
           mkdir -p record
           cd "$RUNNER_TEMP/out"
-          cp build.json summary.md config.log fragment.log build.log boot.json boot.log asm-inventory.md .config \
+          cp build.json summary.md config.log fragment.log build.log boot.json boot.log asm-inventory.md syntax.md .config \
             "$GITHUB_WORKSPACE/record/" 2>/dev/null || true
           if [ -f compile.jsonl ]; then gzip -c compile.jsonl > "$GITHUB_WORKSPACE/record/compile.jsonl.gz"; fi
+          find . -path ./rk-bin -prune -o -name '.*.o.cmd' -print | tar -czf "$GITHUB_WORKSPACE/record/cmd.tar.gz" -T -
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
@@ -131,6 +136,7 @@ jobs:
         run: |
           cargo build --release -p rk
           gunzip -f records/*/compile.jsonl.gz
+          for r in records/*; do if [ -f "$r/cmd.tar.gz" ]; then tar -xzf "$r/cmd.tar.gz" -C "$r"; fi; done
       - name: rk config-diff
         run: |
           target/release/rk config-diff --reference records/X64-${{ matrix.config }}-gcc-14 \
@@ -139,6 +145,11 @@ jobs:
         if: always()
         run: |
           target/release/rk probes --reference records/X64-${{ matrix.config }}-gcc-14 \
+            --other records/X64-${{ matrix.config }}-rucc | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: rk flags-diff
+        if: always()
+        run: |
+          target/release/rk flags-diff --reference records/X64-${{ matrix.config }}-gcc-14 \
             --other records/X64-${{ matrix.config }}-rucc | tee -a "$GITHUB_STEP_SUMMARY"
 
   demands:

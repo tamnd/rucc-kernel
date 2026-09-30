@@ -50,7 +50,7 @@ The reference compilers live in era containers built from `provision/eras` and p
 
 `rk boot --build DIR` boots a build under QEMU with `rk-init/init.sh` as PID 1 and a static busybox, and reads the smoke checks off the serial console. `rk baseline` builds and boots with the reference three times and writes the result under `results/baseline`.
 
-`rk config-diff`, `rk probes`, `rk demands` and `rk asm-inventory` read build directories and write markdown tables: the `.config` differences, the compiler probes the two compilers answered differently, the failed units by error, and the instructions the kernel writes itself.
+`rk config-diff`, `rk probes`, `rk flags-diff`, `rk demands` and `rk asm-inventory` read build directories and write markdown tables: the `.config` differences, the compiler probes the two compilers answered differently, the flags each unit was compiled with on one side only (read from the `.cmd` files kbuild writes), the failed units by error, and the instructions the kernel writes itself. `rk config-diff --why` also names the Kconfig expressions behind each difference and the probe that decided them, and needs the kernel tree, which it finds through `build.json` or `--source`. `rk syntax --build DIR --cc rucc` replays every unit of a reference build through rucc's front end with the reference's own command lines, `-fsyntax-only` for C and `-E` for assembly, and writes the failing units grouped by their first error. Units listed with an issue in `syntax-known.toml` are known failures, so the command fails only on new ones.
 
 ## House style
 

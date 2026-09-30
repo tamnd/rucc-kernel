@@ -28,6 +28,7 @@ const SWITCHES: &[&str] = &[
     "keep-going",
     "twice",
     "config-only",
+    "why",
 ];
 
 /// Options each command accepts, and whether it takes a positional word.
@@ -53,7 +54,9 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
                 "no-upstream-check",
             ],
         ),
-        "config-diff" | "probes" => (false, &["reference", "other"]),
+        "config-diff" => (false, &["reference", "other", "why", "source"]),
+        "probes" | "flags-diff" => (false, &["reference", "other"]),
+        "syntax" => (false, &["build", "cc", "allow", "jobs"]),
         "demands" => (false, &["builds", "limit"]),
         "boot" => (
             false,
@@ -89,8 +92,10 @@ usage:
   rk fetch [VERSION] [--set NAME] [--all] [--no-upstream-check]
   rk sets [--releases FILE] [--write]
   rk personas [check] [--era E9,E10,E11] [--engine docker]
-  rk config-diff --reference DIR --other DIR
+  rk config-diff --reference DIR --other DIR [--why] [--source DIR]
+  rk flags-diff --reference DIR --other DIR
   rk probes --reference DIR --other DIR
+  rk syntax --build DIR [--cc rucc] [--allow FILE] [--jobs N]
   rk boot --build DIR [--row X64] [--initramfs FILE | --busybox PATH] [--timeout 300]
           [--append WORDS]
   rk initramfs --out FILE [--busybox PATH]

@@ -81,6 +81,18 @@ pub struct Divergences {
     /// Every explained difference.
     #[serde(default, rename = "divergence")]
     pub divergences: Vec<Divergence>,
+    /// Every explained difference in the flags of units, for `rk flags-diff`.
+    #[serde(default)]
+    pub flags: Vec<FlagRule>,
+}
+
+/// A flag that may differ between the two builds' command lines, and why.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FlagRule {
+    /// The flag as `rk flags-diff` prints it. A trailing `*` matches any flag with that prefix.
+    pub flag: String,
+    /// Why it differs, with the rucc issue that removes it if there is one.
+    pub reason: String,
 }
 
 /// A difference that is expected, and why.
@@ -108,6 +120,11 @@ impl Divergences {
                 return Err(format!("{} has no reason", d.symbol));
             }
         }
+        for f in &divergences.flags {
+            if f.reason.trim().is_empty() {
+                return Err(format!("{} has no reason", f.flag));
+            }
+        }
         Ok(divergences)
     }
 
@@ -121,6 +138,18 @@ impl Divergences {
                 None => d.symbol == symbol,
             })
             .map(|d| d.reason.clone())
+    }
+
+    /// The reason a flag may differ, if there is one.
+    #[must_use]
+    pub fn flag_reason(&self, flag: &str) -> Option<String> {
+        self.flags
+            .iter()
+            .find(|f| match f.flag.strip_suffix('*') {
+                Some(prefix) => flag.starts_with(prefix),
+                None => f.flag == flag,
+            })
+            .map(|f| f.reason.clone())
     }
 }
 

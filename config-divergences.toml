@@ -4,6 +4,9 @@
 # answers a Kconfig probe differently from the reference and has work to do, or the difference is
 # fine and belongs here with a reason. A trailing star in a symbol matches every symbol with that
 # prefix. Every entry must say why, and name the rucc issue that removes it when there is one.
+#
+# rk flags-diff reads the [[flags]] entries the same way, with flag = "..." instead of symbol, for
+# flags one build passes to its units and the other does not. The list starts empty.
 
 [[divergence]]
 symbol = "CC_VERSION_TEXT"
