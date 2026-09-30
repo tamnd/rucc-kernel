@@ -1,0 +1,48 @@
+# The test fragment for era E9, merged into every graded configuration, the reference's and rucc's alike.
+#
+# It only turns things on. The first block is what tinyconfig lacks to reach userspace at all, the
+# rest is the boot rig and the test suites, as in docs/plan/11-boot-and-tests.md. rk build merges it
+# after the configuration target, runs olddefconfig, and records every request that did not take.
+
+# enough of a kernel to run init from an initramfs
+CONFIG_PRINTK=y
+CONFIG_TTY=y
+CONFIG_BINFMT_ELF=y
+CONFIG_BINFMT_SCRIPT=y
+CONFIG_PCI=y
+CONFIG_MODULES=y
+CONFIG_MULTIUSER=y
+CONFIG_FUTEX=y
+CONFIG_SHMEM=y
+# console and init
+CONFIG_SERIAL_8250=y
+CONFIG_SERIAL_8250_CONSOLE=y
+CONFIG_SERIAL_AMBA_PL011=y
+CONFIG_SERIAL_AMBA_PL011_CONSOLE=y
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+CONFIG_BLK_DEV_INITRD=y
+CONFIG_RD_GZIP=y
+CONFIG_TMPFS=y
+CONFIG_PROC_FS=y
+CONFIG_SYSFS=y
+# virtio for disk, net and 9p
+CONFIG_VIRTIO=y
+CONFIG_VIRTIO_PCI=y
+CONFIG_VIRTIO_MMIO=y
+CONFIG_VIRTIO_BLK=y
+CONFIG_VIRTIO_NET=y
+CONFIG_VIRTIO_CONSOLE=y
+CONFIG_NET_9P=y
+CONFIG_NET_9P_VIRTIO=y
+CONFIG_9P_FS=y
+# test infrastructure
+CONFIG_KUNIT=y
+CONFIG_KUNIT_ALL_TESTS=m
+CONFIG_DEBUG_STACK_USAGE=y
+CONFIG_PRINTK_TIME=y
+CONFIG_PANIC_ON_OOPS=y
+# x86-64 only, for booting vmlinux directly
+CONFIG_PVH=y
+CONFIG_HYPERVISOR_GUEST=y
+CONFIG_PARAVIRT=y

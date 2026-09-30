@@ -1,6 +1,7 @@
 //! The `rk` command line: fetch pinned Linux trees, build them with rucc and with a reference
 //! compiler, boot and test what comes out, and record what happened.
 
+mod boot;
 mod build;
 mod cli;
 mod demands;
@@ -37,6 +38,8 @@ fn main() -> ExitCode {
             "config-diff" => config_diff(&repo, &args),
             "probes" => probes_command(&args),
             "demands" => demands_command(&args),
+            "boot" => boot_command(&repo, &args),
+            "initramfs" => initramfs_command(&args).map(|_| ExitCode::SUCCESS),
             _ => unreachable!("the parser only accepts known commands"),
         }
     });
@@ -136,6 +139,25 @@ fn personas_command(repo: &Repo) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// A fragment by name, for an era: `configs/<name>.fragment.<era>`.
+fn fragment_for(
+    repo: &Repo,
+    name: Option<&str>,
+    era: &str,
+) -> Result<Option<(String, std::path::PathBuf)>, String> {
+    let Some(name) = name else {
+        return Ok(None);
+    };
+    let path = repo.file("configs").join(format!("{name}.fragment.{era}"));
+    if !path.is_file() {
+        return Err(format!(
+            "no fragment {name} for era {era}: {}",
+            path.display()
+        ));
+    }
+    Ok(Some((name.to_string(), path)))
+}
+
 /// Configure and build one kernel through the shim.
 fn build_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     let pins = pins::Pins::load(&repo.file("pins.toml"))?;
@@ -168,13 +190,18 @@ fn build_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         || vec![row.image.clone()],
         |t| t.split_whitespace().map(str::to_string).collect(),
     );
+    let fragment = fragment_for(repo, args.get("fragment"), &era.id)?;
+    let config_name = match &fragment {
+        Some((name, _)) => format!("{config}+{name}"),
+        None => config.clone(),
+    };
     let out = args.get("out").map_or_else(
         || {
             repo.file("work").join(format!(
                 "{}-{}-{}-{}",
                 pin.version,
                 row.name,
-                config,
+                config_name,
                 compiler.label()
             ))
         },
@@ -196,6 +223,7 @@ fn build_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         bringup,
         bringup_cc,
         targets,
+        fragment,
     };
     eprintln!(
         "rk: building {} {} {} with {} in {}",
@@ -208,16 +236,7 @@ fn build_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     let outcome = build::run(&plan)?;
     let summary = build::summary(&outcome);
     print!("{summary}");
-    if let Some(path) = std::env::var_os("GITHUB_STEP_SUMMARY") {
-        use std::io::Write as _;
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .append(true)
-            .create(true)
-            .open(path)
-        {
-            let _ = writeln!(file, "{summary}");
-        }
-    }
+    step_summary(&summary);
     let done = outcome.configured && (plan.config_only || outcome.built);
     Ok(if done {
         ExitCode::SUCCESS
@@ -289,4 +308,84 @@ fn demands_command(args: &Args) -> Result<ExitCode, String> {
     }
     print!("{}", demands::report(&demands::ranked(census), limit));
     Ok(ExitCode::SUCCESS)
+}
+
+/// Write the initramfs for a static busybox, and say where.
+fn initramfs_command(args: &Args) -> Result<std::path::PathBuf, String> {
+    let out = std::path::PathBuf::from(args.get("out").ok_or("rk initramfs needs --out")?);
+    write_initramfs(&out, args.get("busybox"))?;
+    println!("{}", out.display());
+    Ok(out)
+}
+
+/// Write the initramfs for a busybox, `/bin/busybox` by default, which must be static.
+fn write_initramfs(out: &std::path::Path, busybox: Option<&str>) -> Result<(), String> {
+    let busybox = busybox.unwrap_or("/bin/busybox");
+    let bytes = std::fs::read(busybox).map_err(|e| format!("reading {busybox}: {e}"))?;
+    if !boot::is_static_elf(&bytes) {
+        return Err(format!(
+            "{busybox} is not a static ELF program; install busybox-static or pass --busybox"
+        ));
+    }
+    std::fs::write(out, boot::initramfs(&bytes))
+        .map_err(|e| format!("writing {}: {e}", out.display()))
+}
+
+/// Boot a build under QEMU and run the smoke checks.
+fn boot_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+    let build = std::path::PathBuf::from(args.get("build").ok_or("rk boot needs --build")?);
+    let build =
+        std::fs::canonicalize(&build).map_err(|e| format!("resolving {}: {e}", build.display()))?;
+    let row_name = match args.get("row") {
+        Some(row) => row.to_string(),
+        None => std::fs::read_to_string(build.join("build.json"))
+            .ok()
+            .and_then(|text| serde_json::from_str::<build::Outcome>(&text).ok())
+            .map_or_else(|| "X64".to_string(), |o| o.row),
+    };
+    let rows = personas::Rows::load(&repo.file("rows.toml"))?;
+    let row = rows.get(&row_name)?.clone();
+    let initramfs = if let Some(path) = args.get("initramfs") {
+        std::path::PathBuf::from(path)
+    } else {
+        let path = build.join("initramfs.cpio");
+        write_initramfs(&path, args.get("busybox"))?;
+        path
+    };
+    let timeout = match args.get("timeout") {
+        Some(n) => n
+            .parse()
+            .map_err(|_| format!("--timeout {n} is not a number"))?,
+        None => 300,
+    };
+    let plan = boot::Plan {
+        build,
+        row,
+        initramfs,
+        timeout,
+        append: args.get("append").unwrap_or_default().to_string(),
+    };
+    let outcome = boot::run(&plan)?;
+    let summary = boot::summary(&outcome);
+    print!("{summary}");
+    step_summary(&summary);
+    Ok(if outcome.passed() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
+}
+
+/// Add to the GitHub job summary, when there is one.
+fn step_summary(text: &str) {
+    if let Some(path) = std::env::var_os("GITHUB_STEP_SUMMARY") {
+        use std::io::Write as _;
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(path)
+        {
+            let _ = writeln!(file, "{text}");
+        }
+    }
 }
