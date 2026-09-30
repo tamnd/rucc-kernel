@@ -5,6 +5,10 @@
 # The reference job must pass. The rucc job is allowed to fail until K2, when every defconfig unit
 # is meant to compile, and its summary and artifacts are what the demand census starts from.
 #
+# Each build job also reduces its objects to the small JSON files rk sections-diff and rk vec-audit
+# save, and audits its modules, so that the compare job can put the object level diffs of K2 in
+# its summary without carrying the objects between jobs. None of these fail a job yet.
+#
 # The rucc binary is the release tarball, checked against the hash written here, not a build from
 # source, so that a result names exactly one compiler.
 
@@ -98,12 +102,21 @@ jobs:
         run: |
           target/release/rk syntax --build "$RUNNER_TEMP/out" --cc rucc > "$RUNNER_TEMP/out/syntax.md" || true
           cat "$RUNNER_TEMP/out/syntax.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: rk object audits
+        if: always()
+        run: |
+          out="$RUNNER_TEMP/out"
+          target/release/rk sections-diff --reference "$out" --save "$out/sections.json" || true
+          target/release/rk vec-audit --build "$out" --save "$out/vec.json" > "$out/vec-audit.md" || true
+          target/release/rk modules-audit --build "$out" > "$out/modules-audit.md" || true
+          cat "$out/vec-audit.md" "$out/modules-audit.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
       - name: keep the record
         if: always()
         run: |
           mkdir -p record
           cd "$RUNNER_TEMP/out"
           cp build.json summary.md config.log fragment.log build.log boot.json boot.log asm-inventory.md syntax.md .config \
+            sections.json vec.json vec-audit.md modules-audit.md Module.symvers System.map \
             "$GITHUB_WORKSPACE/record/" 2>/dev/null || true
           if [ -f compile.jsonl ]; then gzip -c compile.jsonl > "$GITHUB_WORKSPACE/record/compile.jsonl.gz"; fi
           find . -path ./rk-bin -prune -o -name '.*.o.cmd' -print | tar -czf "$GITHUB_WORKSPACE/record/cmd.tar.gz" -T -
@@ -150,6 +163,26 @@ jobs:
         if: always()
         run: |
           target/release/rk flags-diff --reference records/X64-${{ matrix.config }}-gcc-14 \
+            --other records/X64-${{ matrix.config }}-rucc | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: rk sections-diff
+        if: always()
+        run: |
+          target/release/rk sections-diff --reference records/X64-${{ matrix.config }}-gcc-14/sections.json \
+            --other records/X64-${{ matrix.config }}-rucc/sections.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: rk symvers-diff
+        if: always()
+        run: |
+          target/release/rk symvers-diff --reference records/X64-${{ matrix.config }}-gcc-14 \
+            --other records/X64-${{ matrix.config }}-rucc | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: rk vec-audit
+        if: always()
+        run: |
+          target/release/rk vec-audit --build records/X64-${{ matrix.config }}-rucc/vec.json \
+            --reference records/X64-${{ matrix.config }}-gcc-14/vec.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: rk objtool-report
+        if: always()
+        run: |
+          target/release/rk objtool-report --reference records/X64-${{ matrix.config }}-gcc-14 \
             --other records/X64-${{ matrix.config }}-rucc | tee -a "$GITHUB_STEP_SUMMARY"
 
   demands:

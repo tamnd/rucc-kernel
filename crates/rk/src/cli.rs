@@ -55,7 +55,12 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
             ],
         ),
         "config-diff" => (false, &["reference", "other", "why", "source"]),
-        "probes" | "flags-diff" => (false, &["reference", "other"]),
+        "probes" | "flags-diff" | "symvers-diff" | "objtool-report" => {
+            (false, &["reference", "other"])
+        }
+        "sections-diff" => (false, &["reference", "other", "save"]),
+        "vec-audit" => (false, &["build", "reference", "save"]),
+        "modules-audit" => (false, &["build"]),
         "syntax" => (false, &["build", "cc", "allow", "jobs"]),
         "demands" => (false, &["builds", "limit"]),
         "boot" => (
@@ -95,6 +100,11 @@ usage:
   rk config-diff --reference DIR --other DIR [--why] [--source DIR]
   rk flags-diff --reference DIR --other DIR
   rk probes --reference DIR --other DIR
+  rk sections-diff --reference DIR|FILE [--other DIR|FILE] [--save FILE]
+  rk symvers-diff --reference DIR --other DIR
+  rk vec-audit --build DIR|FILE [--reference DIR|FILE] [--save FILE]
+  rk modules-audit --build DIR
+  rk objtool-report --reference DIR|LOG --other DIR|LOG
   rk syntax --build DIR [--cc rucc] [--allow FILE] [--jobs N]
   rk boot --build DIR [--row X64] [--initramfs FILE | --busybox PATH] [--timeout 300]
           [--append WORDS]
