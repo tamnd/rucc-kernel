@@ -96,8 +96,8 @@ jobs:
           include-hidden-files: true
           retention-days: 30
 
-  config-diff:
-    name: ${{ matrix.config }} .config, rucc against gcc-14
+  compare:
+    name: ${{ matrix.config }}, rucc against gcc-14
     needs: build
     if: always()
     runs-on: ubuntu-24.04
@@ -113,8 +113,16 @@ jobs:
         with:
           pattern: X64-${{ matrix.config }}-*
           path: records
-      - name: rk config-diff
+      - name: build rk
         run: |
           cargo build --release -p rk
+          gunzip -f records/*/compile.jsonl.gz
+      - name: rk config-diff
+        run: |
           target/release/rk config-diff --reference records/X64-${{ matrix.config }}-gcc-14 \
+            --other records/X64-${{ matrix.config }}-rucc | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: rk probes
+        if: always()
+        run: |
+          target/release/rk probes --reference records/X64-${{ matrix.config }}-gcc-14 \
             --other records/X64-${{ matrix.config }}-rucc | tee -a "$GITHUB_STEP_SUMMARY"

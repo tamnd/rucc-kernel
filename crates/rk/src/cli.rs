@@ -52,7 +52,7 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
                 "no-upstream-check",
             ],
         ),
-        "config-diff" => (false, &["reference", "other"]),
+        "config-diff" | "probes" => (false, &["reference", "other"]),
         "personas" | "help" | "version" => (false, &[]),
         _ => return None,
     })
@@ -67,6 +67,7 @@ usage:
   rk sets [--releases FILE] [--write]
   rk personas
   rk config-diff --reference DIR --other DIR
+  rk probes --reference DIR --other DIR
   rk build [VERSION] --cc COMPILER [--row X64] [--config defconfig] [--out DIR] [--jobs N]
            [--targets \"vmlinux bzImage\"] [--keep-going] [--twice] [--config-only]
            [--bringup m16,as --bringup-cc gcc]

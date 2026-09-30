@@ -7,6 +7,7 @@ mod kconfig;
 mod kernelorg;
 mod personas;
 mod pins;
+mod probes;
 mod repo;
 mod sets;
 
@@ -33,6 +34,7 @@ fn main() -> ExitCode {
             "personas" => personas_command(&repo),
             "build" => build_command(&repo, &args),
             "config-diff" => config_diff(&repo, &args),
+            "probes" => probes_command(&args),
             _ => unreachable!("the parser only accepts known commands"),
         }
     });
@@ -236,6 +238,28 @@ fn config_diff(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     let differences = kconfig::diff(&reference, &other, &divergences);
     print!("{}", kconfig::report(&differences));
     Ok(if differences.iter().all(|d| d.reason.is_some()) {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
+}
+
+/// Compare the compiler probes of two builds, and fail when they answer any differently.
+fn probes_command(args: &Args) -> Result<ExitCode, String> {
+    let side = |name: &str| -> Result<_, String> {
+        let dir = args
+            .get(name)
+            .ok_or_else(|| format!("rk probes needs --{name}"))?;
+        let path = std::path::Path::new(dir).join("compile.jsonl");
+        let (records, _) = rk_shim::record::read_log(&path)
+            .map_err(|e| format!("reading {}: {e}", path.display()))?;
+        Ok(probes::collect(&records))
+    };
+    let reference = side("reference")?;
+    let other = side("other")?;
+    let disagreements = probes::compare(&reference, &other);
+    print!("{}", probes::report(&reference, &other, &disagreements));
+    Ok(if disagreements.is_empty() {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)
