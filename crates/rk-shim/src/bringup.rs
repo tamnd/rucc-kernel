@@ -59,14 +59,25 @@ pub fn class_of(args: &[String], invocation: &Invocation, enabled: &[String]) ->
     None
 }
 
+/// Flags kbuild adds after probing rucc that the bring-up gcc 14 refuses.
+///
+/// `-fzero-init-padding-bits=` is from gcc 15, which stopped zeroing the padding of a union or
+/// structure given `{}` and added the flag to ask for it back. gcc 14 always zeroes it, so leaving
+/// the flag out of a delegated call keeps the meaning the kernel asked for.
+const NEWER_THAN_BRINGUP: &[&str] = &["-fzero-init-padding-bits="];
+
 /// The arguments a call hands to its compiler.
 ///
 /// rk puts the era's persona in `CC` as `-fgnuc-version=`, which only rucc knows. GCC refuses
-/// it, so a delegated call leaves it out. Every other argument goes through as kbuild wrote it.
+/// it, so a delegated call leaves it out, along with the flags in [`NEWER_THAN_BRINGUP`]. Every
+/// other argument goes through as kbuild wrote it.
 #[must_use]
 pub fn passed_on(args: &[String], delegated: bool) -> Vec<String> {
+    let refused = |a: &str| {
+        a.starts_with("-fgnuc-version=") || NEWER_THAN_BRINGUP.iter().any(|f| a.starts_with(f))
+    };
     args.iter()
-        .filter(|a| !(delegated && a.starts_with("-fgnuc-version=")))
+        .filter(|a| !(delegated && refused(a)))
         .cloned()
         .collect()
 }
@@ -157,6 +168,16 @@ mod tests {
             .map(|s| (*s).to_string())
             .collect();
         assert_eq!(passed_on(&args, true), ["-m16", "-c", "-o", "a.o", "a.S"]);
+        assert_eq!(passed_on(&args, false), args, "rucc keeps it");
+    }
+
+    #[test]
+    fn a_flag_newer_than_the_bring_up_gcc_is_left_out() {
+        let args: Vec<String> = ["-m32", "-fzero-init-padding-bits=all", "-c", "vdso32/x.c"]
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect();
+        assert_eq!(passed_on(&args, true), ["-m32", "-c", "vdso32/x.c"]);
         assert_eq!(passed_on(&args, false), args, "rucc keeps it");
     }
 }
