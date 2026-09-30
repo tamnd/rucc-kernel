@@ -10,13 +10,19 @@ mod demands;
 mod flags;
 mod kconfig;
 mod kernelorg;
+mod modules;
+mod objects;
+mod objtool;
 mod personas;
 mod pins;
 mod probes;
 mod repo;
+mod sections;
 mod sets;
+mod symvers;
 mod syntax;
 mod toolchains;
+mod vec;
 mod why;
 
 use cli::Args;
@@ -47,6 +53,11 @@ fn main() -> ExitCode {
             "probes" => probes_command(&args),
             "flags-diff" => flags_diff(&repo, &args),
             "syntax" => syntax_command(&repo, &args),
+            "sections-diff" => sections_diff(&args),
+            "symvers-diff" => symvers_diff(&args),
+            "vec-audit" => vec_audit(&args),
+            "modules-audit" => modules_audit(&args),
+            "objtool-report" => objtool_report(&args),
             "demands" => demands_command(&args),
             "boot" => boot_command(&repo, &args),
             "asm-inventory" => asm_inventory(&repo, &args),
@@ -435,6 +446,99 @@ fn flags_diff(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     } else {
         ExitCode::from(1)
     })
+}
+
+/// The exit code of a report: success when it is clean.
+fn verdict(clean: bool) -> ExitCode {
+    if clean {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
+}
+
+/// Compare the sections and kernel tables of every object in two builds.
+fn sections_diff(args: &Args) -> Result<ExitCode, String> {
+    let reference = std::path::Path::new(
+        args.get("reference")
+            .ok_or("rk sections-diff needs --reference")?,
+    );
+    let reference = objects::load_or_scan(reference, sections::scan)?;
+    if let Some(path) = args.get("save") {
+        objects::save(std::path::Path::new(path), &reference)?;
+        eprintln!("saved {} objects to {path}", reference.len());
+    }
+    let Some(other) = args.get("other") else {
+        return if args.get("save").is_some() {
+            Ok(ExitCode::SUCCESS)
+        } else {
+            Err("rk sections-diff needs --other, or --save to keep the reference".to_string())
+        };
+    };
+    if reference.is_empty() {
+        return Err("the reference has no objects; was it built?".to_string());
+    }
+    let other = objects::load_or_scan(std::path::Path::new(other), sections::scan)?;
+    let comparison = sections::compare(&reference, &other);
+    print!("{}", sections::report(&comparison));
+    Ok(verdict(comparison.clean()))
+}
+
+/// Compare `Module.symvers` and the global symbols of `System.map` in two builds.
+fn symvers_diff(args: &Args) -> Result<ExitCode, String> {
+    let side = |name: &str| {
+        args.get(name)
+            .map(|d| symvers::load(std::path::Path::new(d)))
+            .ok_or_else(|| format!("rk symvers-diff needs --{name}"))
+    };
+    let (rs, rm) = side("reference")?;
+    let (os, om) = side("other")?;
+    if rm.is_empty() {
+        return Err("the reference has no System.map; was it linked?".to_string());
+    }
+    let comparison = symvers::compare((&rs, &rm), (&os, &om));
+    print!("{}", symvers::report(&comparison));
+    Ok(verdict(comparison.clean()))
+}
+
+/// Look for vector and x87 instructions in the no-FPU units of a build.
+fn vec_audit(args: &Args) -> Result<ExitCode, String> {
+    let build = args.get("build").ok_or("rk vec-audit needs --build")?;
+    let build = objects::load_or_scan(std::path::Path::new(build), vec::scan)?;
+    if let Some(path) = args.get("save") {
+        objects::save(std::path::Path::new(path), &build)?;
+    }
+    let reference = args
+        .get("reference")
+        .map(|r| objects::load_or_scan(std::path::Path::new(r), vec::scan))
+        .transpose()?;
+    let findings = vec::findings(&build, reference.as_ref());
+    print!(
+        "{}",
+        vec::report(build.len(), &findings, reference.is_some())
+    );
+    Ok(verdict(findings.is_empty()))
+}
+
+/// Check the relocations, vermagic and CRCs of every module of a build.
+fn modules_audit(args: &Args) -> Result<ExitCode, String> {
+    let build = args.get("build").ok_or("rk modules-audit needs --build")?;
+    let audited = modules::audit(std::path::Path::new(build))?;
+    print!("{}", modules::report(&audited));
+    Ok(verdict(audited.values().all(|(_, p)| p.is_empty())))
+}
+
+/// Bucket and compare the objtool warnings of two builds.
+fn objtool_report(args: &Args) -> Result<ExitCode, String> {
+    let side = |name: &str| {
+        let path = args
+            .get(name)
+            .ok_or_else(|| format!("rk objtool-report needs --{name}"))?;
+        objtool::load(std::path::Path::new(path))
+    };
+    let buckets = objtool::bucket(&side("reference")?, &side("other")?);
+    print!("{}", objtool::report(&buckets));
+    Ok(verdict(objtool::clean(&buckets)))
 }
 
 /// Replay every unit of a reference build through another compiler's front end.
