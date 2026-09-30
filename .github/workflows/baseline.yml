@@ -1,0 +1,70 @@
+# Reference baselines: 7.2, 6.12 and 6.1 defconfig with the test fragment, built and booted three
+# times with the reference on X64 and A64, on the row's own architecture.
+#
+# The result files are uploaded, not committed from here. A person reads them and commits them to
+# results/baseline in a pull request, so that a baseline never changes without a review. The A64
+# job also says whether the arm runners have KVM, which is open question 8 of the plan.
+
+name: baseline
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 2 * * 0"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RK_CACHE: ${{ github.workspace }}/../rk-cache
+
+jobs:
+  baseline:
+    name: ${{ matrix.version }} ${{ matrix.row }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        version: [7.2.8, 6.12.111, 6.1.188]
+        row: [X64, A64]
+        include:
+          - row: X64
+            os: ubuntu-24.04
+            qemu: qemu-system-x86
+          - row: A64
+            os: ubuntu-24.04-arm
+            qemu: qemu-system-arm
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: kernel build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -qy --no-install-recommends gcc-14 flex bison bc libelf-dev libssl-dev \
+            cpio ${{ matrix.qemu }} busybox-static
+      - name: let the runner user open /dev/kvm
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+          if [ -w /dev/kvm ]; then echo "KVM: yes" >> "$GITHUB_STEP_SUMMARY"; else echo "KVM: no" >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: build rk
+        run: cargo build --release --workspace
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ${{ env.RK_CACHE }}/archives
+          key: kernel-archives-${{ matrix.version }}-${{ hashFiles('pins.toml') }}
+          restore-keys: kernel-archives-${{ matrix.version }}-
+      - name: rk baseline
+        run: |
+          target/release/rk baseline ${{ matrix.version }} --row ${{ matrix.row }} --config defconfig \
+            --fragment test --cc gcc-14 --runs 3
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: baseline-${{ matrix.version }}-${{ matrix.row }}
+          path: results/baseline
+          retention-days: 90

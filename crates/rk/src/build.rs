@@ -58,7 +58,7 @@ pub struct Plan {
 }
 
 /// The compiler under test or the reference, identified.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct Compiler {
     /// The absolute path.
@@ -154,6 +154,9 @@ pub struct Outcome {
     /// The SHA-256 of the `.config` that came out, if one did.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub config_sha256: String,
+    /// The SHA-256 of the boot image, if one was built.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub image_sha256: String,
     /// Seconds spent configuring and building.
     pub wall_seconds: f64,
     /// Counts over `compile.jsonl`.
@@ -316,6 +319,15 @@ fn shim_binary() -> Result<PathBuf, String> {
     }
 }
 
+/// What kbuild would otherwise take from the clock and the machine, fixed so that two builds of
+/// the same inputs give the same image.
+const REPRODUCIBLE: [(&str, &str); 4] = [
+    ("KBUILD_BUILD_TIMESTAMP", "Thu Jan  1 00:00:00 UTC 1970"),
+    ("KBUILD_BUILD_USER", "rk"),
+    ("KBUILD_BUILD_HOST", "rk"),
+    ("KBUILD_BUILD_VERSION", "1"),
+];
+
 /// The make command for a target, with the shim as `CC`.
 fn make(plan: &Plan, cc: &str, targets: &[String], jobs: usize, keep_going: bool) -> Command {
     let mut command = Command::new("make");
@@ -325,7 +337,8 @@ fn make(plan: &Plan, cc: &str, targets: &[String], jobs: usize, keep_going: bool
         .arg(format!("O={}", plan.out.display()))
         .arg(format!("ARCH={}", plan.row.arch))
         .arg(format!("CC={cc}"))
-        .arg(format!("-j{jobs}"));
+        .arg(format!("-j{jobs}"))
+        .envs(REPRODUCIBLE);
     if !plan.row.cross.is_empty() && !host_is(&plan.row.arch) {
         command.arg(format!("CROSS_COMPILE={}", plan.row.cross));
     }
@@ -466,6 +479,7 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
         configured,
         built,
         config_sha256: sha256_file(&out.join(".config")).unwrap_or_default(),
+        image_sha256: sha256_file(&image_path(&out, &plan.row)).unwrap_or_default(),
         wall_seconds,
         graded: calls.delegated == 0,
         errors: error_census(&records),
@@ -589,6 +603,16 @@ pub fn summary(o: &Outcome) -> String {
         let _ = writeln!(s, "\nThe end of {log}:\n\n```\n{}\n```", lines.join("\n"));
     }
     s
+}
+
+/// Where kbuild leaves a row's boot image in an output directory.
+#[must_use]
+pub fn image_path(out: &Path, row: &Row) -> PathBuf {
+    let srcarch = match row.arch.as_str() {
+        "x86_64" | "i386" => "x86",
+        other => other,
+    };
+    out.join("arch").join(srcarch).join("boot").join(&row.image)
 }
 
 #[cfg(test)]

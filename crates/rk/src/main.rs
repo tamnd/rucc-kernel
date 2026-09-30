@@ -2,6 +2,7 @@
 //! compiler, boot and test what comes out, and record what happened.
 
 mod asm;
+mod baseline;
 mod boot;
 mod build;
 mod cli;
@@ -41,6 +42,7 @@ fn main() -> ExitCode {
             "demands" => demands_command(&args),
             "boot" => boot_command(&repo, &args),
             "asm-inventory" => asm_inventory(&repo, &args),
+            "baseline" => baseline_command(&repo, &args),
             "initramfs" => initramfs_command(&args).map(|_| ExitCode::SUCCESS),
             _ => unreachable!("the parser only accepts known commands"),
         }
@@ -160,8 +162,8 @@ fn fragment_for(
     Ok(Some((name.to_string(), path)))
 }
 
-/// Configure and build one kernel through the shim.
-fn build_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+/// The build that the options of `rk build` or `rk baseline` describe.
+fn build_plan(repo: &Repo, args: &Args) -> Result<build::Plan, String> {
     let pins = pins::Pins::load(&repo.file("pins.toml"))?;
     let pin = pins.get(args.target.as_deref())?.clone();
     let personas = personas::Personas::load(&repo.file("personas.toml"))?;
@@ -171,7 +173,7 @@ fn build_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     let config = args.get("config").unwrap_or("defconfig").to_string();
     let compiler = build::Compiler::identify(
         args.get("cc")
-            .ok_or("rk build needs --cc, the compiler under test or the reference")?,
+            .ok_or("--cc is needed, the compiler under test or the reference")?,
     )?;
     let jobs = match args.get("jobs") {
         Some(n) => n
@@ -227,6 +229,12 @@ fn build_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         targets,
         fragment,
     };
+    Ok(plan)
+}
+
+/// Configure and build one kernel through the shim.
+fn build_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+    let plan = build_plan(repo, args)?;
     eprintln!(
         "rk: building {} {} {} with {} in {}",
         plan.pin.version,
@@ -420,4 +428,61 @@ fn asm_inventory(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     println!("{}", report.lines().next().unwrap_or_default());
     println!("wrote {}", path.display());
     Ok(ExitCode::SUCCESS)
+}
+
+/// Build and boot with the reference several times, and write the result under
+/// `results/baseline`.
+fn baseline_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+    let plan = build_plan(repo, args)?;
+    let runs: usize = match args.get("runs") {
+        Some(n) => n
+            .parse()
+            .map_err(|_| format!("--runs {n} is not a number"))?,
+        None => 3,
+    };
+    let timeout = match args.get("timeout") {
+        Some(n) => n
+            .parse()
+            .map_err(|_| format!("--timeout {n} is not a number"))?,
+        None => 600,
+    };
+    let mut results = Vec::new();
+    for run in 1..=runs {
+        let out = plan.out.join(format!("run{run}"));
+        eprintln!("rk: baseline run {run} of {runs} in {}", out.display());
+        let built = build::run(&build::Plan {
+            out: out.clone(),
+            ..plan.clone()
+        })?;
+        let booted = if built.built {
+            let initramfs = out.join("initramfs.cpio");
+            write_initramfs(&initramfs, args.get("busybox"))?;
+            Some(boot::run(&boot::Plan {
+                build: std::fs::canonicalize(&out).map_err(|e| e.to_string())?,
+                row: plan.row.clone(),
+                initramfs,
+                timeout,
+                append: String::new(),
+            })?)
+        } else {
+            None
+        };
+        results.push(baseline::Run::from(&built, booted.as_ref()));
+    }
+    let fragment = plan.fragment.as_ref().map(|(name, _)| name.clone());
+    let baseline = baseline::Baseline::new(&plan, fragment, results);
+    let path = repo
+        .file("results")
+        .join("baseline")
+        .join(baseline.file_name());
+    baseline.write(&path)?;
+    let summary = baseline.summary();
+    print!("{summary}");
+    step_summary(&summary);
+    println!("wrote {}", path.display());
+    Ok(if baseline.passed() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
 }

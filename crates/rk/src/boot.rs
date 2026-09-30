@@ -268,10 +268,15 @@ fn kvm_usable(row: &Row) -> bool {
 /// The QEMU command line.
 #[must_use]
 pub fn qemu_command(plan: &Plan, image: &Path, kvm: bool) -> Vec<String> {
+    let machine = if plan.row.arch == "arm64" {
+        format!("{},gic-version=max", plan.row.machine)
+    } else {
+        plan.row.machine.clone()
+    };
     let mut words: Vec<String> = [
         plan.row.qemu.as_str(),
         "-M",
-        plan.row.machine.as_str(),
+        machine.as_str(),
         "-m",
         "1G",
         "-smp",
@@ -308,12 +313,7 @@ pub fn qemu_command(plan: &Plan, image: &Path, kvm: bool) -> Vec<String> {
 
 /// Boot, and write `boot.log` and `boot.json` in the build directory.
 pub fn run(plan: &Plan) -> Result<Outcome, String> {
-    let image = plan
-        .build
-        .join("arch")
-        .join(srcarch(&plan.row.arch))
-        .join("boot")
-        .join(&plan.row.image);
+    let image = crate::build::image_path(&plan.build, &plan.row);
     if !image.is_file() {
         return Err(format!("no image at {}; build it first", image.display()));
     }
