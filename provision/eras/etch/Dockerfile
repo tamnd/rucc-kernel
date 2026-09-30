@@ -10,7 +10,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG TARGETARCH
 
 RUN apt-get -o Acquire::Check-Valid-Until=false update \
- && apt-get install -y --no-install-recommends -o APT::Get::AllowUnauthenticated=true \
+ && apt-get install -y -o APT::Get::AllowUnauthenticated=true \
     gcc-3.4 cpp-3.4 gcc-4.1 make perl bc binutils libc6-dev cpio bzip2 patch libc6-dev-i386 module-init-tools \
  && rm -rf /var/lib/apt/lists/*
 
