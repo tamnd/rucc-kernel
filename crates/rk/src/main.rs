@@ -7,6 +7,7 @@ mod boot;
 mod build;
 mod cli;
 mod demands;
+mod dmesg;
 mod flags;
 mod frames;
 mod kconfig;
@@ -22,6 +23,8 @@ mod sections;
 mod sets;
 mod symvers;
 mod syntax;
+mod tap;
+mod testrun;
 mod toolchains;
 mod vec;
 mod why;
@@ -62,6 +65,7 @@ fn main() -> ExitCode {
             "frames" => frames_command(&args),
             "demands" => demands_command(&args),
             "boot" => boot_command(&repo, &args),
+            "test" => test_command(&repo, &args),
             "asm-inventory" => asm_inventory(&repo, &args),
             "baseline" => baseline_command(&repo, &args),
             "initramfs" => initramfs_command(&args).map(|_| ExitCode::SUCCESS),
@@ -675,13 +679,7 @@ fn initramfs_command(args: &Args) -> Result<std::path::PathBuf, String> {
 
 /// Write the initramfs for a busybox, `/bin/busybox` by default, which must be static.
 fn write_initramfs(out: &std::path::Path, busybox: Option<&str>) -> Result<(), String> {
-    let busybox = busybox.unwrap_or("/bin/busybox");
-    let bytes = std::fs::read(busybox).map_err(|e| format!("reading {busybox}: {e}"))?;
-    if !boot::is_static_elf(&bytes) {
-        return Err(format!(
-            "{busybox} is not a static ELF program; install busybox-static or pass --busybox"
-        ));
-    }
+    let bytes = read_busybox(busybox)?;
     std::fs::write(out, boot::initramfs(&bytes))
         .map_err(|e| format!("writing {}: {e}", out.display()))
 }
@@ -719,6 +717,7 @@ fn boot_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         initramfs,
         timeout,
         append: args.get("append").unwrap_or_default().to_string(),
+        stem: None,
     };
     let outcome = boot::run(&plan)?;
     let summary = boot::summary(&outcome);
@@ -729,6 +728,83 @@ fn boot_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     } else {
         ExitCode::from(1)
     })
+}
+
+/// A static busybox's bytes, `/bin/busybox` by default.
+fn read_busybox(path: Option<&str>) -> Result<Vec<u8>, String> {
+    let path = path.unwrap_or("/bin/busybox");
+    let bytes = std::fs::read(path).map_err(|e| format!("reading {path}: {e}"))?;
+    if boot::is_static_elf(&bytes) {
+        Ok(bytes)
+    } else {
+        Err(format!(
+            "{path} is not a static ELF program; install busybox-static or pass --busybox"
+        ))
+    }
+}
+
+/// Boot the reference and the rucc kernel, run the same suites on both and grade the rucc one.
+fn test_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+    let dir = |name: &str| -> Result<std::path::PathBuf, String> {
+        let path = args
+            .get(name)
+            .ok_or_else(|| format!("rk test needs --{name}, a build directory"))?;
+        std::fs::canonicalize(path).map_err(|e| format!("resolving {path}: {e}"))
+    };
+    let kinds = testrun::parse_kinds(args.get("kinds").unwrap_or("boot,smoke,kunit"))?;
+    let reference = dir("reference")?;
+    let other = dir("other")?;
+    let built = outcome_of(&other).ok();
+    let row_name = args.get("row").map_or_else(
+        || {
+            built
+                .as_ref()
+                .map_or_else(|| "X64".to_string(), |o| o.row.clone())
+        },
+        str::to_string,
+    );
+    let rows = personas::Rows::load(&repo.file("rows.toml"))?;
+    let row = rows.get(&row_name)?.clone();
+    let number = |name: &str, default: u64| -> Result<u64, String> {
+        args.get(name).map_or(Ok(default), |n| {
+            n.parse()
+                .map_err(|_| format!("--{name} {n} is not a number"))
+        })
+    };
+    let runs = usize::try_from(number("runs", 1)?).map_err(|e| e.to_string())?;
+    if runs == 0 {
+        return Err("--runs must be at least 1".to_string());
+    }
+    let out = args.get("out").map_or_else(
+        || {
+            let name = built.as_ref().map_or_else(
+                || "test".to_string(),
+                |o| format!("test-{}-{}-{}", o.version, o.row, o.config),
+            );
+            repo.file("work").join(name)
+        },
+        std::path::PathBuf::from,
+    );
+    let plan = testrun::Plan {
+        reference,
+        other,
+        row,
+        busybox: read_busybox(args.get("busybox"))?,
+        rucc_busybox: args
+            .get("rucc-busybox")
+            .map(|p| read_busybox(Some(p)))
+            .transpose()?,
+        kinds,
+        runs,
+        timeout: number("timeout", 600)?,
+        out,
+    };
+    let outcome = testrun::run(&plan)?;
+    let summary = testrun::summary(&outcome);
+    print!("{summary}");
+    step_summary(&summary);
+    println!("wrote {}", plan.out.join("test.json").display());
+    Ok(verdict(outcome.passed()))
 }
 
 /// Add to the GitHub job summary, when there is one.
@@ -808,6 +884,7 @@ fn baseline_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
                 initramfs,
                 timeout,
                 append: String::new(),
+                stem: None,
             })?)
         } else {
             None

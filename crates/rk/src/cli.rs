@@ -69,6 +69,20 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
             false,
             &["build", "row", "initramfs", "busybox", "timeout", "append"],
         ),
+        "test" => (
+            false,
+            &[
+                "reference",
+                "other",
+                "row",
+                "kinds",
+                "busybox",
+                "rucc-busybox",
+                "runs",
+                "timeout",
+                "out",
+            ],
+        ),
         "initramfs" => (false, &["out", "busybox"]),
         "asm-inventory" => (false, &["build", "jobs"]),
         "baseline" => (
@@ -112,6 +126,8 @@ usage:
   rk syntax --build DIR [--cc rucc] [--allow FILE] [--jobs N]
   rk boot --build DIR [--row X64] [--initramfs FILE | --busybox PATH] [--timeout 300]
           [--append WORDS]
+  rk test --reference DIR --other DIR [--kinds boot,smoke,kunit] [--row X64] [--runs 1]
+          [--busybox PATH] [--rucc-busybox PATH] [--timeout 600] [--out DIR]
   rk initramfs --out FILE [--busybox PATH]
   rk baseline [VERSION] --cc COMPILER [--row X64] [--config defconfig] [--fragment test]
               [--runs 3] [--timeout 600] [--stack-usage]
