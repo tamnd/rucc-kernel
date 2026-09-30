@@ -1,0 +1,186 @@
+# The nightly: every pin in the current set on X64, built with gcc-14 and with rucc from tinyconfig
+# and the test fragment, and graded by rk test on boot, smoke and KUnit.
+#
+# Both builds of a version run in one job, because rk test and rk mixed need both build directories
+# and the objects are too big to move between jobs. When the rucc kernel fails a unit the reference
+# passes, rk mixed looks for the object and the pass behind the first such unit, within the time
+# left. A red nightly is the point: the K3 exit criterion is three green nights in a row.
+#
+# The rucc binary is the pinned release, checked against its hash, as in kernel.yml. A manual run
+# can name a branch or commit of tamnd/rucc instead.
+
+name: nightly
+
+on:
+  schedule:
+    - cron: "23 1 * * *"
+  workflow_dispatch:
+    inputs:
+      rucc:
+        description: A branch or commit of tamnd/rucc to build instead of the pinned release
+        required: false
+        default: ""
+      config:
+        description: The configuration target
+        required: false
+        default: tinyconfig
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RK_CACHE: ${{ github.workspace }}/../rk-cache
+  RUCC_VERSION: v0.17.0
+  RUCC_SHA256: fcf451c3193ddd0f83f13c7f0a1e27c3cedec0f648af08ca7bd83dbdfbdffbb5
+  CONFIG: ${{ inputs.config || 'tinyconfig' }}
+
+jobs:
+  set:
+    name: the current set
+    runs-on: ubuntu-24.04
+    outputs:
+      versions: ${{ steps.pins.outputs.versions }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - id: pins
+        name: read pins.toml
+        shell: python3 {0}
+        run: |
+          import json, os, tomllib
+          with open("pins.toml", "rb") as f:
+              pins = tomllib.load(f)["pin"]
+          versions = [p["version"] for p in pins if "current" in p.get("sets", [])]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"versions={json.dumps(versions)}\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
+              out.write(f"The current set is {', '.join(versions)}.\n")
+
+  test:
+    name: ${{ matrix.version }} X64
+    needs: set
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.set.outputs.versions) }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: kernel build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -qy --no-install-recommends gcc-14 flex bison bc libelf-dev libssl-dev \
+            cpio qemu-system-x86 busybox-static
+      - name: let the runner user open /dev/kvm
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+      - name: rucc ${{ inputs.rucc }} from source
+        if: inputs.rucc != ''
+        run: |
+          git clone -q https://github.com/tamnd/rucc "$RUNNER_TEMP/rucc-src"
+          git -C "$RUNNER_TEMP/rucc-src" checkout -q "$REF"
+          cargo build --release --manifest-path "$RUNNER_TEMP/rucc-src/Cargo.toml" -p rucc
+          echo "$RUNNER_TEMP/rucc-src/target/release" >> "$GITHUB_PATH"
+          echo "rucc built from $(git -C "$RUNNER_TEMP/rucc-src" rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          REF: ${{ inputs.rucc }}
+      - name: rucc ${{ env.RUCC_VERSION }}
+        if: inputs.rucc == ''
+        run: |
+          name="rucc-$RUCC_VERSION-x86_64-unknown-linux-gnu"
+          gh release download "$RUCC_VERSION" -R tamnd/rucc -p "$name.tar.gz" -D "$RUNNER_TEMP"
+          echo "$RUCC_SHA256  $RUNNER_TEMP/$name.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$name.tar.gz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/$name" >> "$GITHUB_PATH"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: build rk
+        run: cargo build --release --workspace
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ${{ env.RK_CACHE }}/archives
+          key: kernel-archives-${{ matrix.version }}-${{ hashFiles('pins.toml') }}
+          restore-keys: kernel-archives-${{ matrix.version }}-
+      - name: rk build with gcc-14
+        run: |
+          target/release/rk build ${{ matrix.version }} --row X64 --config "$CONFIG" --fragment test \
+            --cc gcc-14 --targets "bzImage modules" --out "$RUNNER_TEMP/gcc"
+      - name: rk build with rucc
+        continue-on-error: true
+        run: |
+          target/release/rk build ${{ matrix.version }} --row X64 --config "$CONFIG" --fragment test \
+            --cc rucc --targets "bzImage modules" --out "$RUNNER_TEMP/rucc" --keep-going
+      - name: rk test
+        id: test
+        run: |
+          target/release/rk test --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
+            --kinds boot,smoke,kunit --out "$RUNNER_TEMP/test"
+      - name: rk mixed on the first failed unit
+        if: failure() && steps.test.outcome == 'failure'
+        timeout-minutes: 180
+        run: |
+          unit=$(python3 -c 'import json, sys; t = json.load(open(sys.argv[1])); print(next((u["name"] for u in t["units"] if u["graded"] and not u["passed"] and u.get("attribution", "kernel") == "kernel"), ""))' "$RUNNER_TEMP/test/test.json")
+          if [ -z "$unit" ]; then echo "no kernel failure to bisect"; exit 0; fi
+          target/release/rk mixed --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
+            --unit "$unit" --out "$RUNNER_TEMP/mixed"
+      - name: keep the record
+        if: always()
+        run: |
+          mkdir -p record/gcc record/rucc record/test record/mixed
+          for side in gcc rucc; do
+            cp "$RUNNER_TEMP/$side"/{build.json,summary.md,build.log,.config} "record/$side/" 2>/dev/null || true
+          done
+          cp -r "$RUNNER_TEMP/test/." record/test/ 2>/dev/null || true
+          cp "$RUNNER_TEMP"/mixed/{mixed.json,summary.md,relink.jsonl} "$RUNNER_TEMP"/mixed/*.log record/mixed/ 2>/dev/null || true
+          cp -r "$RUNNER_TEMP/mixed/fuel" record/mixed/ 2>/dev/null || true
+          find record/mixed/fuel -name '*.o' -delete 2>/dev/null || true
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: nightly-${{ matrix.version }}-X64
+          path: record
+          include-hidden-files: true
+          retention-days: 30
+
+  report:
+    name: the report
+    needs: test
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: nightly-*
+          path: records
+      - name: headline
+        shell: python3 {0}
+        run: |
+          import json, os, pathlib
+          lines = ["### nightly, X64", "", "| version | graded | failed | splats | verdict |", "|---|---|---|---|---|"]
+          for record in sorted(pathlib.Path("records").iterdir()):
+              version = record.name.removeprefix("nightly-").removesuffix("-X64")
+              path = record / "test" / "test.json"
+              if not path.exists():
+                  lines.append(f"| {version} | | | | not run |")
+                  continue
+              t = json.loads(path.read_text())
+              graded = [u for u in t["units"] if u["graded"]]
+              failed = [u["name"] for u in graded if not u["passed"]]
+              splats = len(t["splats"].get("other-only", []))
+              verdict = "green" if not failed and not splats else "red"
+              lines.append(f"| {version} | {len(graded)} | {len(failed)} | {splats} | {verdict} |")
+          for record in sorted(pathlib.Path("records").iterdir()):
+              summary = record / "mixed" / "summary.md"
+              if summary.exists():
+                  lines += ["", f"#### {record.name}", "", summary.read_text()]
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
+              out.write("\n".join(lines) + "\n")
