@@ -1,0 +1,13 @@
+[package]
+name = "rk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Fetch, build, boot and test pinned Linux kernels with rucc and a reference compiler, and record the results"
+
+[dependencies]
+
+[lints]
+workspace = true

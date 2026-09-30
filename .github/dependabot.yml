@@ -1,0 +1,20 @@
+# Weekly updates for the pinned actions and the crates. Each one arrives as a pull request and goes
+# through ci like any other change, so a new action version never reaches main unseen.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels: [kind/chore, area/ci]
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    labels: [kind/chore]
+    groups:
+      crates:
+        patterns: ["*"]

@@ -1,0 +1,57 @@
+# Builds rk and rk-cc for Linux on x86-64 and arm64 when a version tag is pushed, and attaches the
+# tarballs and their SHA-256 files to the GitHub release of that tag. The release notes are written
+# by hand, so the job only uploads to a release that already exists or creates one with the tag
+# message as its body.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build on ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: cargo build
+        run: cargo build --release --workspace --locked
+      - name: package
+        id: package
+        run: |
+          set -euo pipefail
+          name="rucc-kernel-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir "$name"
+          for bin in rk rk-cc; do
+            if [ -f "target/release/$bin" ]; then cp "target/release/$bin" "$name/"; fi
+          done
+          cp LICENSE README.md "$name/"
+          tar czf "$name.tar.gz" "$name"
+          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+      - name: upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          name="${{ steps.package.outputs.name }}"
+          if ! gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --notes-from-tag || true
+          fi
+          gh release upload "$GITHUB_REF_NAME" "$name.tar.gz" "$name.tar.gz.sha256" --clobber
