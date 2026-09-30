@@ -91,12 +91,15 @@ jobs:
             --fragment test --cc ${{ matrix.cc }} --out "$RUNNER_TEMP/out" --keep-going
       - name: rk boot
         run: target/release/rk boot --build "$RUNNER_TEMP/out" --timeout 600
+      - name: rk asm-inventory
+        if: matrix.cc == 'gcc-14'
+        run: target/release/rk asm-inventory --build "$RUNNER_TEMP/out"
       - name: keep the record
         if: always()
         run: |
           mkdir -p record
           cd "$RUNNER_TEMP/out"
-          cp build.json summary.md config.log fragment.log build.log boot.json boot.log .config \
+          cp build.json summary.md config.log fragment.log build.log boot.json boot.log asm-inventory.md .config \
             "$GITHUB_WORKSPACE/record/" 2>/dev/null || true
           if [ -f compile.jsonl ]; then gzip -c compile.jsonl > "$GITHUB_WORKSPACE/record/compile.jsonl.gz"; fi
       - uses: actions/upload-artifact@v7.0.1

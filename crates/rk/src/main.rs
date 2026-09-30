@@ -1,6 +1,7 @@
 //! The `rk` command line: fetch pinned Linux trees, build them with rucc and with a reference
 //! compiler, boot and test what comes out, and record what happened.
 
+mod asm;
 mod boot;
 mod build;
 mod cli;
@@ -39,6 +40,7 @@ fn main() -> ExitCode {
             "probes" => probes_command(&args),
             "demands" => demands_command(&args),
             "boot" => boot_command(&repo, &args),
+            "asm-inventory" => asm_inventory(&repo, &args),
             "initramfs" => initramfs_command(&args).map(|_| ExitCode::SUCCESS),
             _ => unreachable!("the parser only accepts known commands"),
         }
@@ -388,4 +390,34 @@ fn step_summary(text: &str) {
             let _ = writeln!(file, "{text}");
         }
     }
+}
+
+/// Replay a reference build's units to text and count the instructions the kernel writes itself.
+fn asm_inventory(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+    let build =
+        std::path::PathBuf::from(args.get("build").ok_or("rk asm-inventory needs --build")?);
+    let text = std::fs::read_to_string(build.join("build.json"))
+        .map_err(|e| format!("reading {}: {e}", build.join("build.json").display()))?;
+    let outcome: build::Outcome =
+        serde_json::from_str(&text).map_err(|e| format!("reading build.json: {e}"))?;
+    let pins = pins::Pins::load(&repo.file("pins.toml"))?;
+    let tree = pins.get(Some(&outcome.version))?.source_dir();
+    let rows = personas::Rows::load(&repo.file("rows.toml"))?;
+    let x86 = boot::srcarch(&rows.get(&outcome.row)?.arch) == "x86";
+    let jobs = match args.get("jobs") {
+        Some(n) => n
+            .parse()
+            .map_err(|_| format!("--jobs {n} is not a number"))?,
+        None => std::thread::available_parallelism().map_or(1, std::num::NonZero::get),
+    };
+    let log = build.join("compile.jsonl");
+    let (records, _) =
+        rk_shim::record::read_log(&log).map_err(|e| format!("reading {}: {e}", log.display()))?;
+    let inventory = asm::collect(&records, &tree, x86, jobs);
+    let report = inventory.report();
+    let path = build.join("asm-inventory.md");
+    std::fs::write(&path, &report).map_err(|e| format!("writing {}: {e}", path.display()))?;
+    println!("{}", report.lines().next().unwrap_or_default());
+    println!("wrote {}", path.display());
+    Ok(ExitCode::SUCCESS)
 }
