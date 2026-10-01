@@ -14,6 +14,7 @@ mod flags;
 mod frames;
 mod kconfig;
 mod kernelorg;
+mod ltp;
 mod mixed;
 mod modules;
 mod objects;
@@ -73,6 +74,7 @@ fn main() -> ExitCode {
             "mixed" => mixed_command(&repo, &args),
             "cross-modules" => cross_modules(&repo, &args),
             "selftests" => selftests_command(&repo, &args),
+            "ltp" => ltp_command(&repo, &args),
             "asm-inventory" => asm_inventory(&repo, &args),
             "baseline" => baseline_command(&repo, &args),
             "initramfs" => initramfs_command(&args).map(|_| ExitCode::SUCCESS),
@@ -781,6 +783,11 @@ fn test_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
             "--kinds kselftest needs --selftests, a directory rk selftests wrote".to_string(),
         );
     }
+    let ltp = args.get("ltp").map(|_| dir("ltp")).transpose()?;
+    let rucc_ltp = args.get("rucc-ltp").map(|_| dir("rucc-ltp")).transpose()?;
+    if kinds.contains(&testrun::Kind::Ltp) && ltp.is_none() {
+        return Err("--kinds ltp needs --ltp, a directory rk ltp wrote".to_string());
+    }
     let reference = dir("reference")?;
     let other = dir("other")?;
     let built = outcome_of(&other).ok();
@@ -825,6 +832,8 @@ fn test_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
             .transpose()?,
         selftests,
         rucc_selftests,
+        ltp,
+        rucc_ltp,
         kinds,
         runs,
         timeout: number("timeout", 600)?,
@@ -896,6 +905,74 @@ fn selftests_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     print!("{summary}");
     step_summary(&summary);
     println!("wrote {}", plan.out.join("selftests.json").display());
+    Ok(verdict(!outcome.runnable().is_empty()))
+}
+
+/// Build the pinned LTP release with a compiler, for the initramfs.
+fn ltp_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+    let path = args
+        .get("build")
+        .ok_or("rk ltp needs --build, a build directory")?;
+    let dir = std::fs::canonicalize(path).map_err(|e| format!("resolving {path}: {e}"))?;
+    let made = outcome_of(&dir)?;
+    let rows = personas::Rows::load(&repo.file("rows.toml"))?;
+    let row = rows.get(&made.row)?.clone();
+    let runtests: Vec<String> = match args.get("runtests") {
+        Some(list) => list
+            .split(',')
+            .map(str::trim)
+            .filter(|r| !r.is_empty())
+            .map(str::to_string)
+            .collect(),
+        None => row.ltp.clone(),
+    };
+    if runtests.is_empty() {
+        return Err(format!(
+            "row {} pins no LTP runtest files in rows.toml; pass --runtests",
+            row.name
+        ));
+    }
+    let pin = ltp::Pin::load(&repo.file("ltp.toml"))?;
+    let source = pin.fetch(&repo::cache_dir())?;
+    let cc = args
+        .get("cc")
+        .map_or_else(|| made.compiler.path.display().to_string(), str::to_string);
+    let jobs = match args.get("jobs") {
+        Some(n) => n
+            .parse()
+            .map_err(|_| format!("--jobs {n} is not a number"))?,
+        None => std::thread::available_parallelism().map_or(4, std::num::NonZero::get),
+    };
+    let out = args
+        .get("out")
+        .map_or_else(|| dir.join("ltp"), std::path::PathBuf::from);
+    std::fs::create_dir_all(&out).map_err(|e| format!("creating {}: {e}", out.display()))?;
+    let out =
+        std::fs::canonicalize(&out).map_err(|e| format!("resolving {}: {e}", out.display()))?;
+    let native = build::host_is(&row.arch);
+    let plan = ltp::Plan {
+        source,
+        version: pin.version,
+        host: if native {
+            String::new()
+        } else {
+            row.cross.trim_end_matches('-').to_string()
+        },
+        strip: if native {
+            "strip".to_string()
+        } else {
+            format!("{}strip", row.cross)
+        },
+        cc,
+        runtests,
+        jobs,
+        out,
+    };
+    let outcome = ltp::run(&plan)?;
+    let summary = ltp::summary(&outcome);
+    print!("{summary}");
+    step_summary(&summary);
+    println!("wrote {}", plan.out.join("ltp.json").display());
     Ok(verdict(!outcome.runnable().is_empty()))
 }
 
@@ -1004,6 +1081,10 @@ fn mixed_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         busybox: read_busybox(args.get("busybox"))?,
         selftests: args
             .get("selftests")
+            .map(|p| std::fs::canonicalize(p).map_err(|e| format!("resolving {p}: {e}")))
+            .transpose()?,
+        ltp: args
+            .get("ltp")
             .map(|p| std::fs::canonicalize(p).map_err(|e| format!("resolving {p}: {e}")))
             .transpose()?,
         timeout: number("timeout", 600)?,

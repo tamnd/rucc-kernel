@@ -297,6 +297,13 @@ pub fn suite_of(unit: &str) -> String {
                 .unwrap_or_default();
             format!("kselftest:{collection}")
         }
+        Kind::Ltp => {
+            let runtest = unit
+                .strip_prefix("ltp:")
+                .and_then(|rest| rest.split(':').next())
+                .unwrap_or_default();
+            format!("ltp:{runtest}")
+        }
     }
 }
 
@@ -315,6 +322,8 @@ pub struct Plan {
     pub busybox: Vec<u8>,
     /// The selftests, an `rk selftests` directory, for a `kselftest:` unit.
     pub selftests: Option<PathBuf>,
+    /// LTP, an `rk ltp` directory, for an `ltp:` unit.
+    pub ltp: Option<PathBuf>,
     /// Seconds each boot may take.
     pub timeout: u64,
     /// Parallel jobs for the relink.
@@ -538,6 +547,13 @@ impl Trials<'_> {
                 .as_deref()
                 .ok_or("a kselftest unit needs --selftests, an rk selftests directory")?;
             crate::selftests::files(dir, collection)?
+        } else if let Some(runtest) = suite.strip_prefix("ltp:") {
+            let dir = self
+                .plan
+                .ltp
+                .as_deref()
+                .ok_or("an ltp unit needs --ltp, an rk ltp directory")?;
+            crate::ltp::files(dir, runtest)?
         } else {
             Vec::new()
         };
@@ -548,7 +564,11 @@ impl Trials<'_> {
             build: self.tree.clone(),
             row: self.plan.row.clone(),
             initramfs: initramfs.clone(),
-            timeout: self.plan.timeout,
+            timeout: if suite.starts_with("ltp:") {
+                crate::ltp::timeout(self.plan.timeout, &files)
+            } else {
+                self.plan.timeout
+            },
             append: format!("rk.suite={suite}"),
             stem: Some(stem.to_path_buf()),
         });
@@ -1030,6 +1050,7 @@ mod tests {
             suite_of("kselftest:timers:posix_timers"),
             "kselftest:timers"
         );
+        assert_eq!(suite_of("ltp:syscalls:abort01"), "ltp:syscalls");
     }
 
     #[test]

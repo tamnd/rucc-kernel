@@ -167,6 +167,9 @@ pub struct Row {
     /// The kselftest collections pinned for the row.
     #[serde(default)]
     pub selftests: Vec<String>,
+    /// The LTP runtest files pinned for the row.
+    #[serde(default)]
+    pub ltp: Vec<String>,
 }
 
 impl Rows {

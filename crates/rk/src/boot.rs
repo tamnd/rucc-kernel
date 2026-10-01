@@ -303,6 +303,15 @@ fn kvm_usable(row: &Row) -> bool {
             .is_ok()
 }
 
+/// The guest's memory in MiB: 1 GiB, and more when the initramfs is big, since the kernel holds
+/// the archive and its unpacked files at the same time while it boots. An LTP runtest file can
+/// bring a few hundred megabytes of programs.
+#[must_use]
+pub fn memory_mib(initramfs: u64) -> u64 {
+    let archive = initramfs.div_ceil(1 << 20);
+    (512 + 2 * archive).max(1024).next_multiple_of(256)
+}
+
 /// The QEMU command line.
 #[must_use]
 pub fn qemu_command(plan: &Plan, image: &Path, kvm: bool) -> Vec<String> {
@@ -311,12 +320,14 @@ pub fn qemu_command(plan: &Plan, image: &Path, kvm: bool) -> Vec<String> {
     } else {
         plan.row.machine.clone()
     };
+    let initramfs = std::fs::metadata(&plan.initramfs).map_or(0, |m| m.len());
+    let memory = format!("{}M", memory_mib(initramfs));
     let mut words: Vec<String> = [
         plan.row.qemu.as_str(),
         "-M",
         machine.as_str(),
         "-m",
-        "1G",
+        memory.as_str(),
         "-smp",
         "2",
         "-nographic",
@@ -515,6 +526,14 @@ mod tests {
         );
         assert!(o.done);
         assert!(!o.passed());
+    }
+
+    #[test]
+    fn a_big_initramfs_gets_more_memory() {
+        assert_eq!(memory_mib(0), 1024);
+        assert_eq!(memory_mib(200 << 20), 1024);
+        assert_eq!(memory_mib(400 << 20), 1536);
+        assert_eq!(memory_mib((400 << 20) + 1), 1536);
     }
 
     #[test]
