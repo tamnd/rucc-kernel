@@ -52,7 +52,7 @@ fn main() -> ExitCode {
         Some(_) => config.bringup_cc.clone(),
         None => config.real.clone(),
     };
-    let passed = bringup::passed_on(rest, delegated.is_some());
+    let passed = arguments(rest, &compiler, delegated.is_some(), probe);
 
     let inputs = digests(&cwd, &invocation.inputs);
     let trace_file =
@@ -135,6 +135,39 @@ fn main() -> ExitCode {
         return ExitCode::from(1);
     }
     exit_code(&run)
+}
+
+/// The arguments the call hands to its compiler, see [`bringup::passed_on`] and
+/// [`without_refused`]. A probe keeps every flag it asks about, so its answer stays honest.
+fn arguments(rest: &[String], compiler: &Path, delegated: bool, probe: bool) -> Vec<String> {
+    let passed = bringup::passed_on(rest, delegated);
+    if delegated && !probe {
+        without_refused(compiler, passed)
+    } else {
+        passed
+    }
+}
+
+/// The arguments of a delegated call with every flag the bring-up compiler refuses taken out.
+///
+/// Each try is quiet, so kbuild never sees an error about a flag that is then left out, and the
+/// call that follows is the one whose output and messages count. A call the compiler takes as it
+/// is costs one extra compile, which only the few units that are delegated pay.
+fn without_refused(compiler: &Path, mut args: Vec<String>) -> Vec<String> {
+    for _ in 0..16 {
+        let Ok(tried) = run(compiler, &args, &[], false, None, false) else {
+            break;
+        };
+        if tried.exit == Some(0) {
+            break;
+        }
+        let said = String::from_utf8_lossy(&tried.stderr_head);
+        let Some(flag) = bringup::refused(&said, &args).map(str::to_owned) else {
+            break;
+        };
+        args.retain(|a| *a != flag);
+    }
+    args
 }
 
 /// The shim exits the way the compiler did, with 128 plus the signal when it was killed.
