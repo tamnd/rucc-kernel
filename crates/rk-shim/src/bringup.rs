@@ -82,6 +82,20 @@ pub fn passed_on(args: &[String], delegated: bool) -> Vec<String> {
         .collect()
 }
 
+/// The argument a compiler refused by name, from what it wrote on standard error.
+///
+/// gcc says `unrecognized command-line option '-fx'` about a flag it does not have. kbuild found
+/// the flag by probing rucc, which is newer than the bring-up gcc 14 in what it accepts, so a
+/// delegated call leaves it out and runs again. Only an argument the call was given counts, so
+/// that a message about something else can never take an argument away.
+#[must_use]
+pub fn refused<'a>(stderr: &str, args: &'a [String]) -> Option<&'a str> {
+    const SAID: &str = "unrecognized command-line option '";
+    let at = stderr.find(SAID)? + SAID.len();
+    let flag = stderr[at..].split('\'').next()?;
+    args.iter().find(|a| *a == flag).map(String::as_str)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,5 +193,19 @@ mod tests {
             .collect();
         assert_eq!(passed_on(&args, true), ["-m32", "-c", "vdso32/x.c"]);
         assert_eq!(passed_on(&args, false), args, "rucc keeps it");
+    }
+
+    #[test]
+    fn a_flag_the_other_compiler_refuses_is_named_only_if_the_call_has_it() {
+        let args: Vec<String> = ["-m32", "-fdiagnostics-show-context=2", "-c", "x.c"]
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect();
+        let said = "gcc: error: unrecognized command-line option \
+                    '-fdiagnostics-show-context=2'; did you mean '-fdiagnostics-show-caret'?\n";
+        assert_eq!(refused(said, &args), Some("-fdiagnostics-show-context=2"));
+        let other = "gcc: error: unrecognized command-line option '-fnothing'\n";
+        assert_eq!(refused(other, &args), None);
+        assert_eq!(refused("x.c:1: error: expected ';'\n", &args), None);
     }
 }
