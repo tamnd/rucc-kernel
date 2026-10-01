@@ -37,8 +37,11 @@ pub struct Plan {
     pub row: Row,
     /// The era of the version.
     pub era: Era,
-    /// The kbuild configuration target, as in `defconfig` or `tinyconfig`.
+    /// The kbuild configuration target, as in `defconfig` or `tinyconfig`, or the name of a
+    /// pinned distribution config.
     pub config: String,
+    /// The pinned distribution config `config` names, and the directory it lives in.
+    pub distro: Option<(crate::distro::Distro, PathBuf)>,
     /// The compiler.
     pub compiler: Compiler,
     /// kbuild's output directory.
@@ -461,6 +464,31 @@ fn failed_units(records: &[CompileRecord], source: &Path) -> Vec<String> {
     units
 }
 
+/// Write the `.config` in the output directory: the configuration target, or a pinned
+/// distribution config settled with `olddefconfig`, then the fragment if there is one. Says
+/// whether that worked, and which fragment requests did not take.
+fn configure(plan: &Plan, cc: &str) -> Result<(bool, Vec<String>), String> {
+    let out = &plan.out;
+    let target = match &plan.distro {
+        Some((distro, dir)) => {
+            let seeded = distro.seed(dir)?;
+            std::fs::write(out.join(".config"), seeded)
+                .map_err(|e| format!("writing {}: {e}", out.join(".config").display()))?;
+            "olddefconfig".to_string()
+        }
+        None => plan.config.clone(),
+    };
+    let mut configured = run_logged(
+        make(plan, cc, std::slice::from_ref(&target), 1, false),
+        &out.join("config.log"),
+    )? && out.join(".config").is_file();
+    let mut fragment_missed = Vec::new();
+    if let (true, Some((_, path))) = (configured, &plan.fragment) {
+        (configured, fragment_missed) = merge_fragment(plan, cc, path)?;
+    }
+    Ok((configured, fragment_missed))
+}
+
 /// Configure and build, and write `build.json` and `summary.md` in the output directory.
 pub fn run(plan: &Plan) -> Result<Outcome, String> {
     std::fs::create_dir_all(&plan.out)
@@ -499,14 +527,7 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
         ..plan.clone()
     };
     let clock = Instant::now();
-    let mut configured = run_logged(
-        make(&plan, &cc, std::slice::from_ref(&plan.config), 1, false),
-        &out.join("config.log"),
-    )? && out.join(".config").is_file();
-    let mut fragment_missed = Vec::new();
-    if let (true, Some((_, path))) = (configured, &plan.fragment) {
-        (configured, fragment_missed) = merge_fragment(&plan, &cc, path)?;
-    }
+    let (configured, fragment_missed) = configure(&plan, &cc)?;
     let built = if configured && !plan.config_only {
         run_logged(
             make(&plan, &cc, &plan.targets, plan.jobs, plan.keep_going),

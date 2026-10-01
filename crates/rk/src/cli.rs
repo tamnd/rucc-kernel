@@ -171,7 +171,7 @@ usage:
   rk asm-inventory --build DIR [--jobs N]
   rk demands --builds \"DIR DIR ...\" [--limit 40]
   rk build [VERSION] --cc COMPILER [--row X64] [--config defconfig] [--out DIR] [--jobs N]
-           [--fragment test]
+           [--fragment test] (--config also takes debian-13 or fedora-44)
            [--targets \"vmlinux bzImage\"] [--keep-going] [--twice] [--stack-usage]
            [--config-only]
            [--bringup m16 --bringup-cc gcc]
