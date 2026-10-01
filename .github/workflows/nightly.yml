@@ -4,7 +4,8 @@
 # Both builds of a version run in one job, because rk test and rk mixed need both build directories
 # and the objects are too big to move between jobs. When the rucc kernel fails a unit the reference
 # passes, rk mixed looks for the object and the pass behind the first such unit, within the time
-# left. A red nightly is the point: the K3 exit criterion is three green nights in a row.
+# left. rk cross-modules then loads each build's modules into the other kernel, and does not turn
+# the night red until K5. A red nightly is the point: the K3 exit criterion is three green nights in a row.
 #
 # The rucc binary is the pinned release, checked against its hash, as in kernel.yml. A manual run
 # can name a branch or commit of tamnd/rucc instead.
@@ -124,6 +125,12 @@ jobs:
         run: |
           target/release/rk test --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
             --kinds boot,smoke,kunit --out "$RUNNER_TEMP/test"
+      - name: rk cross-modules
+        if: always() && steps.test.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          target/release/rk cross-modules --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
+            --out "$RUNNER_TEMP/cross"
       - name: rk mixed on the first failed unit
         if: failure() && steps.test.outcome == 'failure'
         timeout-minutes: 180
@@ -135,11 +142,12 @@ jobs:
       - name: keep the record
         if: always()
         run: |
-          mkdir -p record/gcc record/rucc record/test record/mixed
+          mkdir -p record/gcc record/rucc record/test record/mixed record/cross
           for side in gcc rucc; do
             cp "$RUNNER_TEMP/$side"/{build.json,summary.md,build.log,.config} "record/$side/" 2>/dev/null || true
           done
           cp -r "$RUNNER_TEMP/test/." record/test/ 2>/dev/null || true
+          cp -r "$RUNNER_TEMP/cross/." record/cross/ 2>/dev/null || true
           cp "$RUNNER_TEMP"/mixed/{mixed.json,summary.md,relink.jsonl} "$RUNNER_TEMP"/mixed/*.log record/mixed/ 2>/dev/null || true
           cp -r "$RUNNER_TEMP/mixed/fuel" record/mixed/ 2>/dev/null || true
           find record/mixed/fuel -name '*.o' -delete 2>/dev/null || true
