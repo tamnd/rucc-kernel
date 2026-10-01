@@ -3,6 +3,8 @@
 # `arch` is kbuild's ARCH. `cross` is the CROSS_COMPILE prefix a build on another host needs. rk
 # leaves it out when the host is the row's own architecture, so a row can name it and still build
 # natively. `image` is the make target for the boot image. The QEMU fields are read by `rk boot`.
+# `selftests` are the kselftest collections pinned for the row (plan 11.5), which `rk selftests`
+# builds and `rk test --kinds kselftest` runs.
 
 [[row]]
 name = "X64"
@@ -13,6 +15,11 @@ qemu = "qemu-system-x86_64"
 machine = "q35"
 cpu = "max"
 console = "ttyS0"
+selftests = [
+    "breakpoints", "capabilities", "clone3", "core", "exec", "futex", "kcmp", "membarrier", "mm",
+    "mqueue", "pidfd", "proc", "rseq", "seccomp", "sigaltstack", "size", "timens", "timers",
+    "vDSO", "ptrace", "syscall_user_dispatch", "landlock", "splice", "sync", "user_events", "x86",
+]
 
 [[row]]
 name = "A64"
@@ -23,6 +30,11 @@ qemu = "qemu-system-aarch64"
 machine = "virt"
 cpu = "max"
 console = "ttyAMA0"
+selftests = [
+    "breakpoints", "capabilities", "clone3", "core", "exec", "futex", "kcmp", "membarrier", "mm",
+    "mqueue", "pidfd", "proc", "rseq", "seccomp", "sigaltstack", "size", "timens", "timers",
+    "vDSO", "ptrace", "syscall_user_dispatch", "landlock", "splice", "sync", "user_events", "arm64",
+]
 
 [[row]]
 name = "X32"

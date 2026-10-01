@@ -72,7 +72,8 @@ pub fn initramfs(busybox: &[u8]) -> Vec<u8> {
 }
 
 /// The initramfs for a busybox binary with more files, each given by its path inside and its
-/// bytes. The directories they need are made first.
+/// bytes. The directories they need are made first. An ELF file or a script can be run, and
+/// anything else is only read.
 #[must_use]
 pub fn initramfs_with(busybox: &[u8], files: &[(String, Vec<u8>)]) -> Vec<u8> {
     let base = ["bin", "dev", "proc", "sys", "tmp"];
@@ -143,7 +144,11 @@ pub fn initramfs_with(busybox: &[u8], files: &[(String, Vec<u8>)]) -> Vec<u8> {
     }));
     entries.extend(files.iter().map(|(path, data)| Entry {
         name: path,
-        mode: 0o100_644,
+        mode: if data.starts_with(b"\x7fELF") || data.starts_with(b"#!") {
+            0o100_755
+        } else {
+            0o100_644
+        },
         data,
         rdev: (0, 0),
     }));

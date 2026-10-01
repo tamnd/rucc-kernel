@@ -164,6 +164,9 @@ pub struct Row {
     pub cpu: String,
     /// The serial console device name.
     pub console: String,
+    /// The kselftest collections pinned for the row.
+    #[serde(default)]
+    pub selftests: Vec<String>,
 }
 
 impl Rows {

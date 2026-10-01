@@ -2,7 +2,7 @@
 //! same suites on both and compares them unit by unit (11.7 and 11.9 in the plan).
 //!
 //! A unit is one thing that passes or fails: `boot` for the kernel reaching the end of init with
-//! no panic, `smoke:<check>` for each smoke check, `kunit:<suite>.<case>` for each KUnit result
+//! no panic, `smoke:<check>` for each smoke check, `kunit:<suite>.<case>` for each KUnit result,
 //! and `kunit-module:<path>` for each test module loading. Every suite is its own boot, with
 //! `rk.suite=` on the kernel command line, and the kunit boot carries the build's modules in its
 //! initramfs. The units the reference passes in every run are the graded set, and the rucc kernel
@@ -20,7 +20,10 @@
 //! miscompilation. One that passes both ways is an interaction. Until rucc builds the userland
 //! both kernels run the same busybox, so every failure is the kernel's.
 //!
-//! kselftest and LTP come with K5 and are refused for now.
+//! The selftests are units too, `kselftest:<collection>:<program>`, one boot per collection, with
+//! the programs `rk selftests` built put under `/kselftest` in the initramfs with the libraries
+//! they need. They are user programs, so a rucc-built set passed with `--rucc-selftests` is part
+//! of the rucc userland for attribution, the way `--rucc-busybox` is. LTP is refused for now.
 //!
 //! What comes out is `test.json` and `summary.md` in the run directory, next to the console of
 //! every boot.
@@ -43,6 +46,21 @@ pub enum Kind {
     Smoke,
     /// KUnit.
     Kunit,
+    /// The kernel's selftests, one boot per collection.
+    Kselftest,
+}
+
+impl Kind {
+    /// The word `--kinds` takes for it.
+    #[must_use]
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Boot => "boot",
+            Self::Smoke => "smoke",
+            Self::Kunit => "kunit",
+            Self::Kselftest => "kselftest",
+        }
+    }
 }
 
 /// Read `--kinds`, a comma separated list.
@@ -53,14 +71,15 @@ pub fn parse_kinds(text: &str) -> Result<Vec<Kind>, String> {
             "boot" => Kind::Boot,
             "smoke" => Kind::Smoke,
             "kunit" => Kind::Kunit,
-            "kselftest" | "ltp" => {
-                return Err(format!(
-                    "{word} comes with K5, when rucc builds the test programs; rk test runs boot, smoke and kunit for now"
-                ));
+            "kselftest" => Kind::Kselftest,
+            "ltp" => {
+                return Err(
+                    "ltp is not run yet; rk test runs boot, smoke, kunit and kselftest".to_string(),
+                );
             }
             other => {
                 return Err(format!(
-                    "unknown test kind {other}; the kinds are boot, smoke and kunit"
+                    "unknown test kind {other}; the kinds are boot, smoke, kunit and kselftest"
                 ));
             }
         };
@@ -75,15 +94,19 @@ pub fn parse_kinds(text: &str) -> Result<Vec<Kind>, String> {
     Ok(kinds)
 }
 
-/// The suites, each one boot, that the kinds need.
+/// The suites, each one boot, that the kinds need, with one `kselftest:<collection>` suite for
+/// each selftest collection.
 #[must_use]
-pub fn suites(kinds: &[Kind]) -> Vec<&'static str> {
+pub fn suites(kinds: &[Kind], collections: &[String]) -> Vec<String> {
     let mut out = Vec::new();
     if kinds.contains(&Kind::Boot) || kinds.contains(&Kind::Smoke) {
-        out.push("smoke");
+        out.push("smoke".to_string());
     }
     if kinds.contains(&Kind::Kunit) {
-        out.push("kunit");
+        out.push("kunit".to_string());
+    }
+    if kinds.contains(&Kind::Kselftest) {
+        out.extend(collections.iter().map(|c| format!("kselftest:{c}")));
     }
     out
 }
@@ -93,6 +116,8 @@ pub fn suites(kinds: &[Kind]) -> Vec<&'static str> {
 pub fn kind_of(unit: &str) -> Kind {
     if unit.starts_with("smoke:") {
         Kind::Smoke
+    } else if unit.starts_with("kselftest:") {
+        Kind::Kselftest
     } else if unit.starts_with("kunit") {
         Kind::Kunit
     } else {
@@ -147,6 +172,9 @@ pub fn units_of(suite: &str, kinds: &[Kind], outcome: &boot::Outcome, console: &
                 units.insert(format!("kunit-module:{module}"), status);
             }
         }
+    }
+    if suite.starts_with("kselftest:") {
+        units.extend(crate::selftests::units(console));
     }
     units.retain(|unit, _| kinds.contains(&kind_of(unit)));
     units
@@ -237,6 +265,10 @@ pub struct Plan {
     pub busybox: Vec<u8>,
     /// The rucc userland, when there is one. Without it both kernels run `busybox`.
     pub rucc_busybox: Option<Vec<u8>>,
+    /// The GCC-built selftests, an `rk selftests` output directory.
+    pub selftests: Option<PathBuf>,
+    /// The rucc-built selftests. Without them both kernels run `selftests`.
+    pub rucc_selftests: Option<PathBuf>,
     /// The kinds of test.
     pub kinds: Vec<Kind>,
     /// How many times each kernel runs every suite.
@@ -277,20 +309,59 @@ pub fn modules(build: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
     Ok(files)
 }
 
+impl Plan {
+    /// The GCC userland and the rucc one, which is the GCC one where nothing else was given.
+    fn userlands(&self) -> (Userland<'_>, Userland<'_>) {
+        let gcc = Userland {
+            busybox: &self.busybox,
+            selftests: self.selftests.as_deref(),
+        };
+        let rucc = Userland {
+            busybox: self.rucc_busybox.as_deref().unwrap_or(&self.busybox),
+            selftests: self.rucc_selftests.as_deref().or(gcc.selftests),
+        };
+        (gcc, rucc)
+    }
+}
+
+/// The kind of the units a suite reports, apart from `boot`, which every suite reports.
+#[must_use]
+pub fn suite_kind(suite: &str) -> Kind {
+    match suite {
+        "smoke" => Kind::Smoke,
+        "kunit" => Kind::Kunit,
+        _ if suite.starts_with("kselftest:") => Kind::Kselftest,
+        _ => Kind::Boot,
+    }
+}
+
+/// A userland: the busybox and, for the selftests, an `rk selftests` output directory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Userland<'a> {
+    busybox: &'a [u8],
+    selftests: Option<&'a Path>,
+}
+
 /// One boot of one kernel with one userland running one suite, named by `stem` in the run
 /// directory. The initramfs is removed after the boot, and the console is kept.
 fn boot_suite(
     plan: &Plan,
     build: &Path,
-    busybox: &[u8],
+    userland: Userland,
     suite: &str,
     stem: &str,
 ) -> Result<(Units, BTreeSet<String>), String> {
     let files = if suite == "kunit" {
         modules(build)?
+    } else if let Some(collection) = suite.strip_prefix("kselftest:") {
+        let dir = userland
+            .selftests
+            .ok_or("the kselftest kind needs --selftests, an rk selftests directory")?;
+        crate::selftests::files(dir, collection)?
     } else {
         Vec::new()
     };
+    let busybox = userland.busybox;
     let initramfs = plan.out.join(format!("{stem}.cpio"));
     std::fs::write(&initramfs, boot::initramfs_with(busybox, &files))
         .map_err(|e| format!("writing {}: {e}", initramfs.display()))?;
@@ -367,9 +438,15 @@ impl Outcome {
 pub fn run(plan: &Plan) -> Result<Outcome, String> {
     std::fs::create_dir_all(&plan.out)
         .map_err(|e| format!("creating {}: {e}", plan.out.display()))?;
-    let rucc_busybox = plan.rucc_busybox.as_deref().unwrap_or(&plan.busybox);
-    let two_userlands = rucc_busybox != plan.busybox.as_slice();
-    let suites = suites(&plan.kinds);
+    let (gcc, rucc) = plan.userlands();
+    let two_userlands = gcc != rucc;
+    let collections = match &plan.selftests {
+        Some(dir) if plan.kinds.contains(&Kind::Kselftest) => {
+            crate::selftests::Outcome::load(dir)?.runnable()
+        }
+        _ => Vec::new(),
+    };
+    let suites = suites(&plan.kinds, &collections);
     let mut reference = Results::new();
     let mut other = Results::new();
     let mut splats = Splats::default();
@@ -380,18 +457,18 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
             let (units, found) = boot_suite(
                 plan,
                 &plan.reference,
-                &plan.busybox,
+                gcc,
                 suite,
-                &format!("reference-{suite}-{n}"),
+                &format!("reference-{}-{n}", stem(suite)),
             )?;
             merge(&mut r_units, units);
             splats.reference.extend(found);
             let (units, found) = boot_suite(
                 plan,
                 &plan.other,
-                rucc_busybox,
+                rucc,
                 suite,
-                &format!("other-{suite}-{n}"),
+                &format!("other-{}-{n}", stem(suite)),
             )?;
             merge(&mut o_units, units);
             splats.other.extend(found);
@@ -414,26 +491,23 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
     let (mut swapped_kernel, mut swapped_userland) = (Units::new(), Units::new());
     if two_userlands && !failed_kinds.is_empty() {
         for suite in &suites {
-            let wanted = failed_kinds.contains(&Kind::Boot)
-                || (*suite == "smoke" && failed_kinds.contains(&Kind::Smoke))
-                || (*suite == "kunit" && failed_kinds.contains(&Kind::Kunit));
-            if !wanted {
+            if !failed_kinds.contains(&Kind::Boot) && !failed_kinds.contains(&suite_kind(suite)) {
                 continue;
             }
             let (found, _) = boot_suite(
                 plan,
                 &plan.other,
-                &plan.busybox,
+                gcc,
                 suite,
-                &format!("other-gcc-userland-{suite}"),
+                &format!("other-gcc-userland-{}", stem(suite)),
             )?;
             merge(&mut swapped_kernel, found);
             let (found, _) = boot_suite(
                 plan,
                 &plan.reference,
-                rucc_busybox,
+                rucc,
                 suite,
-                &format!("reference-rucc-userland-{suite}"),
+                &format!("reference-rucc-userland-{}", stem(suite)),
             )?;
             merge(&mut swapped_userland, found);
         }
@@ -464,6 +538,11 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
     Ok(outcome)
 }
 
+/// A suite as part of a file name, without the colon of `kselftest:<collection>`.
+fn stem(suite: &str) -> String {
+    suite.replace(':', "-")
+}
+
 /// A unit's results over the runs, as words.
 fn statuses(list: &[Status]) -> String {
     list.iter().map(|s| s.word()).collect::<Vec<_>>().join(" ")
@@ -473,15 +552,7 @@ fn statuses(list: &[Status]) -> String {
 #[must_use]
 pub fn summary(o: &Outcome) -> String {
     let mut s = String::from("### rk test\n\n");
-    let kinds: Vec<&str> = o
-        .kinds
-        .iter()
-        .map(|k| match k {
-            Kind::Boot => "boot",
-            Kind::Smoke => "smoke",
-            Kind::Kunit => "kunit",
-        })
-        .collect();
+    let kinds: Vec<&str> = o.kinds.iter().map(|k| k.word()).collect();
     let graded = o.units.iter().filter(|u| u.graded).count();
     let failed = o.failed();
     let _ = writeln!(
@@ -542,11 +613,22 @@ mod tests {
             parse_kinds("kunit,boot,smoke,boot").unwrap(),
             [Kind::Boot, Kind::Smoke, Kind::Kunit]
         );
-        assert!(parse_kinds("boot,kselftest").unwrap_err().contains("K5"));
-        assert!(parse_kinds("ltp").unwrap_err().contains("K5"));
+        assert_eq!(
+            parse_kinds("boot,kselftest").unwrap(),
+            [Kind::Boot, Kind::Kselftest]
+        );
+        assert!(parse_kinds("ltp").unwrap_err().contains("not run yet"));
         assert!(parse_kinds("fuzz").unwrap_err().contains("unknown"));
-        assert_eq!(suites(&[Kind::Boot]), ["smoke"]);
-        assert_eq!(suites(&[Kind::Kunit]), ["kunit"]);
+        let timers = ["timers".to_string(), "size".to_string()];
+        assert_eq!(suites(&[Kind::Boot], &timers), ["smoke"]);
+        assert_eq!(suites(&[Kind::Kunit], &timers), ["kunit"]);
+        assert_eq!(
+            suites(&[Kind::Kselftest], &timers),
+            ["kselftest:timers", "kselftest:size"]
+        );
+        assert_eq!(kind_of("kselftest:timers:posix_timers"), Kind::Kselftest);
+        assert_eq!(suite_kind("kselftest:timers"), Kind::Kselftest);
+        assert_eq!(suite_kind("kunit"), Kind::Kunit);
     }
 
     fn booted() -> boot::Outcome {
