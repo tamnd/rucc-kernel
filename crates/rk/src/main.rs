@@ -22,6 +22,7 @@ mod pins;
 mod probes;
 mod repo;
 mod sections;
+mod selftests;
 mod sets;
 mod symvers;
 mod syntax;
@@ -70,6 +71,7 @@ fn main() -> ExitCode {
             "test" => test_command(&repo, &args),
             "mixed" => mixed_command(&repo, &args),
             "cross-modules" => cross_modules(&repo, &args),
+            "selftests" => selftests_command(&repo, &args),
             "asm-inventory" => asm_inventory(&repo, &args),
             "baseline" => baseline_command(&repo, &args),
             "initramfs" => initramfs_command(&args).map(|_| ExitCode::SUCCESS),
@@ -757,6 +759,19 @@ fn test_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         std::fs::canonicalize(path).map_err(|e| format!("resolving {path}: {e}"))
     };
     let kinds = testrun::parse_kinds(args.get("kinds").unwrap_or("boot,smoke,kunit"))?;
+    let selftests = args
+        .get("selftests")
+        .map(|_| dir("selftests"))
+        .transpose()?;
+    let rucc_selftests = args
+        .get("rucc-selftests")
+        .map(|_| dir("rucc-selftests"))
+        .transpose()?;
+    if kinds.contains(&testrun::Kind::Kselftest) && selftests.is_none() {
+        return Err(
+            "--kinds kselftest needs --selftests, a directory rk selftests wrote".to_string(),
+        );
+    }
     let reference = dir("reference")?;
     let other = dir("other")?;
     let built = outcome_of(&other).ok();
@@ -799,6 +814,8 @@ fn test_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
             .get("rucc-busybox")
             .map(|p| read_busybox(Some(p)))
             .transpose()?,
+        selftests,
+        rucc_selftests,
         kinds,
         runs,
         timeout: number("timeout", 600)?,
@@ -810,6 +827,67 @@ fn test_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     step_summary(&summary);
     println!("wrote {}", plan.out.join("test.json").display());
     Ok(verdict(outcome.passed()))
+}
+
+/// Build the selftests of a build's tree with a compiler, for the initramfs.
+fn selftests_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+    let path = args
+        .get("build")
+        .ok_or("rk selftests needs --build, a build directory")?;
+    let dir = std::fs::canonicalize(path).map_err(|e| format!("resolving {path}: {e}"))?;
+    let made = outcome_of(&dir)?;
+    let rows = personas::Rows::load(&repo.file("rows.toml"))?;
+    let row = rows.get(&made.row)?.clone();
+    let collections: Vec<String> = match args.get("collections") {
+        Some(list) => list
+            .split(',')
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+            .map(str::to_string)
+            .collect(),
+        None => row.selftests.clone(),
+    };
+    if collections.is_empty() {
+        return Err(format!(
+            "row {} pins no selftests in rows.toml; pass --collections",
+            row.name
+        ));
+    }
+    let cc = args
+        .get("cc")
+        .map_or_else(|| made.compiler.path.display().to_string(), str::to_string);
+    let jobs = match args.get("jobs") {
+        Some(n) => n
+            .parse()
+            .map_err(|_| format!("--jobs {n} is not a number"))?,
+        None => std::thread::available_parallelism().map_or(4, std::num::NonZero::get),
+    };
+    let out = args
+        .get("out")
+        .map_or_else(|| dir.join("selftests"), std::path::PathBuf::from);
+    std::fs::create_dir_all(&out).map_err(|e| format!("creating {}: {e}", out.display()))?;
+    let out =
+        std::fs::canonicalize(&out).map_err(|e| format!("resolving {}: {e}", out.display()))?;
+    let plan = selftests::Plan {
+        source: made.source.clone(),
+        build: dir,
+        arch: row.arch.clone(),
+        cross: if build::host_is(&row.arch) {
+            String::new()
+        } else {
+            row.cross.clone()
+        },
+        cc,
+        collections,
+        jobs,
+        out,
+    };
+    let outcome = selftests::run(&plan)?;
+    let summary = selftests::summary(&outcome);
+    print!("{summary}");
+    step_summary(&summary);
+    println!("wrote {}", plan.out.join("selftests.json").display());
+    Ok(verdict(!outcome.runnable().is_empty()))
 }
 
 /// Load each build's modules into the other build's kernel and run their KUnit suites.
@@ -915,6 +993,10 @@ fn mixed_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         row,
         unit,
         busybox: read_busybox(args.get("busybox"))?,
+        selftests: args
+            .get("selftests")
+            .map(|p| std::fs::canonicalize(p).map_err(|e| format!("resolving {p}: {e}")))
+            .transpose()?,
         timeout: number("timeout", 600)?,
         jobs,
         fuel: !args.has("no-fuel"),

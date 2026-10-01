@@ -6,7 +6,8 @@
 # suite is smoke by default. The kunit suite loads every module rk test put under /lib/modules/rk,
 # in the order kbuild built them, which runs the KUnit tests they hold, and tries again with the
 # ones that failed for as long as that loads more, since a module can need one later in the
-# order. Every line rk boot and rk test read starts with RK-, apart from KUnit's own output. The
+# order. Every line rk boot and rk test read starts with RK-, apart from the TAP of KUnit and of the
+# selftests, which the kselftest:<collection> suite runs from /kselftest. The
 # C version that docs/plan/11-boot-and-tests.md describes replaces this once rucc can build it,
 # and until then both kernels run the same busybox, so the userland is never the difference.
 
@@ -72,9 +73,18 @@ kunit() {
     sleep 1
 }
 
+# One collection of the selftests rk test put under /kselftest. run_kselftest.sh prints one TAP
+# line per program, and each program's own output behind "# ".
+kselftest() {
+    [ -x /kselftest/run_kselftest.sh ] || return 0
+    cd /kselftest && ./run_kselftest.sh -c "$1"
+    cd /
+}
+
 case $suite in
     smoke) smoke ;;
     kunit) kunit ;;
+    kselftest:*) kselftest "${suite#kselftest:}" ;;
     *) echo "RK-SUITE $suite unknown" ;;
 esac
 

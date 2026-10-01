@@ -406,7 +406,7 @@ pub fn make_in(
 }
 
 /// Whether the machine we run on is the row's architecture.
-fn host_is(arch: &str) -> bool {
+pub fn host_is(arch: &str) -> bool {
     matches!(
         (std::env::consts::ARCH, arch),
         ("x86_64", "x86_64" | "i386" | "x86") | ("aarch64", "arm64") | ("riscv64", "riscv")

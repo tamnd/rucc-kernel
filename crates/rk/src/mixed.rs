@@ -286,10 +286,17 @@ pub fn recompile_args(record: &CompileRecord, object: &Path, extra: &[String]) -
 
 /// The suite a unit is reported by.
 #[must_use]
-pub fn suite_of(unit: &str) -> &'static str {
+pub fn suite_of(unit: &str) -> String {
     match testrun::kind_of(unit) {
-        Kind::Kunit => "kunit",
-        Kind::Boot | Kind::Smoke => "smoke",
+        Kind::Kunit => "kunit".to_string(),
+        Kind::Boot | Kind::Smoke => "smoke".to_string(),
+        Kind::Kselftest => {
+            let collection = unit
+                .strip_prefix("kselftest:")
+                .and_then(|rest| rest.split(':').next())
+                .unwrap_or_default();
+            format!("kselftest:{collection}")
+        }
     }
 }
 
@@ -306,6 +313,8 @@ pub struct Plan {
     pub unit: String,
     /// The userland, a static busybox.
     pub busybox: Vec<u8>,
+    /// The selftests, an `rk selftests` directory, for a `kselftest:` unit.
+    pub selftests: Option<PathBuf>,
     /// Seconds each boot may take.
     pub timeout: u64,
     /// Parallel jobs for the relink.
@@ -522,6 +531,13 @@ impl Trials<'_> {
         let suite = suite_of(&self.plan.unit);
         let files = if suite == "kunit" {
             testrun::modules(&self.tree)?
+        } else if let Some(collection) = suite.strip_prefix("kselftest:") {
+            let dir = self
+                .plan
+                .selftests
+                .as_deref()
+                .ok_or("a kselftest unit needs --selftests, an rk selftests directory")?;
+            crate::selftests::files(dir, collection)?
         } else {
             Vec::new()
         };
@@ -540,7 +556,7 @@ impl Trials<'_> {
         let outcome = outcome?;
         let console = std::fs::read_to_string(stem.with_extension("log")).unwrap_or_default();
         let kind = testrun::kind_of(&self.plan.unit);
-        let units = testrun::units_of(suite, &[kind], &outcome, &console);
+        let units = testrun::units_of(&suite, &[kind], &outcome, &console);
         Ok(units.get(&self.plan.unit) != Some(&Status::Pass))
     }
 }
@@ -1010,6 +1026,10 @@ mod tests {
         assert_eq!(suite_of("smoke:proc"), "smoke");
         assert_eq!(suite_of("kunit:list.list_add"), "kunit");
         assert_eq!(suite_of("kunit-module:lib/test_list.ko"), "kunit");
+        assert_eq!(
+            suite_of("kselftest:timers:posix_timers"),
+            "kselftest:timers"
+        );
     }
 
     #[test]
