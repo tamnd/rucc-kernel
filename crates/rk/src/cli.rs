@@ -98,6 +98,18 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
                 "no-fuel",
             ],
         ),
+        "cross-modules" => (
+            false,
+            &[
+                "reference",
+                "other",
+                "row",
+                "busybox",
+                "runs",
+                "timeout",
+                "out",
+            ],
+        ),
         "initramfs" => (false, &["out", "busybox"]),
         "asm-inventory" => (false, &["build", "jobs"]),
         "baseline" => (
@@ -144,6 +156,8 @@ usage:
   rk test --reference DIR --other DIR [--kinds boot,smoke,kunit] [--row X64] [--runs 1]
   rk mixed --reference DIR --other DIR --unit UNIT [--row X64] [--timeout 600] [--no-fuel]
           [--busybox PATH] [--rucc-busybox PATH] [--timeout 600] [--out DIR]
+  rk cross-modules --reference DIR --other DIR [--row X64] [--runs 1] [--timeout 600]
+          [--busybox PATH] [--out DIR]
   rk initramfs --out FILE [--busybox PATH]
   rk baseline [VERSION] --cc COMPILER [--row X64] [--config defconfig] [--fragment test]
               [--runs 3] [--timeout 600] [--stack-usage]
