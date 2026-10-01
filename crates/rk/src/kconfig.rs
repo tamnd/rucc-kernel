@@ -223,6 +223,19 @@ pub fn missed(config: &Config, fragment: &[(String, String)]) -> Vec<String> {
         .collect()
 }
 
+/// The options a starting `.config` turned on, as `y` or `m`, that are off after `olddefconfig`.
+/// For a distribution config these are what this toolchain could not give the kernel the
+/// distribution built, such as BTF without pahole or Rust without rustc.
+#[must_use]
+pub fn dropped(before: &Config, after: &Config) -> Vec<String> {
+    let on = |v: Option<&String>| v.is_some_and(|v| v == "y" || v == "m");
+    before
+        .iter()
+        .filter(|(symbol, value)| on(Some(value)) && !on(after.get(*symbol)))
+        .map(|(symbol, _)| symbol.clone())
+        .collect()
+}
+
 /// A value for a table cell: missing symbols show as a dash.
 fn cell(value: Option<&String>) -> String {
     value.map_or_else(|| "-".to_string(), |v| format!("`{v}`"))
@@ -364,5 +377,15 @@ CONFIG_GCC_VERSION=140200
     #[test]
     fn the_committed_divergences_read() {
         Divergences::parse(include_str!("../../../config-divergences.toml")).unwrap();
+    }
+
+    #[test]
+    fn dropped_lists_what_olddefconfig_turned_off() {
+        let before = parse(
+            "CONFIG_RUST=y\nCONFIG_BTF=y\nCONFIG_E1000=m\nCONFIG_SALT=\"x\"\n# CONFIG_KASAN is not set\n",
+        );
+        let after =
+            parse("CONFIG_BTF=y\n# CONFIG_E1000 is not set\nCONFIG_SALT=\"\"\nCONFIG_KASAN=y\n");
+        assert_eq!(dropped(&before, &after), ["E1000", "RUST"]);
     }
 }

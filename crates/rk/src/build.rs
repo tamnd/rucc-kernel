@@ -37,8 +37,11 @@ pub struct Plan {
     pub row: Row,
     /// The era of the version.
     pub era: Era,
-    /// The kbuild configuration target, as in `defconfig` or `tinyconfig`.
+    /// The kbuild configuration target, as in `defconfig` or `tinyconfig`, or the name of a
+    /// pinned distribution config.
     pub config: String,
+    /// The pinned distribution config `config` names, and the directory it lives in.
+    pub distro: Option<(crate::distro::Distro, PathBuf)>,
     /// The compiler.
     pub compiler: Compiler,
     /// kbuild's output directory.
@@ -167,6 +170,10 @@ pub struct Outcome {
     /// The fragment's requests that did not take effect.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fragment_missed: Vec<String>,
+    /// For a distribution config, the options it turns on that ended up off, because this
+    /// toolchain or this tree cannot give them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub distro_dropped: Vec<String>,
     /// Whether the configuration step succeeded.
     pub configured: bool,
     /// Whether the build step succeeded. False when it did not run.
@@ -461,6 +468,38 @@ fn failed_units(records: &[CompileRecord], source: &Path) -> Vec<String> {
     units
 }
 
+/// Write the `.config` in the output directory: the configuration target, or a pinned
+/// distribution config settled with `olddefconfig`, then the fragment if there is one. Says
+/// whether that worked, which fragment requests did not take, and which options of the
+/// distribution config ended up off.
+fn configure(plan: &Plan, cc: &str) -> Result<(bool, Vec<String>, Vec<String>), String> {
+    let out = &plan.out;
+    let mut seeded = None;
+    let target = match &plan.distro {
+        Some((distro, dir)) => {
+            let text = distro.seed(dir)?;
+            std::fs::write(out.join(".config"), &text)
+                .map_err(|e| format!("writing {}: {e}", out.join(".config").display()))?;
+            seeded = Some(kconfig::parse(&text));
+            "olddefconfig".to_string()
+        }
+        None => plan.config.clone(),
+    };
+    let mut configured = run_logged(
+        make(plan, cc, std::slice::from_ref(&target), 1, false),
+        &out.join("config.log"),
+    )? && out.join(".config").is_file();
+    let mut fragment_missed = Vec::new();
+    if let (true, Some((_, path))) = (configured, &plan.fragment) {
+        (configured, fragment_missed) = merge_fragment(plan, cc, path)?;
+    }
+    let distro_dropped = match seeded {
+        Some(before) if configured => kconfig::dropped(&before, &kconfig::load(out)?),
+        _ => Vec::new(),
+    };
+    Ok((configured, fragment_missed, distro_dropped))
+}
+
 /// Configure and build, and write `build.json` and `summary.md` in the output directory.
 pub fn run(plan: &Plan) -> Result<Outcome, String> {
     std::fs::create_dir_all(&plan.out)
@@ -499,14 +538,7 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
         ..plan.clone()
     };
     let clock = Instant::now();
-    let mut configured = run_logged(
-        make(&plan, &cc, std::slice::from_ref(&plan.config), 1, false),
-        &out.join("config.log"),
-    )? && out.join(".config").is_file();
-    let mut fragment_missed = Vec::new();
-    if let (true, Some((_, path))) = (configured, &plan.fragment) {
-        (configured, fragment_missed) = merge_fragment(&plan, &cc, path)?;
-    }
+    let (configured, fragment_missed, distro_dropped) = configure(&plan, &cc)?;
     let built = if configured && !plan.config_only {
         run_logged(
             make(&plan, &cc, &plan.targets, plan.jobs, plan.keep_going),
@@ -540,6 +572,7 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
             .as_ref()
             .map_or_else(String::new, |(name, _)| name.clone()),
         fragment_missed,
+        distro_dropped,
         configured,
         built,
         config_sha256: sha256_file(&out.join(".config")).unwrap_or_default(),
@@ -629,6 +662,14 @@ pub fn summary(o: &Outcome) -> String {
             format!("did not take: {}", o.fragment_missed.join(", "))
         };
         let _ = writeln!(s, "| fragment {} | {missed} |", o.fragment);
+    }
+    if !o.distro_dropped.is_empty() {
+        let _ = writeln!(
+            s,
+            "| distribution options left off | {}: {} |",
+            o.distro_dropped.len(),
+            o.distro_dropped.join(", ")
+        );
     }
     let _ = writeln!(
         s,

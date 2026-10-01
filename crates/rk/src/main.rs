@@ -8,6 +8,7 @@ mod build;
 mod cli;
 mod cross;
 mod demands;
+mod distro;
 mod dmesg;
 mod flags;
 mod frames;
@@ -279,6 +280,13 @@ fn build_plan(repo: &Repo, args: &Args) -> Result<build::Plan, String> {
         || vec![row.image.clone()],
         |t| t.split_whitespace().map(str::to_string).collect(),
     );
+    let distros = repo.file("configs").join("distro");
+    let distro = distro::Distros::load(&distros.join("distros.toml"))?
+        .get(&config)
+        .cloned();
+    if let Some(d) = &distro {
+        d.check(&pin.version, &row.name)?;
+    }
     let fragment = fragment_for(repo, args.get("fragment"), &era.id)?;
     let config_name = match &fragment {
         Some((name, _)) => format!("{config}+{name}"),
@@ -303,6 +311,7 @@ fn build_plan(repo: &Repo, args: &Args) -> Result<build::Plan, String> {
         row,
         era,
         config,
+        distro: distro.map(|d| (d, distros)),
         compiler,
         out,
         jobs,
