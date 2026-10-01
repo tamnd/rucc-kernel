@@ -7,7 +7,8 @@
 # in the order kbuild built them, which runs the KUnit tests they hold, and tries again with the
 # ones that failed for as long as that loads more, since a module can need one later in the
 # order. Every line rk boot and rk test read starts with RK-, apart from the TAP of KUnit and of the
-# selftests, which the kselftest:<collection> suite runs from /kselftest. The
+# selftests, which the kselftest:<collection> suite runs from /kselftest. The ltp:<runtest> suite
+# runs one LTP runtest file from /ltp and prints an RK-LTP line per test. The
 # C version that docs/plan/11-boot-and-tests.md describes replaces this once rucc can build it,
 # and until then both kernels run the same busybox, so the userland is never the difference.
 
@@ -81,10 +82,39 @@ kselftest() {
     cd /
 }
 
+# One runtest file of LTP from /ltp. Each test runs in an empty directory under /tmp with its
+# output kept aside, which goes to the console behind "# " only when the test fails. LTP exits 32
+# when there was nothing to test here, which is a skip.
+ltp() {
+    file=/ltp/runtest/$1
+    [ -f "$file" ] || return 0
+    mkdir -p /dev/shm
+    mount -t tmpfs tmpfs /dev/shm 2>/dev/null
+    export LTPROOT=/ltp TMPDIR=/tmp PATH=/ltp/testcases/bin:/bin
+    grep -v '^[[:space:]]*#' "$file" | while read -r tag command; do
+        [ -n "$tag" ] && [ -n "$command" ] || continue
+        mkdir -p /tmp/rk-ltp
+        cd /tmp/rk-ltp
+        timeout 600 sh -c "$command" </dev/null >/tmp/rk-ltp.out 2>&1
+        code=$?
+        cd /
+        case $code in
+            0) result=pass ;;
+            32) result=skip ;;
+            *) result=fail ;;
+        esac
+        [ $result = fail ] && sed 's/^/# /' /tmp/rk-ltp.out
+        echo "RK-LTP $1 $tag $result $code"
+        rm -rf /tmp/rk-ltp /tmp/rk-ltp.out
+    done
+    export PATH=/bin
+}
+
 case $suite in
     smoke) smoke ;;
     kunit) kunit ;;
     kselftest:*) kselftest "${suite#kselftest:}" ;;
+    ltp:*) ltp "${suite#ltp:}" ;;
     *) echo "RK-SUITE $suite unknown" ;;
 esac
 

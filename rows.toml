@@ -4,7 +4,8 @@
 # leaves it out when the host is the row's own architecture, so a row can name it and still build
 # natively. `image` is the make target for the boot image. The QEMU fields are read by `rk boot`.
 # `selftests` are the kselftest collections pinned for the row (plan 11.5), which `rk selftests`
-# builds and `rk test --kinds kselftest` runs.
+# builds and `rk test --kinds kselftest` runs. `ltp` are the LTP runtest files, which `rk ltp`
+# builds and `rk test --kinds ltp` runs, one boot each.
 
 [[row]]
 name = "X64"
@@ -20,6 +21,7 @@ selftests = [
     "mqueue", "pidfd", "proc", "rseq", "seccomp", "sigaltstack", "size", "timens", "timers",
     "vDSO", "ptrace", "syscall_user_dispatch", "landlock", "splice", "sync", "user_events", "x86",
 ]
+ltp = ["syscalls", "syscalls-ipc", "mm", "fs", "pty", "sched", "math", "cve", "containers"]
 
 [[row]]
 name = "A64"
@@ -35,6 +37,7 @@ selftests = [
     "mqueue", "pidfd", "proc", "rseq", "seccomp", "sigaltstack", "size", "timens", "timers",
     "vDSO", "ptrace", "syscall_user_dispatch", "landlock", "splice", "sync", "user_events", "arm64",
 ]
+ltp = ["syscalls", "syscalls-ipc", "mm", "fs", "pty", "sched", "math", "cve", "containers"]
 
 [[row]]
 name = "X32"

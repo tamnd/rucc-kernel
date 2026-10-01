@@ -1,6 +1,6 @@
 # The nightly: every pin in the current set on X64, built with gcc-14 and with rucc from tinyconfig
-# and the test fragment, and graded by rk test on boot, smoke, KUnit and the selftests, which are
-# built with gcc-14 and with rucc.
+# and the test fragment, and graded by rk test on boot, smoke, KUnit, the selftests and LTP, which
+# are built with gcc-14 and with rucc.
 #
 # Both builds of a version run in one job, because rk test and rk mixed need both build directories
 # and the objects are too big to move between jobs. When the rucc kernel fails a unit the reference
@@ -78,7 +78,8 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -qy --no-install-recommends gcc-14 flex bison bc libelf-dev libssl-dev \
-            cpio qemu-system-x86 busybox-static libcap-dev libnuma-dev rsync
+            cpio qemu-system-x86 busybox-static libcap-dev libnuma-dev rsync libaio-dev libacl1-dev \
+            libkeyutils-dev
       - name: let the runner user open /dev/kvm
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
@@ -130,16 +131,30 @@ jobs:
         run: |
           target/release/rk selftests --build "$RUNNER_TEMP/gcc" --cc rucc \
             --out "$RUNNER_TEMP/selftests-rucc"
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ${{ env.RK_CACHE }}/ltp
+          key: ltp-${{ hashFiles('ltp.toml') }}
+      - name: rk ltp with gcc-14
+        run: |
+          target/release/rk ltp --build "$RUNNER_TEMP/gcc" --cc gcc-14 --out "$RUNNER_TEMP/ltp-gcc"
+      - name: rk ltp with rucc
+        continue-on-error: true
+        run: |
+          target/release/rk ltp --build "$RUNNER_TEMP/gcc" --cc rucc --out "$RUNNER_TEMP/ltp-rucc"
       - name: rk test
         id: test
         run: |
-          rucc_selftests=()
+          rucc_userland=()
           if [ -f "$RUNNER_TEMP/selftests-rucc/selftests.json" ]; then
-            rucc_selftests=(--rucc-selftests "$RUNNER_TEMP/selftests-rucc")
+            rucc_userland+=(--rucc-selftests "$RUNNER_TEMP/selftests-rucc")
+          fi
+          if [ -f "$RUNNER_TEMP/ltp-rucc/ltp.json" ]; then
+            rucc_userland+=(--rucc-ltp "$RUNNER_TEMP/ltp-rucc")
           fi
           target/release/rk test --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
-            --kinds boot,smoke,kunit,kselftest --selftests "$RUNNER_TEMP/selftests-gcc" \
-            "${rucc_selftests[@]}" --out "$RUNNER_TEMP/test"
+            --kinds boot,smoke,kunit,kselftest,ltp --selftests "$RUNNER_TEMP/selftests-gcc" \
+            --ltp "$RUNNER_TEMP/ltp-gcc" "${rucc_userland[@]}" --out "$RUNNER_TEMP/test"
       - name: rk cross-modules
         if: always() && steps.test.outcome != 'skipped'
         continue-on-error: true
@@ -153,11 +168,12 @@ jobs:
           unit=$(python3 -c 'import json, sys; t = json.load(open(sys.argv[1])); print(next((u["name"] for u in t["units"] if u["graded"] and not u["passed"] and u.get("attribution", "kernel") == "kernel"), ""))' "$RUNNER_TEMP/test/test.json")
           if [ -z "$unit" ]; then echo "no kernel failure to bisect"; exit 0; fi
           target/release/rk mixed --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
-            --unit "$unit" --selftests "$RUNNER_TEMP/selftests-gcc" --out "$RUNNER_TEMP/mixed"
+            --unit "$unit" --selftests "$RUNNER_TEMP/selftests-gcc" --ltp "$RUNNER_TEMP/ltp-gcc" \
+            --out "$RUNNER_TEMP/mixed"
       - name: keep the record
         if: always()
         run: |
-          mkdir -p record/gcc record/rucc record/test record/mixed record/cross record/selftests
+          mkdir -p record/gcc record/rucc record/test record/mixed record/cross record/selftests record/ltp
           for side in gcc rucc; do
             cp "$RUNNER_TEMP/$side"/{build.json,summary.md,build.log,.config} "record/$side/" 2>/dev/null || true
           done
@@ -166,6 +182,8 @@ jobs:
           for side in gcc rucc; do
             mkdir -p "record/selftests/$side"
             cp -r "$RUNNER_TEMP/selftests-$side"/{selftests.json,logs} "record/selftests/$side/" 2>/dev/null || true
+            mkdir -p "record/ltp/$side"
+            cp -r "$RUNNER_TEMP/ltp-$side"/{ltp.json,logs} "record/ltp/$side/" 2>/dev/null || true
           done
           cp "$RUNNER_TEMP"/mixed/{mixed.json,summary.md,relink.jsonl} "$RUNNER_TEMP"/mixed/*.log record/mixed/ 2>/dev/null || true
           cp -r "$RUNNER_TEMP/mixed/fuel" record/mixed/ 2>/dev/null || true

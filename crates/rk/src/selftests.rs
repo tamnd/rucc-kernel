@@ -338,7 +338,7 @@ pub fn libraries<'a>(programs: impl IntoIterator<Item = &'a [u8]>) -> Vec<(Strin
 }
 
 /// Every file under a directory, by its path relative to `base`.
-fn walk(dir: &Path, base: &Path, out: &mut Vec<(String, Vec<u8>)>) -> Result<(), String> {
+pub fn walk(dir: &Path, base: &Path, out: &mut Vec<(String, Vec<u8>)>) -> Result<(), String> {
     let entries = std::fs::read_dir(dir).map_err(|e| format!("reading {}: {e}", dir.display()))?;
     let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
     paths.sort();

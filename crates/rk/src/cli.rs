@@ -33,30 +33,30 @@ const SWITCHES: &[&str] = &[
     "no-fuel",
 ];
 
+/// The flags of `rk build`.
+const BUILD: &[&str] = &[
+    "row",
+    "config",
+    "cc",
+    "out",
+    "jobs",
+    "targets",
+    "bringup",
+    "bringup-cc",
+    "fragment",
+    "keep-going",
+    "twice",
+    "stack-usage",
+    "config-only",
+    "no-upstream-check",
+];
+
 /// Options each command accepts, and whether it takes a positional word.
 fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
     Some(match command {
         "fetch" => (true, &["set", "no-upstream-check", "all"]),
         "sets" => (false, &["releases", "write"]),
-        "build" => (
-            true,
-            &[
-                "row",
-                "config",
-                "cc",
-                "out",
-                "jobs",
-                "targets",
-                "bringup",
-                "bringup-cc",
-                "fragment",
-                "keep-going",
-                "twice",
-                "stack-usage",
-                "config-only",
-                "no-upstream-check",
-            ],
-        ),
+        "build" => (true, BUILD),
         "config-diff" => (false, &["reference", "other", "why", "source"]),
         "probes" | "flags-diff" | "symvers-diff" | "objtool-report" => {
             (false, &["reference", "other"])
@@ -81,12 +81,15 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
                 "rucc-busybox",
                 "selftests",
                 "rucc-selftests",
+                "ltp",
+                "rucc-ltp",
                 "runs",
                 "timeout",
                 "out",
             ],
         ),
         "selftests" => (false, &["build", "cc", "collections", "jobs", "out"]),
+        "ltp" => (false, &["build", "cc", "runtests", "jobs", "out"]),
         "mixed" => (
             false,
             &[
@@ -96,6 +99,7 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
                 "unit",
                 "busybox",
                 "selftests",
+                "ltp",
                 "timeout",
                 "jobs",
                 "out",
@@ -157,14 +161,15 @@ usage:
   rk syntax --build DIR [--cc rucc] [--allow FILE] [--jobs N]
   rk boot --build DIR [--row X64] [--initramfs FILE | --busybox PATH] [--timeout 300]
           [--append WORDS]
-  rk test --reference DIR --other DIR [--kinds boot,smoke,kunit,kselftest] [--row X64] [--runs 1]
-          [--selftests DIR] [--rucc-selftests DIR]
-  rk mixed --reference DIR --other DIR --unit UNIT [--row X64] [--timeout 600] [--no-fuel]
-          [--selftests DIR]
+  rk test --reference DIR --other DIR [--kinds boot,smoke,kunit,kselftest,ltp] [--row X64]
+          [--runs 1] [--selftests DIR] [--rucc-selftests DIR] [--ltp DIR] [--rucc-ltp DIR]
           [--busybox PATH] [--rucc-busybox PATH] [--timeout 600] [--out DIR]
+  rk mixed --reference DIR --other DIR --unit UNIT [--row X64] [--timeout 600] [--no-fuel]
+          [--selftests DIR] [--ltp DIR]
   rk cross-modules --reference DIR --other DIR [--row X64] [--runs 1] [--timeout 600]
           [--busybox PATH] [--out DIR]
   rk selftests --build DIR [--cc COMPILER] [--collections timers,size] [--jobs N] [--out DIR]
+  rk ltp --build DIR [--cc COMPILER] [--runtests syscalls,mm] [--jobs N] [--out DIR]
   rk initramfs --out FILE [--busybox PATH]
   rk baseline [VERSION] --cc COMPILER [--row X64] [--config defconfig] [--fragment test]
               [--runs 3] [--timeout 600] [--stack-usage]

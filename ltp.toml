@@ -1,0 +1,9 @@
+# The LTP release `rk ltp` builds (plan 11.5). The tarball is the full one from the release page,
+# checked against `sha256` before it is unpacked into the cache. The runtest files each row runs
+# are pinned in rows.toml.
+#
+# To move the pin, take the hash from the `.sha256` file published next to the tarball.
+
+version = "20260529"
+url = "https://github.com/linux-test-project/ltp/releases/download/20260529/ltp-full-20260529.tar.xz"
+sha256 = "685d83c6e370ac09201fb79593412f868fe031ee2890e204b5727fedcf51fb47"
