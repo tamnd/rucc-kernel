@@ -61,7 +61,8 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
         "probes" | "flags-diff" | "symvers-diff" | "objtool-report" => {
             (false, &["reference", "other"])
         }
-        "sections-diff" | "frames" => (false, &["reference", "other", "save"]),
+        "sections-diff" => (false, &["reference", "other", "save", "all"]),
+        "frames" => (false, &["reference", "other", "save"]),
         "vec-audit" => (false, &["build", "reference", "save"]),
         "modules-audit" => (false, &["build"]),
         "syntax" => (false, &["build", "cc", "allow", "jobs"]),
@@ -152,7 +153,7 @@ usage:
   rk config-diff --reference DIR --other DIR [--why] [--source DIR]
   rk flags-diff --reference DIR --other DIR
   rk probes --reference DIR --other DIR
-  rk sections-diff --reference DIR|FILE [--other DIR|FILE] [--save FILE]
+  rk sections-diff --reference DIR|FILE [--other DIR|FILE] [--save FILE] [--all]
   rk symvers-diff --reference DIR --other DIR
   rk vec-audit --build DIR|FILE [--reference DIR|FILE] [--save FILE]
   rk modules-audit --build DIR

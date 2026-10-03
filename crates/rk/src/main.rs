@@ -509,7 +509,7 @@ fn sections_diff(args: &Args) -> Result<ExitCode, String> {
     }
     let other = objects::load_or_scan(std::path::Path::new(other), sections::scan)?;
     let comparison = sections::compare(&reference, &other);
-    print!("{}", sections::report(&comparison));
+    print!("{}", sections::report(&comparison, args.has("all")));
     Ok(verdict(comparison.clean()))
 }
 
