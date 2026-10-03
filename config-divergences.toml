@@ -11,3 +11,19 @@
 [[divergence]]
 symbol = "CC_VERSION_TEXT"
 reason = "the first line of --version, which names the compiler and so always differs"
+
+[[divergence]]
+symbol = "CC_HAS_KASAN_*"
+reason = "rucc has no -fsanitize=kernel-address or kernel-hwaddress, and plan section 8.10 keeps the sanitizers out of the grade, with KASAN off in both builds"
+
+[[divergence]]
+symbol = "KASAN"
+reason = "only visible when the compiler can build it, see CC_HAS_KASAN_*"
+
+[[divergence]]
+symbol = "HAVE_KCSAN_COMPILER"
+reason = "rucc has no -fsanitize=thread, and plan section 8.10 keeps the sanitizers out of the grade, with KCSAN off in both builds"
+
+[[divergence]]
+symbol = "KCSAN"
+reason = "only visible when the compiler can build it, see HAVE_KCSAN_COMPILER"

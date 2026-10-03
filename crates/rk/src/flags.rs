@@ -76,12 +76,21 @@ pub fn load(out: &Path) -> Result<Commands, String> {
                     continue;
                 };
                 if let Some((object, words)) = parse_cmd(&text) {
-                    commands.insert(object, words);
+                    commands.insert(relative(&object, out), words);
                 }
             }
         }
     }
     Ok(commands)
+}
+
+/// An object's name relative to the output directory. objtool is built by its own makefile, which
+/// names its objects by their full path, so without this every one of them is in one build only.
+fn relative(object: &str, out: &Path) -> String {
+    Path::new(object).strip_prefix(out).map_or_else(
+        |_| object.to_string(),
+        |rest| rest.to_string_lossy().into_owned(),
+    )
 }
 
 /// A command made comparable: `CC` for the compiler, no persona, no output or dependency file,
@@ -287,6 +296,20 @@ mod tests {
             normalize(&words, &[(out, "OUT"), ("/src/linux", "SRC")]),
         );
         c
+    }
+
+    #[test]
+    fn an_object_named_by_its_full_path_is_keyed_like_the_rest() {
+        let out = Path::new("/w/out/def-gcc");
+        assert_eq!(
+            relative("/w/out/def-gcc/tools/objtool/elf.o", out),
+            "tools/objtool/elf.o"
+        );
+        assert_eq!(relative("kernel/fork.o", out), "kernel/fork.o");
+        assert_eq!(
+            relative("/w/out/def-rucc/elf.o", out),
+            "/w/out/def-rucc/elf.o"
+        );
     }
 
     #[test]
