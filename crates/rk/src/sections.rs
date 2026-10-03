@@ -9,15 +9,21 @@
 //! The set of section names is the same, once the per-function names that
 //! `-ffunction-sections` and `-fdata-sections` make are folded into one, and the per-symbol
 //! export sections of 5.x into theirs. The size and relocation count of every kernel table is the
-//! same. The call-site lists that depend on inlining, `__mcount_loc` and the lists objtool writes,
-//! are compared per function, for the functions both objects have. The strings of `.modinfo`
-//! and `__ksymtab_strings` are the same.
+//! same, apart from the four tables whose entries are written by the code they describe:
+//! `__jump_table`, `__bug_table`, `__ex_table` and `.altinstructions`. Every inlined copy of a
+//! `static_branch_unlikely` or a `WARN_ON` adds its own entry, so their counts follow the
+//! inliner. For those, the set of distinct sites must be the same: the static key and branch of a
+//! jump label, the format, file, line and flags of a bug, the fixup type of an exception entry,
+//! and the CPU feature of an alternative. A site dropped by a lost `asm goto` or `.pushsection`
+//! still shows. The call-site lists that depend on inlining, `__mcount_loc` and the lists objtool
+//! writes, are compared per function, for the functions both objects have. The strings of
+//! `.modinfo` and `__ksymtab_strings` are the same.
 //!
 //! A build directory is read by walking its objects. `--save FILE` keeps what was found as JSON,
 //! so that CI can compare two builds without carrying their objects between jobs.
 
 use crate::objects::{self, Functions};
-use object::{Object as _, ObjectSection as _};
+use object::{Object as _, ObjectSection as _, ObjectSymbol as _, RelocationTarget, SymbolKind};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -41,6 +47,16 @@ const TABLES: &[&str] = &[
     "_ftrace_events",
     "__syscalls_metadata",
     ".BTF_ids",
+];
+
+/// The tables whose entries come with the code they describe, compared by the distinct sites
+/// they hold, with the size of one entry when it is fixed. A `__bug_table` entry is as large as
+/// the configuration makes it, so its size is the table's over the entries in it.
+const INLINED: &[(&str, u64)] = &[
+    ("__jump_table", 16),
+    ("__ex_table", 12),
+    (".altinstructions", 14),
+    ("__bug_table", 0),
 ];
 
 /// The call-site lists, which depend on inlining and are compared per function.
@@ -164,6 +180,9 @@ pub struct Object {
     pub tables: BTreeMap<String, Table>,
     /// The call-site lists, entries by function.
     pub sites: BTreeMap<String, BTreeMap<String, u64>>,
+    /// The distinct sites of the tables in [`INLINED`].
+    #[serde(default)]
+    pub distinct: BTreeMap<String, BTreeSet<String>>,
     /// The strings of `.modinfo`, in order.
     pub modinfo: Vec<String>,
     /// The strings of `__ksymtab_strings`, in order.
@@ -180,10 +199,166 @@ fn strings(data: &[u8]) -> Vec<String> {
         .collect()
 }
 
+/// The named symbols of an object by section index, sorted by address, for naming what a table
+/// entry points at. The assembler may write a reference to a `static` as its section and an
+/// offset, so the name has to be found again.
+struct Named {
+    by_section: BTreeMap<usize, Vec<(u64, u64, String)>>,
+}
+
+impl Named {
+    fn of(file: &object::File<'_>) -> Self {
+        let mut by_section: BTreeMap<usize, Vec<(u64, u64, String)>> = BTreeMap::new();
+        for symbol in file.symbols() {
+            if symbol.kind() == SymbolKind::Section || symbol.kind() == SymbolKind::File {
+                continue;
+            }
+            let (Some(section), Ok(name)) = (symbol.section_index(), symbol.name()) else {
+                continue;
+            };
+            if name.is_empty() || name.starts_with(".L") {
+                continue;
+            }
+            by_section.entry(section.0).or_default().push((
+                symbol.address(),
+                symbol.size(),
+                name.to_string(),
+            ));
+        }
+        for list in by_section.values_mut() {
+            list.sort();
+        }
+        Self { by_section }
+    }
+
+    /// The symbol covering an offset in a section and how far into it the offset is.
+    fn at(&self, section: usize, offset: u64) -> Option<(&str, u64)> {
+        let list = self.by_section.get(&section)?;
+        let i = list.partition_point(|(start, _, _)| *start <= offset);
+        let (start, size, name) = list.get(i.checked_sub(1)?)?;
+        (offset < start + (*size).max(1)).then(|| (name.as_str(), offset - start))
+    }
+}
+
+/// What a relocation in a table entry points at, written so that it reads the same in both
+/// builds: a string by its text, data by the symbol it falls in, and anything else by section
+/// and offset. `None` for code, since where code lands is the compiler's business.
+fn pointee(file: &object::File<'_>, reloc: &object::Relocation, named: &Named) -> Option<String> {
+    let RelocationTarget::Symbol(index) = reloc.target() else {
+        return Some(String::from("?"));
+    };
+    let symbol = file.symbol_by_index(index).ok()?;
+    let name = symbol.name().unwrap_or_default();
+    let Some(section) = symbol.section_index() else {
+        return Some(format!("{name}{:+}", reloc.addend()));
+    };
+    let section = file.section_by_index(section).ok()?;
+    if section.kind() == object::SectionKind::Text {
+        return None;
+    }
+    let offset = symbol.address().wrapping_add_signed(reloc.addend());
+    if section.kind() == object::SectionKind::ReadOnlyString
+        || section.name().is_ok_and(|n| n.starts_with(".rodata.str"))
+    {
+        let data = section.data().unwrap_or_default();
+        let rest = usize::try_from(offset)
+            .ok()
+            .and_then(|o| data.get(o..))
+            .unwrap_or_default();
+        let end = rest.iter().position(|b| *b == 0).unwrap_or(rest.len());
+        return Some(format!("{:?}", String::from_utf8_lossy(&rest[..end])));
+    }
+    if let Some((found, into)) = named.at(section.index().0, offset) {
+        return Some(format!("{found}+{into}"));
+    }
+    Some(format!(
+        "{}+{offset}",
+        fold(section.name().unwrap_or_default())
+    ))
+}
+
+/// The distinct sites of one of the [`INLINED`] tables. A site is everything in an entry that is
+/// not the address of code: the static key and branch bit of a jump label, the strings, line and
+/// flags of a bug, the type and immediate of an exception entry with the register it names left
+/// out, and the CPU feature and flags of an alternative. The lengths of an alternative's
+/// instructions are left out with the register, since both follow register allocation.
+fn distinct(
+    file: &object::File<'_>,
+    section: &object::Section<'_, '_>,
+    table: &str,
+    size: u64,
+    named: &Named,
+) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    let data = section.data().unwrap_or_default();
+    let relocs: Vec<(u64, object::Relocation)> = section.relocations().collect();
+    let size = if size > 0 {
+        size
+    } else {
+        let code = relocs
+            .iter()
+            .filter(|(_, r)| pointee(file, r, named).is_none())
+            .count() as u64;
+        if code == 0 {
+            return out;
+        }
+        section.size() / code
+    };
+    if size == 0 {
+        return out;
+    }
+    let mut fields: BTreeMap<u64, Vec<String>> = BTreeMap::new();
+    let mut covered = vec![false; data.len()];
+    for (offset, reloc) in &relocs {
+        let width = usize::from(reloc.size() / 8).max(1);
+        if let Ok(start) = usize::try_from(*offset) {
+            for b in covered.iter_mut().skip(start).take(width) {
+                *b = true;
+            }
+        }
+        if let Some(to) = pointee(file, reloc, named) {
+            fields
+                .entry(offset / size)
+                .or_default()
+                .push(format!("{}={to}", offset % size));
+        }
+    }
+    let size = usize::try_from(size).unwrap_or(usize::MAX);
+    for (i, entry) in data.chunks(size).enumerate() {
+        let start = i * size;
+        let mut parts = fields.remove(&(i as u64)).unwrap_or_default();
+        let raw: Vec<u8> = match table {
+            "__ex_table" => entry
+                .get(8..12)
+                .map(|d| {
+                    let v = u32::from_le_bytes([d[0], d[1], d[2], d[3]]) & !0x0f00;
+                    v.to_le_bytes().to_vec()
+                })
+                .unwrap_or_default(),
+            ".altinstructions" => entry.get(8..12).unwrap_or_default().to_vec(),
+            _ => entry
+                .iter()
+                .enumerate()
+                .filter(|(j, _)| !covered.get(start + j).copied().unwrap_or(false))
+                .map(|(_, b)| *b)
+                .collect(),
+        };
+        if !raw.is_empty() {
+            parts.push(raw.iter().fold(String::new(), |mut hex, b| {
+                let _ = write!(hex, "{b:02x}");
+                hex
+            }));
+        }
+        out.insert(parts.join(" "));
+    }
+    out
+}
+
 /// Read one object.
 pub fn read(data: &[u8]) -> Result<Object, String> {
     let file = object::File::parse(data).map_err(|e| e.to_string())?;
     let functions = Functions::of(&file);
+    let named = Named::of(&file);
     let mut out = Object::default();
     for section in file.sections() {
         let Ok(name) = section.name() else { continue };
@@ -206,6 +381,12 @@ pub fn read(data: &[u8]) -> Result<Object, String> {
                 }
             }
         } else if let Some(table) = table_of(name) {
+            if let Some(&(_, size)) = INLINED.iter().find(|(t, _)| *t == table) {
+                out.distinct
+                    .entry(table.clone())
+                    .or_default()
+                    .extend(distinct(&file, &section, &table, size, &named));
+            }
             let entry = out.tables.entry(table).or_default();
             entry.size += section.size();
             entry.relocs += section.relocations().count() as u64;
@@ -272,7 +453,7 @@ impl Comparison {
 }
 
 fn set_difference(a: &BTreeSet<String>, b: &BTreeSet<String>) -> String {
-    a.difference(b).cloned().collect::<Vec<_>>().join(" ")
+    a.difference(b).cloned().collect::<Vec<_>>().join(", ")
 }
 
 fn list_difference(a: &[String], b: &[String]) -> String {
@@ -302,7 +483,16 @@ fn compare_object(name: &str, r: &Object, o: &Object, out: &mut Vec<Difference>)
         );
     }
     let tables: BTreeSet<&String> = r.tables.keys().chain(o.tables.keys()).collect();
+    let empty = BTreeSet::new();
     for table in tables {
+        if INLINED.iter().any(|(t, _)| t == table) {
+            let a = r.distinct.get(table).unwrap_or(&empty);
+            let b = o.distinct.get(table).unwrap_or(&empty);
+            if a != b {
+                push(table, set_difference(a, b), set_difference(b, a));
+            }
+            continue;
+        }
         let a = r.tables.get(table).copied().unwrap_or_default();
         let b = o.tables.get(table).copied().unwrap_or_default();
         if a != b {
@@ -479,8 +669,13 @@ mod tests {
         }
         b.reloc(mcount, 8 * sites as u64, g, R_X86_64_64);
         let table = b.section("__jump_table", &vec![0; 16 * jump]);
-        for i in 0..jump {
+        let keys: Vec<_> = (0..jump)
+            .map(|i| b.data(&format!("key{i}"), &[0; 16]))
+            .collect();
+        for (i, key) in keys.into_iter().enumerate() {
             b.reloc(table, 16 * i as u64, f, R_X86_64_64);
+            b.reloc(table, 16 * i as u64 + 4, g, R_X86_64_64);
+            b.reloc(table, 16 * i as u64 + 8, key, R_X86_64_64);
         }
         b.section(".modinfo", format!("license={license}\0").as_bytes());
         b.bytes()
@@ -495,7 +690,11 @@ mod tests {
         let r = &reference["a.o"];
         assert_eq!(r.sites["__mcount_loc"]["f"], 1);
         assert_eq!(r.sites["__mcount_loc"]["g"], 1);
-        assert_eq!(r.tables["__jump_table"].relocs, 2);
+        assert_eq!(r.tables["__jump_table"].relocs, 6);
+        assert_eq!(
+            r.distinct["__jump_table"],
+            ["8=key0+0".to_string(), "8=key1+0".to_string()].into()
+        );
         assert_eq!(r.modinfo, ["license=GPL"]);
         assert!(r.sections.contains("__jump_table"));
 
@@ -504,6 +703,34 @@ mod tests {
         let what: Vec<&str> = c.differences.iter().map(|d| d.what.as_str()).collect();
         assert_eq!(what, ["__jump_table", "__mcount_loc in f", ".modinfo"]);
         assert!(report(&c).contains("| a.o | __mcount_loc in f | 1 | 3 |"));
+        assert!(report(&c).contains("| a.o | __jump_table | 8=key1+0 | nothing |"));
+    }
+
+    /// Two copies of one site, as when a function with a static branch is inlined twice.
+    fn copies(n: usize) -> Vec<u8> {
+        let mut b = Builder::new();
+        let f = b.function("f", &[0x90; 8]);
+        let key = b.data("key", &[0; 16]);
+        let table = b.section("__jump_table", &vec![0; 16 * n]);
+        for i in 0..n as u64 {
+            b.reloc(table, 16 * i, f, R_X86_64_64);
+            b.reloc(table, 16 * i + 4, f, R_X86_64_64);
+            b.reloc(table, 16 * i + 8, key, R_X86_64_64);
+        }
+        let bug = b.section("__bug_table", &vec![0; 12 * n]);
+        for i in 0..n as u64 {
+            b.reloc(bug, 12 * i, f, R_X86_64_64);
+        }
+        b.bytes()
+    }
+
+    #[test]
+    fn more_copies_of_the_same_site_are_not_a_difference() {
+        let reference: Inventory = [("a.o".to_string(), read(&copies(1)).unwrap())].into();
+        let other: Inventory = [("a.o".to_string(), read(&copies(3)).unwrap())].into();
+        assert_eq!(other["a.o"].tables["__jump_table"].relocs, 9);
+        assert_eq!(other["a.o"].distinct["__bug_table"].len(), 1);
+        assert!(compare(&reference, &other).clean());
     }
 
     #[test]
