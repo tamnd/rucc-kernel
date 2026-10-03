@@ -46,6 +46,7 @@ pub fn replay_args(record: &CompileRecord, extra: &[String]) -> Vec<String> {
             || arg.starts_with("-Wp,-MD,")
             || arg.starts_with("-Wp,-MMD,")
             || arg.starts_with("-fgnuc-version=")
+            || arg.starts_with("-fgnu-as-version=")
         {
             continue;
         }
