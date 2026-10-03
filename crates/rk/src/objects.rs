@@ -190,6 +190,22 @@ pub mod fixture {
             })
         }
 
+        /// A global object with its bytes in `.data`.
+        pub fn data(&mut self, name: &str, bytes: &[u8]) -> object::write::SymbolId {
+            let data = self.obj.section_id(StandardSection::Data);
+            let offset = self.obj.append_section_data(data, bytes, 8);
+            self.obj.add_symbol(Symbol {
+                name: name.as_bytes().to_vec(),
+                value: offset,
+                size: bytes.len() as u64,
+                kind: SymbolKind::Data,
+                scope: SymbolScope::Linkage,
+                weak: false,
+                section: SymbolSection::Section(data),
+                flags: SymbolFlags::None,
+            })
+        }
+
         /// A data section with the given bytes.
         pub fn section(&mut self, name: &str, data: &[u8]) -> object::write::SectionId {
             let id = self
