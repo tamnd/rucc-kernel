@@ -26,7 +26,10 @@ pub fn question(record: &CompileRecord) -> String {
             args.next();
             continue;
         }
-        if arg.starts_with("-fgnuc-version=") || (arg.starts_with("-o") && arg.len() > 2) {
+        if arg.starts_with("-fgnuc-version=")
+            || arg.starts_with("-fgnu-as-version=")
+            || (arg.starts_with("-o") && arg.len() > 2)
+        {
             continue;
         }
         if arg.contains(".tmp_") {

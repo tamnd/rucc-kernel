@@ -98,6 +98,7 @@ pub fn normalize(words: &[String], dirs: &[(&str, &str)]) -> Vec<String> {
             continue;
         }
         if word.starts_with("-fgnuc-version=")
+            || word.starts_with("-fgnu-as-version=")
             || word.starts_with("-Wp,-MD,")
             || word.starts_with("-Wp,-MMD,")
             || matches!(word.as_str(), "-MD" | "-MMD")

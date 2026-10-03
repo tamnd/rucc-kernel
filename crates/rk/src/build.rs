@@ -3,8 +3,9 @@
 //! The tree is never written to. kbuild's output goes under `O=`, and the compiler is the shim,
 //! copied into the build directory with an `rk-cc.toml` naming the real compiler, so that every
 //! sub make, including the ones that clean their environment, still goes through it. When the
-//! compiler is rucc, the era's persona is part of `CC`, as `rk-cc -fgnuc-version=14.2.0`, which
-//! is what a user building by hand would write too.
+//! compiler is rucc, the era's persona is part of `CC`, as `rk-cc -fgnuc-version=14.2.0
+//! -fgnu-as-version=2.44`, which is what a user building by hand would write too. The second one
+//! is what `scripts/as-version.sh` reads, so `CONFIG_AS_VERSION` matches the reference's binutils.
 //!
 //! Nothing else is added to the command line, with one exception that changes no code:
 //! `--stack-usage` passes `KCFLAGS=-fstack-usage`, as the kernel's own `scripts/stackusage` does,
@@ -524,7 +525,10 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
         .map_err(|e| format!("writing the shim's settings: {e}"))?;
 
     let persona = if plan.compiler.rucc {
-        vec![format!("-fgnuc-version={}", plan.era.gnuc)]
+        vec![
+            format!("-fgnuc-version={}", plan.era.gnuc),
+            format!("-fgnu-as-version={}", plan.era.gnu_as),
+        ]
     } else {
         Vec::new()
     };

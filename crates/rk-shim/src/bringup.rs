@@ -68,13 +68,16 @@ const NEWER_THAN_BRINGUP: &[&str] = &["-fzero-init-padding-bits="];
 
 /// The arguments a call hands to its compiler.
 ///
-/// rk puts the era's persona in `CC` as `-fgnuc-version=`, which only rucc knows. GCC refuses
+/// rk puts the era's persona in `CC` as `-fgnuc-version=` and `-fgnu-as-version=`, which only rucc
+/// knows. GCC refuses
 /// it, so a delegated call leaves it out, along with the flags in [`NEWER_THAN_BRINGUP`]. Every
 /// other argument goes through as kbuild wrote it.
 #[must_use]
 pub fn passed_on(args: &[String], delegated: bool) -> Vec<String> {
     let refused = |a: &str| {
-        a.starts_with("-fgnuc-version=") || NEWER_THAN_BRINGUP.iter().any(|f| a.starts_with(f))
+        a.starts_with("-fgnuc-version=")
+            || a.starts_with("-fgnu-as-version=")
+            || NEWER_THAN_BRINGUP.iter().any(|f| a.starts_with(f))
     };
     args.iter()
         .filter(|a| !(delegated && refused(a)))
@@ -177,10 +180,18 @@ mod tests {
 
     #[test]
     fn the_persona_is_not_passed_on_to_the_other_compiler() {
-        let args: Vec<String> = ["-fgnuc-version=14.2.0", "-m16", "-c", "-o", "a.o", "a.S"]
-            .iter()
-            .map(|s| (*s).to_string())
-            .collect();
+        let args: Vec<String> = [
+            "-fgnuc-version=14.2.0",
+            "-fgnu-as-version=2.44",
+            "-m16",
+            "-c",
+            "-o",
+            "a.o",
+            "a.S",
+        ]
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect();
         assert_eq!(passed_on(&args, true), ["-m16", "-c", "-o", "a.o", "a.S"]);
         assert_eq!(passed_on(&args, false), args, "rucc keeps it");
     }
