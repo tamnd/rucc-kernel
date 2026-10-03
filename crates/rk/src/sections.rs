@@ -219,6 +219,11 @@ impl Named {
             if name.is_empty() || name.starts_with(".L") {
                 continue;
             }
+            let name = if symbol.is_local() {
+                unnumbered(name)
+            } else {
+                name
+            };
             by_section.entry(section.0).or_default().push((
                 symbol.address(),
                 symbol.size(),
@@ -237,6 +242,19 @@ impl Named {
         let i = list.partition_point(|(start, _, _)| *start <= offset);
         let (start, size, name) = list.get(i.checked_sub(1)?)?;
         (offset < start + (*size).max(1)).then(|| (name.as_str(), offset - start))
+    }
+}
+
+/// A local name without the number a compiler puts after it to tell apart the function-local
+/// statics of one name, `___once_key.35`, which each compiler counts its own way.
+fn unnumbered(name: &str) -> &str {
+    match name.rsplit_once('.') {
+        Some((stem, n))
+            if !stem.is_empty() && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            stem
+        }
+        _ => name,
     }
 }
 
@@ -336,6 +354,7 @@ fn distinct(
                 })
                 .unwrap_or_default(),
             ".altinstructions" => entry.get(8..12).unwrap_or_default().to_vec(),
+            "__jump_table" => Vec::new(),
             _ => entry
                 .iter()
                 .enumerate()
@@ -657,6 +676,10 @@ mod tests {
             Some(".initcall6.init")
         );
         assert_eq!(table_of(".text"), None);
+        assert_eq!(unnumbered("___once_key.35"), "___once_key");
+        assert_eq!(unnumbered("x.constprop.0"), "x.constprop");
+        assert_eq!(unnumbered("version.3a"), "version.3a");
+        assert_eq!(unnumbered(".7"), ".7");
     }
 
     fn object(sites: usize, jump: usize, license: &str) -> Vec<u8> {
