@@ -592,9 +592,10 @@ fn cell(s: &str) -> String {
     }
 }
 
-/// The comparison as markdown.
+/// The comparison as markdown, with the first 60 differences or, with `all`, every one.
 #[must_use]
-pub fn report(c: &Comparison) -> String {
+pub fn report(c: &Comparison, all: bool) -> String {
+    let rows = if all { c.differences.len() } else { ROWS };
     let mut s = String::from("### Sections and kernel tables\n\n");
     let _ = writeln!(
         s,
@@ -615,7 +616,7 @@ pub fn report(c: &Comparison) -> String {
             let _ = writeln!(s, "| `{what}` | {n} |");
         }
         s.push_str("\n| object | what | reference only | other only |\n|---|---|---|---|\n");
-        for d in c.differences.iter().take(ROWS) {
+        for d in c.differences.iter().take(rows) {
             let _ = writeln!(
                 s,
                 "| {} | {} | {} | {} |",
@@ -625,8 +626,12 @@ pub fn report(c: &Comparison) -> String {
                 cell(&d.other)
             );
         }
-        if c.differences.len() > ROWS {
-            let _ = writeln!(s, "\nand {} more.", c.differences.len() - ROWS);
+        if c.differences.len() > rows {
+            let _ = writeln!(
+                s,
+                "\nand {} more, which `--all` lists.",
+                c.differences.len() - rows
+            );
         }
         s.push('\n');
     }
@@ -725,8 +730,8 @@ mod tests {
         let c = compare(&reference, &other);
         let what: Vec<&str> = c.differences.iter().map(|d| d.what.as_str()).collect();
         assert_eq!(what, ["__jump_table", "__mcount_loc in f", ".modinfo"]);
-        assert!(report(&c).contains("| a.o | __mcount_loc in f | 1 | 3 |"));
-        assert!(report(&c).contains("| a.o | __jump_table | 8=key1+0 | nothing |"));
+        assert!(report(&c, false).contains("| a.o | __mcount_loc in f | 1 | 3 |"));
+        assert!(report(&c, false).contains("| a.o | __jump_table | 8=key1+0 | nothing |"));
     }
 
     /// Two copies of one site, as when a function with a static branch is inlined twice.
@@ -767,6 +772,6 @@ mod tests {
         let c = compare(&reference, &other);
         assert!(c.clean());
         assert_eq!(c.only_reference, ["b.o"]);
-        assert!(report(&c).contains("Only in the reference: b.o"));
+        assert!(report(&c, false).contains("Only in the reference: b.o"));
     }
 }
