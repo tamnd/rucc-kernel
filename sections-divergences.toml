@@ -30,6 +30,12 @@ reason = "a switch turned into a lookup table, or a constant local array kept in
 [[divergence]]
 what = "sections"
 only = "either"
+item = ".init.rodata"
+reason = "a constant local array in an __init function kept in memory, such as the ids in add_rtc_cmos on 6.1, which gcc removes after it unrolls the loop over it and folds the loads"
+
+[[divergence]]
+what = "sections"
+only = "either"
 item = ".rodata.str*"
 reason = "a string only one compiler keeps, because the other proved the code that used it dead or built the string with immediate stores"
 
@@ -209,3 +215,40 @@ object = "kernel/signal.o"
 only = "reference"
 item = '4="include/linux/thread_info.h" f9000309'
 reason = "WARN_ON_ONCE(bytes > INT_MAX) in check_copy_size, which lives in thread_info.h on 6.12, with the same bounded copies as on 7.2.8"
+
+# 6.1.188. The sites carry no format string there either, and the lines are 6.1's.
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/char/random.o"
+only = "reference"
+item = '4="drivers/char/random.c" fe000000'
+reason = "BUG_ON(random_data_len > 32) in crng_fast_key_erasure, with the same bound as on 7.2.8"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/char/random.o"
+only = "reference"
+item = '4="drivers/char/random.c" 29010000'
+reason = "BUG_ON(random_data_len > 32) in crng_make_state, with the same bound as on 7.2.8"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ext4/extents.o"
+only = "reference"
+item = '4="fs/ext4/extents.c" 750c0000'
+reason = "the BUG_ON in ext4_split_extent_at for both DATA_VALID flags at once, where ext4_split_extent passes at most one of them and the other two callers pass only the MARK_UNWRIT flags"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ext4/page-io.o"
+only = "reference"
+item = '4="fs/ext4/page-io.c" e6000109'
+reason = "WARN_ON(!(io_end->flag & EXT4_IO_END_UNWRITTEN)) in ext4_add_complete_io, whose only caller returns early when the flag is clear, as on 6.12"
+
+[[divergence]]
+what = "__bug_table"
+object = "kernel/signal.o"
+only = "reference"
+item = '4="include/linux/thread_info.h" e9000309'
+reason = "WARN_ON_ONCE(bytes > INT_MAX) in check_copy_size, with the same bounded copies as on 6.12"
