@@ -49,6 +49,42 @@ only = "other"
 item = "*"
 reason = "a WARN or BUG check rucc keeps where gcc proved the condition never holds and removed it"
 
+[[divergence]]
+what = "sections"
+only = "either"
+item = ".discard.instr_*"
+reason = "the objtool marks around a WARN or BUG, which come and go with the sites, and the sites are compared in __bug_table"
+
+[[divergence]]
+what = "sections"
+only = "either"
+item = ".discard.reachable"
+reason = "the objtool mark after a WARN, which comes and goes with the sites, and the sites are compared in __bug_table"
+
+[[divergence]]
+what = "sections"
+only = "either"
+item = ".discard.annotate_*"
+reason = "the objtool annotations of a WARN or BUG, which come and go with the sites, and the sites are compared in __bug_table"
+
+[[divergence]]
+what = "sections"
+only = "either"
+item = "__bug_table"
+reason = "an object where one build keeps no WARN or BUG at all, and the sites are compared in __bug_table"
+
+[[divergence]]
+what = "__bug_table"
+only = "reference"
+item = '4="" 8="include/net/netmem.h" a5000309'
+reason = "WARN_ON_ONCE(netmem_is_net_iov(netmem)) in netmem_to_page, reached through skb_frag_page, which already returned NULL for a net_iov frag. gcc keeps the WARN behind a second jne on flags it just tested, as in can_map_frag"
+
+[[divergence]]
+what = "__bug_table"
+only = "reference"
+item = '4="include/net/netmem.h" 50000309'
+reason = "the netmem_to_page WARN on 6.12, with the same skb_frag_page guard. Checked in can_map_frag, tcp_sendmsg_locked, bpf_xdp_adjust_tail, the virtio_net frag paths and the xdp_return_frame family"
+
 # Sites only the reference has. Each one was read against the source and the callers in that
 # object, and in each rucc proved the check false after inlining while gcc kept an out of line
 # copy or did not carry the range that far.
@@ -76,52 +112,10 @@ reason = "BUG_ON(random_data_len > 32) in crng_make_state, with the same callers
 
 [[divergence]]
 what = "__bug_table"
-object = "drivers/net/ethernet/intel/e1000/e1000_main.o"
-only = "reference"
-item = '4="" 8="include/net/netmem.h" a5000309'
-reason = "WARN_ON_ONCE(netmem_is_net_iov(netmem)) in netmem_to_page, where the driver only passes a netmem made from a struct page, so the net_iov bit is clear"
-
-[[divergence]]
-what = "__bug_table"
-object = "drivers/net/ethernet/intel/e1000e/netdev.o"
-only = "reference"
-item = '4="" 8="include/net/netmem.h" a5000309'
-reason = "WARN_ON_ONCE(netmem_is_net_iov(netmem)) in netmem_to_page, where the driver only passes a netmem made from a struct page, so the net_iov bit is clear"
-
-[[divergence]]
-what = "__bug_table"
-object = "drivers/net/ethernet/nvidia/forcedeth.o"
-only = "reference"
-item = '4="" 8="include/net/netmem.h" a5000309'
-reason = "WARN_ON_ONCE(netmem_is_net_iov(netmem)) in netmem_to_page, where the driver only passes a netmem made from a struct page, so the net_iov bit is clear"
-
-[[divergence]]
-what = "__bug_table"
-object = "net/ipv4/tcp_output.o"
-only = "reference"
-item = '4="" 8="include/net/netmem.h" a5000309'
-reason = "WARN_ON_ONCE(netmem_is_net_iov(netmem)) in netmem_to_page, reached here only with a netmem made from a struct page, so the net_iov bit is clear"
-
-[[divergence]]
-what = "__bug_table"
 object = "fs/quota/quota.o"
 only = "reference"
 item = '4="" 8="include/linux/quota.h" 72000000'
 reason = "the BUG() default of make_kqid, where the type is the low byte of the command and quota.c rejects MAXQUOTAS or more before it gets there, so the switch covers every value left"
-
-[[divergence]]
-what = "sections"
-object = "fs/quota/quota.o"
-only = "reference"
-item = "__bug_table"
-reason = "the make_kqid BUG() above was the only site in the object, so rucc has no table at all"
-
-[[divergence]]
-what = "sections"
-object = "fs/quota/quota.o"
-only = "reference"
-item = ".discard.annotate_*"
-reason = "the objtool annotations the make_kqid BUG() writes, which go with it"
 
 [[divergence]]
 what = "__bug_table"
@@ -136,3 +130,82 @@ object = "kernel/signal.o"
 only = "reference"
 item = '4="" 8="include/linux/ucopysize.h" 39000309'
 reason = "WARN_ON_ONCE(bytes > INT_MAX) in check_copy_size, where every copy in signal.c has a sizeof or a length bounded by one"
+
+# 6.12.111. The sites carry no format string there, so the item has no 8= field.
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/char/random.o"
+only = "reference"
+item = '4="drivers/char/random.c" 3a010000'
+reason = "BUG_ON(random_data_len > 32) in crng_fast_key_erasure, with the same bound as on 7.2.8"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/char/random.o"
+only = "reference"
+item = '4="drivers/char/random.c" 51010000'
+reason = "BUG_ON(random_data_len > 32) in crng_make_state, with the same bound as on 7.2.8"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/gpu/drm/i915/display/intel_cx0_phy.o"
+only = "reference"
+item = '4="drivers/gpu/drm/i915/display/intel_cx0_phy.c" 2d000109'
+reason = "the WARN_ON in lane_mask_to_lane, where every caller passes INTEL_CX0_LANE0, so rucc propagates the constant into the function and it returns 0"
+
+[[divergence]]
+what = "sections"
+object = "drivers/gpu/drm/i915/display/intel_cx0_phy.o"
+only = "reference"
+item = ".altinstr*"
+reason = "the popcnt alternative of hweight8 in lane_mask_to_lane, which goes away with the WARN above since the lane mask is a constant"
+
+[[divergence]]
+what = ".altinstructions"
+object = "drivers/gpu/drm/i915/display/intel_cx0_phy.o"
+only = "reference"
+item = "97000000"
+reason = "the popcnt alternative of hweight8 in lane_mask_to_lane, which goes away with the WARN above since the lane mask is a constant"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ext4/page-io.o"
+only = "reference"
+item = '4="fs/ext4/page-io.c" f0000109'
+reason = "WARN_ON(!(io_end->flag & EXT4_IO_END_UNWRITTEN)) in ext4_add_complete_io, whose only caller returns early when the flag is clear"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/quota/quota.o"
+only = "reference"
+item = '4="include/linux/quota.h" 72000000'
+reason = "the BUG() default of make_kqid, with the same bound on the type as on 7.2.8"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/super.o"
+only = "reference"
+item = '4="fs/super.c" 99000309'
+reason = "WARN_ON_ONCE(flag & ~SUPER_WAKE_FLAGS) in super_wake, which is only called with SB_BORN, SB_DYING or SB_DEAD"
+
+[[divergence]]
+what = "sections"
+object = "kernel/kprobes.o"
+only = "reference"
+item = ".data..percpu"
+reason = "kprobe_instance, a static per CPU variable that kprobes.c writes and never reads, so rucc drops the stores and the variable"
+
+[[divergence]]
+what = "__bug_table"
+object = "kernel/sched/build_utility.o"
+only = "reference"
+item = '4="kernel/sched/cpupri.c" 97000309'
+reason = "WARN_ON_ONCE(task_pri >= CPUPRI_NR_PRIORITIES) in cpupri_find_fitness, with convert_prio defining only -1 to 100 as on 7.2.8"
+
+[[divergence]]
+what = "__bug_table"
+object = "kernel/signal.o"
+only = "reference"
+item = '4="include/linux/thread_info.h" f9000309'
+reason = "WARN_ON_ONCE(bytes > INT_MAX) in check_copy_size, which lives in thread_info.h on 6.12, with the same bounded copies as on 7.2.8"

@@ -27,3 +27,11 @@ reason = "rucc has no -fsanitize=thread, and plan section 8.10 keeps the sanitiz
 [[divergence]]
 symbol = "KCSAN"
 reason = "only visible when the compiler can build it, see HAVE_KCSAN_COMPILER"
+
+[[divergence]]
+symbol = "CC_HAS_SANCOV_TRACE_PC"
+reason = "rucc has no -fsanitize-coverage=trace-pc, and plan section 8.10 keeps KCOV out of the grade, with KCOV off in both builds. 7.2.8 no longer asks"
+
+[[divergence]]
+symbol = "KCOV"
+reason = "only visible when the compiler can build it, see CC_HAS_SANCOV_TRACE_PC"
