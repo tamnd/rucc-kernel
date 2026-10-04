@@ -1,0 +1,138 @@
+# Differences in sections and kernel tables between the reference's objects and rucc's that are
+# expected, and why.
+#
+# rk sections-diff reads this file. A difference is explained when a rule here covers every
+# section name or site on both sides of it. Anything else is a finding: either rucc lost a table
+# entry or made a section it should not, or the difference is fine and belongs here with a reason.
+#
+# what is "sections" or the table, such as "__bug_table". only says which build has the item:
+# "reference", "other" or "either". item is the section name or site as the report prints it, and
+# object, when given, limits the rule to one object. A trailing star in item or object matches
+# anything with that prefix. Every rule must say why. A rule for one object should say what was
+# checked, since a site the reference has and rucc does not is exactly what a lost asm goto or
+# pushsection looks like.
+
+# Sections each optimizer makes for itself. The kernel's linker script places all of them, so
+# none is an orphan in either build.
+
+[[divergence]]
+what = "sections"
+only = "reference"
+item = ".rodata.cst*"
+reason = "a constant pool gcc builds for its own instruction choices, such as a vector mask, a floating point constant or a wide immediate, where rucc writes the value into the instruction"
+
+[[divergence]]
+what = "sections"
+only = "either"
+item = ".rodata"
+reason = "a switch turned into a lookup table, or a constant local array kept in memory, which follows each compiler's own switch conversion and scalar replacement"
+
+[[divergence]]
+what = "sections"
+only = "either"
+item = ".rodata.str*"
+reason = "a string only one compiler keeps, because the other proved the code that used it dead or built the string with immediate stores"
+
+[[divergence]]
+what = "sections"
+only = "either"
+item = ".text.unlikely"
+reason = "cold code, which each compiler finds with its own branch prediction and call graph"
+
+# Sites. Every inlined copy of a WARN_ON or a static branch writes an entry, and so does every
+# copy the optimizer could not remove. A site only rucc has is a check gcc proved can never fire
+# and removed, which costs an entry and loses nothing.
+
+[[divergence]]
+what = "__bug_table"
+only = "other"
+item = "*"
+reason = "a WARN or BUG check rucc keeps where gcc proved the condition never holds and removed it"
+
+# Sites only the reference has. Each one was read against the source and the callers in that
+# object, and in each rucc proved the check false after inlining while gcc kept an out of line
+# copy or did not carry the range that far.
+
+[[divergence]]
+what = "__bug_table"
+object = "arch/x86/kernel/alternative.o"
+only = "reference"
+item = '4="" 8="arch/x86/include/asm/text-patching.h" 61000000'
+reason = "BUG_ON(size < text_opcode_size(opcode)) in __text_gen_insn, where every caller passes sizeof the instruction union, which is at least the largest opcode size of 5"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/char/random.o"
+only = "reference"
+item = '4="" 8="drivers/char/random.c" 37010000'
+reason = "BUG_ON(random_data_len > 32) in crng_fast_key_erasure, where every length comes from min_t(size_t, 32, len) or a sizeof no larger than 32"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/char/random.o"
+only = "reference"
+item = '4="" 8="drivers/char/random.c" 4e010000'
+reason = "BUG_ON(random_data_len > 32) in crng_make_state, with the same callers and bound as crng_fast_key_erasure"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/intel/e1000/e1000_main.o"
+only = "reference"
+item = '4="" 8="include/net/netmem.h" a5000309'
+reason = "WARN_ON_ONCE(netmem_is_net_iov(netmem)) in netmem_to_page, where the driver only passes a netmem made from a struct page, so the net_iov bit is clear"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/intel/e1000e/netdev.o"
+only = "reference"
+item = '4="" 8="include/net/netmem.h" a5000309'
+reason = "WARN_ON_ONCE(netmem_is_net_iov(netmem)) in netmem_to_page, where the driver only passes a netmem made from a struct page, so the net_iov bit is clear"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/nvidia/forcedeth.o"
+only = "reference"
+item = '4="" 8="include/net/netmem.h" a5000309'
+reason = "WARN_ON_ONCE(netmem_is_net_iov(netmem)) in netmem_to_page, where the driver only passes a netmem made from a struct page, so the net_iov bit is clear"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/ipv4/tcp_output.o"
+only = "reference"
+item = '4="" 8="include/net/netmem.h" a5000309'
+reason = "WARN_ON_ONCE(netmem_is_net_iov(netmem)) in netmem_to_page, reached here only with a netmem made from a struct page, so the net_iov bit is clear"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/quota/quota.o"
+only = "reference"
+item = '4="" 8="include/linux/quota.h" 72000000'
+reason = "the BUG() default of make_kqid, where the type is the low byte of the command and quota.c rejects MAXQUOTAS or more before it gets there, so the switch covers every value left"
+
+[[divergence]]
+what = "sections"
+object = "fs/quota/quota.o"
+only = "reference"
+item = "__bug_table"
+reason = "the make_kqid BUG() above was the only site in the object, so rucc has no table at all"
+
+[[divergence]]
+what = "sections"
+object = "fs/quota/quota.o"
+only = "reference"
+item = ".discard.annotate_*"
+reason = "the objtool annotations the make_kqid BUG() writes, which go with it"
+
+[[divergence]]
+what = "__bug_table"
+object = "kernel/sched/build_utility.o"
+only = "reference"
+item = '4="" 8="kernel/sched/cpupri.c" 98000309'
+reason = "WARN_ON_ONCE(task_pri >= CPUPRI_NR_PRIORITIES) in cpupri_find_fitness, where convert_prio has no default case and every value it defines is between -1 and 100"
+
+[[divergence]]
+what = "__bug_table"
+object = "kernel/signal.o"
+only = "reference"
+item = '4="" 8="include/linux/ucopysize.h" 39000309'
+reason = "WARN_ON_ONCE(bytes > INT_MAX) in check_copy_size, where every copy in signal.c has a sizeof or a length bounded by one"
