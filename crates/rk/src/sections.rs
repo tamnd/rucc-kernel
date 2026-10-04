@@ -19,6 +19,11 @@
 //! writes, are compared per function, for the functions both objects have. The strings of
 //! `.modinfo` and `__ksymtab_strings` are the same.
 //!
+//! Some differences are choices each optimizer makes for itself, such as a constant pool, a cold
+//! section or a check one compiler proves can never fire. `sections-divergences.toml` lists them
+//! with a reason, and a difference whose every item it explains is reported apart and does not
+//! fail the run.
+//!
 //! A build directory is read by walking its objects. `--save FILE` keeps what was found as JSON,
 //! so that CI can compare two builds without carrying their objects between jobs.
 
@@ -448,6 +453,12 @@ pub struct Difference {
     pub reference: String,
     /// The other side.
     pub other: String,
+    /// The names or sites only the reference has, when the difference is between two sets.
+    pub reference_items: Vec<String>,
+    /// The names or sites only the other build has, when the difference is between two sets.
+    pub other_items: Vec<String>,
+    /// Why, when `sections-divergences.toml` explains every item on both sides.
+    pub reason: Option<String>,
 }
 
 /// The comparison of two builds.
@@ -464,15 +475,116 @@ pub struct Comparison {
 }
 
 impl Comparison {
-    /// Whether nothing differs.
+    /// Whether nothing differs that `sections-divergences.toml` does not explain.
     #[must_use]
     pub fn clean(&self) -> bool {
-        self.differences.is_empty() && self.only_other.is_empty()
+        self.differences.iter().all(|d| d.reason.is_some()) && self.only_other.is_empty()
     }
 }
 
-fn set_difference(a: &BTreeSet<String>, b: &BTreeSet<String>) -> String {
-    a.difference(b).cloned().collect::<Vec<_>>().join(", ")
+/// Which build has the item a rule explains.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Only {
+    /// Only the reference.
+    Reference,
+    /// Only the other build.
+    Other,
+    /// Either one.
+    Either,
+}
+
+/// `sections-divergences.toml`.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Divergences {
+    /// Every rule.
+    #[serde(default, rename = "divergence")]
+    pub divergences: Vec<Divergence>,
+}
+
+/// A section name or table site that may be in one build and not the other, and why.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Divergence {
+    /// `sections` or the table, such as `__bug_table`.
+    pub what: String,
+    /// The object, when the rule is for one. A trailing `*` matches any object with that prefix.
+    #[serde(default)]
+    pub object: Option<String>,
+    /// Which build has the item.
+    pub only: Only,
+    /// The section name or site as the report prints it. A trailing `*` matches any with that
+    /// prefix, so `*` alone matches every one.
+    pub item: String,
+    /// Why it differs.
+    pub reason: String,
+}
+
+fn matches(pattern: &str, s: &str) -> bool {
+    match pattern.strip_suffix('*') {
+        Some(prefix) => s.starts_with(prefix),
+        None => pattern == s,
+    }
+}
+
+impl Divergences {
+    /// Read `sections-divergences.toml`.
+    pub fn load(path: &Path) -> Result<Self, String> {
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| format!("reading {}: {e}", path.display()))?;
+        Self::parse(&text).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    /// Read the text of `sections-divergences.toml`.
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let divergences: Self = toml::from_str(text).map_err(|e| e.to_string())?;
+        for d in &divergences.divergences {
+            if d.reason.trim().is_empty() {
+                return Err(format!("{} {} has no reason", d.what, d.item));
+            }
+        }
+        Ok(divergences)
+    }
+
+    /// The rule that explains one item of a difference, if there is one.
+    fn rule(&self, d: &Difference, only: Only, item: &str) -> Option<&Divergence> {
+        self.divergences.iter().find(|r| {
+            r.what == d.what
+                && (r.only == only || r.only == Only::Either)
+                && r.object.as_deref().is_none_or(|o| matches(o, &d.object))
+                && matches(&r.item, item)
+        })
+    }
+
+    /// Gives every difference whose items the rules all explain its reasons.
+    pub fn explain(&self, c: &mut Comparison) {
+        for d in &mut c.differences {
+            if d.reference_items.is_empty() && d.other_items.is_empty() {
+                continue;
+            }
+            let sides = [
+                (Only::Reference, &d.reference_items),
+                (Only::Other, &d.other_items),
+            ];
+            let mut reasons: Vec<&str> = Vec::new();
+            let mut all = true;
+            for (only, items) in sides {
+                for item in items {
+                    match self.rule(d, only, item) {
+                        Some(r) if !reasons.contains(&r.reason.as_str()) => reasons.push(&r.reason),
+                        Some(_) => {}
+                        None => all = false,
+                    }
+                }
+            }
+            if all {
+                d.reason = Some(reasons.join(". "));
+            }
+        }
+    }
+}
+
+fn set_difference(a: &BTreeSet<String>, b: &BTreeSet<String>) -> Vec<String> {
+    a.difference(b).cloned().collect()
 }
 
 fn list_difference(a: &[String], b: &[String]) -> String {
@@ -484,22 +596,38 @@ fn list_difference(a: &[String], b: &[String]) -> String {
         .join(" ")
 }
 
+/// A difference with no items, for a comparison that is not between two sets.
+fn plain(object: &str, what: &str, reference: String, other: String) -> Difference {
+    Difference {
+        object: object.to_string(),
+        what: what.to_string(),
+        reference,
+        other,
+        reference_items: Vec::new(),
+        other_items: Vec::new(),
+        reason: None,
+    }
+}
+
+/// A difference between two sets, with the items each side has alone.
+fn between(object: &str, what: &str, a: &BTreeSet<String>, b: &BTreeSet<String>) -> Difference {
+    let reference_items = set_difference(a, b);
+    let other_items = set_difference(b, a);
+    Difference {
+        object: object.to_string(),
+        what: what.to_string(),
+        reference: reference_items.join(", "),
+        other: other_items.join(", "),
+        reference_items,
+        other_items,
+        reason: None,
+    }
+}
+
 fn compare_object(name: &str, r: &Object, o: &Object, out: &mut Vec<Difference>) {
     #![allow(clippy::many_single_char_names)]
-    let mut push = |what: &str, reference: String, other: String| {
-        out.push(Difference {
-            object: name.to_string(),
-            what: what.to_string(),
-            reference,
-            other,
-        });
-    };
     if r.sections != o.sections {
-        push(
-            "sections",
-            set_difference(&r.sections, &o.sections),
-            set_difference(&o.sections, &r.sections),
-        );
+        out.push(between(name, "sections", &r.sections, &o.sections));
     }
     let tables: BTreeSet<&String> = r.tables.keys().chain(o.tables.keys()).collect();
     let empty = BTreeSet::new();
@@ -508,18 +636,19 @@ fn compare_object(name: &str, r: &Object, o: &Object, out: &mut Vec<Difference>)
             let a = r.distinct.get(table).unwrap_or(&empty);
             let b = o.distinct.get(table).unwrap_or(&empty);
             if a != b {
-                push(table, set_difference(a, b), set_difference(b, a));
+                out.push(between(name, table, a, b));
             }
             continue;
         }
         let a = r.tables.get(table).copied().unwrap_or_default();
         let b = o.tables.get(table).copied().unwrap_or_default();
         if a != b {
-            push(
+            out.push(plain(
+                name,
                 table,
                 format!("{} bytes, {} relocs", a.size, a.relocs),
                 format!("{} bytes, {} relocs", b.size, b.relocs),
-            );
+            ));
         }
     }
     let lists: BTreeSet<&String> = r.sites.keys().chain(o.sites.keys()).collect();
@@ -530,27 +659,30 @@ fn compare_object(name: &str, r: &Object, o: &Object, out: &mut Vec<Difference>)
         for (function, x) in a {
             let Some(y) = b.get(function) else { continue };
             if x != y {
-                push(
+                out.push(plain(
+                    name,
                     &format!("{list} in {function}"),
                     x.to_string(),
                     y.to_string(),
-                );
+                ));
             }
         }
     }
     if r.modinfo != o.modinfo {
-        push(
+        out.push(plain(
+            name,
             ".modinfo",
             list_difference(&r.modinfo, &o.modinfo),
             list_difference(&o.modinfo, &r.modinfo),
-        );
+        ));
     }
     if r.ksymtab_strings != o.ksymtab_strings {
-        push(
+        out.push(plain(
+            name,
             "__ksymtab_strings",
             list_difference(&r.ksymtab_strings, &o.ksymtab_strings),
             list_difference(&o.ksymtab_strings, &r.ksymtab_strings),
-        );
+        ));
     }
 }
 
@@ -592,31 +724,50 @@ fn cell(s: &str) -> String {
     }
 }
 
-/// The comparison as markdown, with the first 60 differences or, with `all`, every one.
+/// The comparison as markdown, unexplained differences first, with the first 60 of each kind or,
+/// with `all`, every one.
 #[must_use]
 pub fn report(c: &Comparison, all: bool) -> String {
-    let rows = if all { c.differences.len() } else { ROWS };
+    let rows = if all { usize::MAX } else { ROWS };
+    let (explained, unexplained): (Vec<&Difference>, Vec<&Difference>) =
+        c.differences.iter().partition(|d| d.reason.is_some());
     let mut s = String::from("### Sections and kernel tables\n\n");
     let _ = writeln!(
         s,
-        "{} objects compared, {} only in the reference, {} only in the other build, {} differences.\n",
+        "{} objects compared, {} only in the reference, {} only in the other build, {} differences, {} explained and {} not.\n",
         c.shared,
         c.only_reference.len(),
         c.only_other.len(),
-        c.differences.len()
+        c.differences.len(),
+        explained.len(),
+        unexplained.len()
     );
-    let mut by_what: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut by_what: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
     for d in &c.differences {
         let what = d.what.split(" in ").next().unwrap_or(&d.what);
-        *by_what.entry(what).or_default() += 1;
+        let counts = by_what.entry(what).or_default();
+        if d.reason.is_some() {
+            counts.1 += 1;
+        } else {
+            counts.0 += 1;
+        }
     }
     if !by_what.is_empty() {
-        s.push_str("| what | objects or functions |\n|---|---|\n");
-        for (what, n) in &by_what {
-            let _ = writeln!(s, "| `{what}` | {n} |");
+        s.push_str("| what | not explained | explained |\n|---|---|---|\n");
+        for (what, (not, yes)) in &by_what {
+            let _ = writeln!(s, "| `{what}` | {not} | {yes} |");
         }
-        s.push_str("\n| object | what | reference only | other only |\n|---|---|---|---|\n");
-        for d in c.differences.iter().take(rows) {
+        s.push('\n');
+    }
+    let more = |s: &mut String, n: usize| {
+        if n > rows {
+            let _ = writeln!(s, "\nand {} more, which `--all` lists.", n - rows);
+        }
+        s.push('\n');
+    };
+    if !unexplained.is_empty() {
+        s.push_str("| object | what | reference only | other only |\n|---|---|---|---|\n");
+        for d in unexplained.iter().take(rows) {
             let _ = writeln!(
                 s,
                 "| {} | {} | {} | {} |",
@@ -626,14 +777,22 @@ pub fn report(c: &Comparison, all: bool) -> String {
                 cell(&d.other)
             );
         }
-        if c.differences.len() > rows {
+        more(&mut s, unexplained.len());
+    }
+    if !explained.is_empty() {
+        s.push_str("Explained:\n\n| object | what | reference only | other only | reason |\n|---|---|---|---|---|\n");
+        for d in explained.iter().take(rows) {
             let _ = writeln!(
                 s,
-                "\nand {} more, which `--all` lists.",
-                c.differences.len() - rows
+                "| {} | {} | {} | {} | {} |",
+                d.object,
+                cell(&d.what),
+                cell(&d.reference),
+                cell(&d.other),
+                d.reason.as_deref().unwrap_or_default().replace('|', "\\|")
             );
         }
-        s.push('\n');
+        more(&mut s, explained.len());
     }
     if !c.only_reference.is_empty() {
         let shown: Vec<&str> = c
@@ -759,6 +918,70 @@ mod tests {
         assert_eq!(other["a.o"].tables["__jump_table"].relocs, 9);
         assert_eq!(other["a.o"].distinct["__bug_table"].len(), 1);
         assert!(compare(&reference, &other).clean());
+    }
+
+    #[test]
+    fn a_difference_is_explained_only_when_every_item_is() {
+        let names =
+            |n: &[&str]| -> BTreeSet<String> { n.iter().map(ToString::to_string).collect() };
+        let mut c = Comparison {
+            shared: 2,
+            differences: vec![
+                between("a.o", "sections", &names(&[".rodata.cst16"]), &names(&[])),
+                between(
+                    "b.o",
+                    "sections",
+                    &names(&[".rodata.cst16"]),
+                    &names(&[".data.rucc"]),
+                ),
+                between("c.o", "__bug_table", &names(&[]), &names(&["8=\"c.c\" 01"])),
+                between("c.o", "__jump_table", &names(&["8=key"]), &names(&[])),
+            ],
+            ..Comparison::default()
+        };
+        let rules = Divergences::parse(
+            r#"
+[[divergence]]
+what = "sections"
+only = "reference"
+item = ".rodata.cst*"
+reason = "a pool"
+
+[[divergence]]
+what = "__bug_table"
+only = "other"
+item = "*"
+reason = "a kept check"
+
+[[divergence]]
+what = "__jump_table"
+object = "d.o"
+only = "reference"
+item = "8=key"
+reason = "another object"
+"#,
+        )
+        .unwrap();
+        rules.explain(&mut c);
+        let reasons: Vec<Option<&str>> =
+            c.differences.iter().map(|d| d.reason.as_deref()).collect();
+        assert_eq!(reasons, [Some("a pool"), None, Some("a kept check"), None]);
+        assert!(!c.clean());
+        let text = report(&c, false);
+        assert!(
+            text.contains("4 differences, 2 explained and 2 not."),
+            "{text}"
+        );
+        assert!(text.contains("| `sections` | 1 | 1 |"), "{text}");
+        c.differences.retain(|d| d.reason.is_some());
+        assert!(c.clean());
+    }
+
+    #[test]
+    fn the_divergences_file_parses_and_every_rule_has_a_reason() {
+        let rules = Divergences::parse(include_str!("../../../sections-divergences.toml")).unwrap();
+        assert!(!rules.divergences.is_empty());
+        assert!(Divergences::parse("[[divergence]]\nwhat = \"sections\"\nonly = \"either\"\nitem = \".x\"\nreason = \" \"\n").is_err());
     }
 
     #[test]

@@ -62,7 +62,7 @@ fn main() -> ExitCode {
             "probes" => probes_command(&args),
             "flags-diff" => flags_diff(&repo, &args),
             "syntax" => syntax_command(&repo, &args),
-            "sections-diff" => sections_diff(&args),
+            "sections-diff" => sections_diff(&repo, &args),
             "symvers-diff" => symvers_diff(&args),
             "vec-audit" => vec_audit(&args),
             "modules-audit" => modules_audit(&args),
@@ -487,7 +487,7 @@ fn verdict(clean: bool) -> ExitCode {
 }
 
 /// Compare the sections and kernel tables of every object in two builds.
-fn sections_diff(args: &Args) -> Result<ExitCode, String> {
+fn sections_diff(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     let reference = std::path::Path::new(
         args.get("reference")
             .ok_or("rk sections-diff needs --reference")?,
@@ -508,7 +508,8 @@ fn sections_diff(args: &Args) -> Result<ExitCode, String> {
         return Err("the reference has no objects; was it built?".to_string());
     }
     let other = objects::load_or_scan(std::path::Path::new(other), sections::scan)?;
-    let comparison = sections::compare(&reference, &other);
+    let mut comparison = sections::compare(&reference, &other);
+    sections::Divergences::load(&repo.file("sections-divergences.toml"))?.explain(&mut comparison);
     print!("{}", sections::report(&comparison, args.has("all")));
     Ok(verdict(comparison.clean()))
 }
