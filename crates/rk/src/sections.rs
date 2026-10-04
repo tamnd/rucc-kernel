@@ -56,7 +56,8 @@ const TABLES: &[&str] = &[
 
 /// The tables whose entries come with the code they describe, compared by the distinct sites
 /// they hold, with the size of one entry when it is fixed. A `__bug_table` entry is as large as
-/// the configuration makes it, so its size is the table's over the entries in it.
+/// the configuration makes it, so its size is the table's over the entries in it. The size given
+/// for `.altinstructions` is the one from 6.3 on, and an older table is read at its own.
 const INLINED: &[(&str, u64)] = &[
     ("__jump_table", 16),
     ("__ex_table", 12),
@@ -64,17 +65,16 @@ const INLINED: &[(&str, u64)] = &[
     ("__bug_table", 0),
 ];
 
-/// The call-site lists, which depend on inlining and are compared per function.
-const SITES: &[&str] = &[
-    "__mcount_loc",
-    "__patchable_function_entries",
-    ".static_call_sites",
-    ".retpoline_sites",
-    ".return_sites",
-    ".call_sites",
-    ".ibt_endbr_seal",
-    ".orc_unwind_ip",
-];
+/// The call-site lists the compiler writes, one entry for each function it instruments, which
+/// depend on inlining and are compared per function.
+///
+/// The lists objtool writes, `.static_call_sites`, `.retpoline_sites`, `.return_sites`,
+/// `.call_sites`, `.ibt_endbr_seal` and `.orc_unwind_ip`, are not. objtool builds them from the
+/// code it reads, an ORC entry for every change to the stack and a return site for every `ret`,
+/// so their counts are each compiler's own instructions, and whether they are right is what
+/// `rk objtool-report` checks. With IBT, as in 6.12 and 7.2 `defconfig`, objtool writes them only
+/// into `vmlinux.o`, and 6.1 writes them into every object.
+const SITES: &[&str] = &["__mcount_loc", "__patchable_function_entries"];
 
 /// Prefixes after which `-ffunction-sections` and `-fdata-sections` put a symbol name, with the
 /// kernel's own names that start the same way. The kernel writes its own sections with two dots,
@@ -315,7 +315,17 @@ fn distinct(
     let mut out = BTreeSet::new();
     let data = section.data().unwrap_or_default();
     let relocs: Vec<(u64, object::Relocation)> = section.relocations().collect();
-    let size = if size > 0 {
+    // An alternative is two offsets with a relocation each, the feature and two lengths. The
+    // feature is a u16 before 6.3 and a u32 with flags from then on, so the entry is 12 or 14
+    // bytes and the table says which.
+    let size = if table == ".altinstructions" && relocs.len() >= 2 {
+        let entries = (relocs.len() / 2) as u64;
+        if section.size() % entries == 0 {
+            section.size() / entries
+        } else {
+            size
+        }
+    } else if size > 0 {
         size
     } else {
         let code = relocs
@@ -358,7 +368,10 @@ fn distinct(
                     v.to_le_bytes().to_vec()
                 })
                 .unwrap_or_default(),
-            ".altinstructions" => entry.get(8..12).unwrap_or_default().to_vec(),
+            ".altinstructions" => entry
+                .get(8..entry.len().saturating_sub(2))
+                .unwrap_or_default()
+                .to_vec(),
             "__jump_table" => Vec::new(),
             _ => entry
                 .iter()
@@ -909,6 +922,47 @@ mod tests {
             b.reloc(bug, 12 * i, f, R_X86_64_64);
         }
         b.bytes()
+    }
+
+    /// An alternatives table of two entries for the features given, laid out as 6.1 writes it
+    /// with a u16 feature or as 6.3 and later write it with a u32.
+    fn alternatives(features: [u32; 2], wide: bool) -> Vec<u8> {
+        let mut b = Builder::new();
+        let f = b.function("f", &[0x90; 8]);
+        let size = if wide { 14 } else { 12 };
+        let mut data = Vec::new();
+        for feature in features {
+            data.extend_from_slice(&[0; 8]);
+            if wide {
+                data.extend_from_slice(&feature.to_le_bytes());
+            } else {
+                data.extend_from_slice(&feature.to_le_bytes()[..2]);
+            }
+            data.extend_from_slice(&[5, 5]);
+        }
+        let table = b.section(".altinstructions", &data);
+        for i in 0..2 {
+            b.reloc(table, size * i, f, R_X86_64_64);
+            b.reloc(table, size * i + 4, f, R_X86_64_64);
+        }
+        b.bytes()
+    }
+
+    #[test]
+    fn an_alternative_is_its_feature_at_either_entry_size() {
+        for wide in [false, true] {
+            let read = |features| read(&alternatives(features, wide)).unwrap();
+            let sites = &read([0x0115, 0x0204]).distinct[".altinstructions"];
+            let expected: BTreeSet<String> = if wide {
+                ["15010000".to_string(), "04020000".to_string()].into()
+            } else {
+                ["1501".to_string(), "0402".to_string()].into()
+            };
+            assert_eq!(*sites, expected, "wide {wide}");
+            let reference: Inventory = [("a.o".to_string(), read([0x0115, 0x0204]))].into();
+            let other: Inventory = [("a.o".to_string(), read([0x0204, 0x0115]))].into();
+            assert!(compare(&reference, &other).clean(), "wide {wide}");
+        }
     }
 
     #[test]
