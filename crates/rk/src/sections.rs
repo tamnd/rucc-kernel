@@ -76,6 +76,19 @@ const INLINED: &[(&str, u64)] = &[
 /// into `vmlinux.o`, and 6.1 writes them into every object.
 const SITES: &[&str] = &["__mcount_loc", "__patchable_function_entries"];
 
+/// The sections objtool writes into an object, which are left out of the sections an object has
+/// for the same reason they are left out of [`SITES`]: whether one is there follows from the code,
+/// a `.retpoline_sites` from an indirect call and a `.return_sites` from a `ret`.
+const OBJTOOL: &[&str] = &[
+    ".static_call_sites",
+    ".retpoline_sites",
+    ".return_sites",
+    ".call_sites",
+    ".ibt_endbr_seal",
+    ".orc_unwind",
+    ".orc_unwind_ip",
+];
+
 /// Prefixes after which `-ffunction-sections` and `-fdata-sections` put a symbol name, with the
 /// kernel's own names that start the same way. The kernel writes its own sections with two dots,
 /// `.data..percpu`, so a single dot and a name is the compiler's.
@@ -406,6 +419,7 @@ pub fn read(data: &[u8]) -> Result<Object, String> {
             )
             || name.starts_with(".debug")
             || name.starts_with(".rela")
+            || OBJTOOL.contains(&name)
         {
             continue;
         }
@@ -857,6 +871,27 @@ mod tests {
         assert_eq!(unnumbered("x.constprop.0"), "x.constprop");
         assert_eq!(unnumbered("version.3a"), "version.3a");
         assert_eq!(unnumbered(".7"), ".7");
+    }
+
+    #[test]
+    fn a_list_objtool_writes_is_not_a_section_the_object_has() {
+        let with = |extra: &[&str]| {
+            let mut b = Builder::new();
+            b.function("f", &[0xc3]);
+            for name in extra {
+                b.section(name, &[0; 4]);
+            }
+            read(&b.bytes()).unwrap()
+        };
+        let reference: Inventory = [("a.o".to_string(), with(&[]))].into();
+        let other: Inventory = [(
+            "a.o".to_string(),
+            with(&[".retpoline_sites", ".return_sites"]),
+        )]
+        .into();
+        assert!(compare(&reference, &other).clean());
+        let other: Inventory = [("a.o".to_string(), with(&[".init.rodata"]))].into();
+        assert!(!compare(&reference, &other).clean());
     }
 
     fn object(sites: usize, jump: usize, license: &str) -> Vec<u8> {
