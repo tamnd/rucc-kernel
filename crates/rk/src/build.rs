@@ -7,9 +7,11 @@
 //! -fgnu-as-version=2.44`, which is what a user building by hand would write too. The second one
 //! is what `scripts/as-version.sh` reads, so `CONFIG_AS_VERSION` matches the reference's binutils.
 //!
-//! Nothing else is added to the command line, with one exception that changes no code:
-//! `--stack-usage` passes `KCFLAGS=-fstack-usage`, as the kernel's own `scripts/stackusage` does,
-//! so that both compilers write the `.su` files `rk frames` reads.
+//! Nothing else is added to the command line unless asked. `--stack-usage` passes
+//! `KCFLAGS=-fstack-usage`, as the kernel's own `scripts/stackusage` does, so that both compilers
+//! write the `.su` files `rk frames` reads, and changes no code. `--kcflags` adds whatever it is
+//! given to `KCFLAGS` as well, which is how the mixed workflow builds a kernel with
+//! `-fenable-inject-fault` to give `rk mixed` a known failure to find.
 //!
 //! What comes out is `build.json`, a summary of the run that a report or a later command reads,
 //! and `summary.md`, the same for a person. `compile.jsonl` holds every compiler call.

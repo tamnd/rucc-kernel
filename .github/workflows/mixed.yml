@@ -1,0 +1,137 @@
+# rk mixed on a failure put there on purpose, to show it finds one end to end.
+#
+# The rucc kernel is built with -fenable-inject-fault=<function>, which flips the low bit of every
+# integer that function stores. The default is time64_to_tm, which only the KUnit case below
+# checks, so the kernel boots and that one case fails. rk mixed then has to find the object, the
+# fuel step, the pass and the function on its own, and the job fails unless the summary names the
+# inject-fault pass and the function. It needs a rucc with the pass, which is main until a release
+# has it.
+
+name: mixed
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The kernel version
+        required: false
+        default: 7.2.8
+      function:
+        description: The function to inject the fault into
+        required: false
+        default: time64_to_tm
+      unit:
+        description: The unit the fault makes fail
+        required: false
+        default: kunit:time_test_cases.time64_to_tm_test_date_range
+      rucc:
+        description: A branch or commit of tamnd/rucc to build
+        required: false
+        default: main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RK_CACHE: ${{ github.workspace }}/../rk-cache
+
+jobs:
+  mixed:
+    name: ${{ inputs.version }} X64, ${{ inputs.function }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: kernel build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -qy --no-install-recommends gcc-14 flex bison bc libelf-dev libssl-dev \
+            cpio qemu-system-x86 busybox-static
+      - name: let the runner user open /dev/kvm
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+      - name: rucc ${{ inputs.rucc }} from source
+        run: |
+          git clone -q https://github.com/tamnd/rucc "$RUNNER_TEMP/rucc-src"
+          git -C "$RUNNER_TEMP/rucc-src" checkout -q "$REF"
+          cargo build --release --manifest-path "$RUNNER_TEMP/rucc-src/Cargo.toml" -p rucc
+          echo "$RUNNER_TEMP/rucc-src/target/release" >> "$GITHUB_PATH"
+          echo "rucc built from $(git -C "$RUNNER_TEMP/rucc-src" rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          REF: ${{ inputs.rucc }}
+      - name: build rk
+        run: cargo build --release --workspace
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ${{ env.RK_CACHE }}/archives
+          key: kernel-archives-${{ inputs.version }}-${{ hashFiles('pins.toml') }}
+          restore-keys: kernel-archives-${{ inputs.version }}-
+      - name: rk build with gcc-14
+        run: |
+          target/release/rk build "$VERSION" --row X64 --config tinyconfig --fragment test \
+            --cc gcc-14 --targets "bzImage modules" --out "$RUNNER_TEMP/gcc"
+        env:
+          VERSION: ${{ inputs.version }}
+      - name: rk build with rucc and the fault
+        run: |
+          target/release/rk build "$VERSION" --row X64 --config tinyconfig --fragment test \
+            --cc rucc --targets "bzImage modules" --out "$RUNNER_TEMP/rucc" --keep-going \
+            --kcflags "-fenable-inject-fault=$FUNCTION"
+        env:
+          VERSION: ${{ inputs.version }}
+          FUNCTION: ${{ inputs.function }}
+      - name: rk test
+        id: test
+        continue-on-error: true
+        run: |
+          target/release/rk test --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
+            --kinds boot,smoke,kunit --out "$RUNNER_TEMP/test"
+      - name: the unit fails
+        run: |
+          python3 - "$RUNNER_TEMP/test/test.json" "$UNIT" <<'EOF'
+          import json, sys
+          t = json.load(open(sys.argv[1]))
+          failed = [u["name"] for u in t["units"] if u["graded"] and not u["passed"]]
+          print("failed:", ", ".join(failed) or "nothing")
+          sys.exit(0 if sys.argv[2] in failed else f"{sys.argv[2]} did not fail, so there is nothing to find")
+          EOF
+        env:
+          UNIT: ${{ inputs.unit }}
+      - name: rk mixed
+        run: |
+          target/release/rk mixed --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
+            --unit "$UNIT" --out "$RUNNER_TEMP/mixed"
+        env:
+          UNIT: ${{ inputs.unit }}
+      - name: the summary names the pass and the function
+        if: always()
+        run: |
+          summary="$RUNNER_TEMP/mixed/summary.md"
+          cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+          grep -q '`inject-fault`' "$summary"
+          grep -q "\`$FUNCTION\`" "$summary"
+        env:
+          FUNCTION: ${{ inputs.function }}
+      - name: keep the record
+        if: always()
+        run: |
+          mkdir -p record/test record/mixed
+          cp -r "$RUNNER_TEMP/test/." record/test/ 2>/dev/null || true
+          cp "$RUNNER_TEMP"/mixed/{mixed.json,summary.md,relink.jsonl} "$RUNNER_TEMP"/mixed/*.log record/mixed/ 2>/dev/null || true
+          cp -r "$RUNNER_TEMP/mixed/fuel" record/mixed/ 2>/dev/null || true
+          find record/mixed/fuel -name '*.o' -delete 2>/dev/null || true
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: mixed-${{ inputs.version }}-X64
+          path: record
+          retention-days: 30
