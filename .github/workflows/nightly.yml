@@ -116,12 +116,12 @@ jobs:
       - name: rk build with gcc-14
         run: |
           target/release/rk build ${{ matrix.version }} --row X64 --config "$CONFIG" --fragment test \
-            --cc gcc-14 --targets "bzImage modules" --out "$RUNNER_TEMP/gcc"
+            --cc gcc-14 --targets "bzImage modules" --out "$RUNNER_TEMP/gcc" --stack-usage
       - name: rk build with rucc
         continue-on-error: true
         run: |
           target/release/rk build ${{ matrix.version }} --row X64 --config "$CONFIG" --fragment test \
-            --cc rucc --targets "bzImage modules" --out "$RUNNER_TEMP/rucc" --keep-going
+            --cc rucc --targets "bzImage modules" --out "$RUNNER_TEMP/rucc" --keep-going --stack-usage
       - name: rk selftests with gcc-14
         run: |
           target/release/rk selftests --build "$RUNNER_TEMP/gcc" --cc gcc-14 \
@@ -161,6 +161,22 @@ jobs:
         run: |
           target/release/rk cross-modules --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
             --out "$RUNNER_TEMP/cross"
+      - name: rk objtool-report
+        if: always() && steps.test.outcome != 'skipped'
+        run: |
+          mkdir -p "$RUNNER_TEMP/checks"
+          if target/release/rk objtool-report --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
+            > "$RUNNER_TEMP/checks/objtool.md"; then verdict=clean; else verdict=findings; fi
+          echo "$verdict" > "$RUNNER_TEMP/checks/objtool.status"
+          cat "$RUNNER_TEMP/checks/objtool.md"
+      - name: rk frames
+        if: always() && steps.test.outcome != 'skipped'
+        run: |
+          mkdir -p "$RUNNER_TEMP/checks"
+          if target/release/rk frames --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
+            > "$RUNNER_TEMP/checks/frames.md"; then verdict=clean; else verdict=findings; fi
+          echo "$verdict" > "$RUNNER_TEMP/checks/frames.status"
+          cat "$RUNNER_TEMP/checks/frames.md"
       - name: rk mixed on the first failed unit
         if: failure() && steps.test.outcome == 'failure'
         timeout-minutes: 180
@@ -179,6 +195,7 @@ jobs:
           done
           cp -r "$RUNNER_TEMP/test/." record/test/ 2>/dev/null || true
           cp -r "$RUNNER_TEMP/cross/." record/cross/ 2>/dev/null || true
+          cp -r "$RUNNER_TEMP/checks" record/ 2>/dev/null || true
           for side in gcc rucc; do
             mkdir -p "record/selftests/$side"
             cp -r "$RUNNER_TEMP/selftests-$side"/{selftests.json,logs} "record/selftests/$side/" 2>/dev/null || true
@@ -210,19 +227,23 @@ jobs:
         shell: python3 {0}
         run: |
           import json, os, pathlib
-          lines = ["### nightly, X64", "", "| version | graded | failed | splats | verdict |", "|---|---|---|---|---|"]
+          lines = ["### nightly, X64", "", "| version | graded | failed | splats | verdict | objtool | frames |", "|---|---|---|---|---|---|---|"]
           for record in sorted(pathlib.Path("records").iterdir()):
               version = record.name.removeprefix("nightly-").removesuffix("-X64")
               path = record / "test" / "test.json"
+              checks = []
+              for name in ("objtool", "frames"):
+                  status = record / "checks" / f"{name}.status"
+                  checks.append(status.read_text().strip() if status.exists() else "not run")
               if not path.exists():
-                  lines.append(f"| {version} | | | | not run |")
+                  lines.append(f"| {version} | | | | not run | {checks[0]} | {checks[1]} |")
                   continue
               t = json.loads(path.read_text())
               graded = [u for u in t["units"] if u["graded"]]
               failed = [u["name"] for u in graded if not u["passed"]]
               splats = len(t["splats"].get("other-only", []))
               verdict = "green" if not failed and not splats else "red"
-              lines.append(f"| {version} | {len(graded)} | {len(failed)} | {splats} | {verdict} |")
+              lines.append(f"| {version} | {len(graded)} | {len(failed)} | {splats} | {verdict} | {checks[0]} | {checks[1]} |")
           for record in sorted(pathlib.Path("records").iterdir()):
               summary = record / "mixed" / "summary.md"
               if summary.exists():
