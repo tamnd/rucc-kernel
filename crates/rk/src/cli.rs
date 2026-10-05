@@ -47,6 +47,7 @@ const BUILD: &[&str] = &[
     "keep-going",
     "twice",
     "stack-usage",
+    "kcflags",
     "config-only",
     "no-upstream-check",
 ];
@@ -179,7 +180,7 @@ usage:
   rk build [VERSION] --cc COMPILER [--row X64] [--config defconfig] [--out DIR] [--jobs N]
            [--fragment test] (--config also takes debian-13 or fedora-44)
            [--targets \"vmlinux bzImage\"] [--keep-going] [--twice] [--stack-usage]
-           [--config-only]
+           [--kcflags \"-fenable-inject-fault=f\"] [--config-only]
            [--bringup m16 --bringup-cc gcc]
   rk version
 

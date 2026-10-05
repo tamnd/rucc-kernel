@@ -320,11 +320,17 @@ fn build_plan(repo: &Repo, args: &Args) -> Result<build::Plan, String> {
         keep_going: args.has("keep-going"),
         config_only: args.has("config-only"),
         twice: args.has("twice"),
-        kcflags: if args.has("stack-usage") {
-            vec!["-fstack-usage".to_string()]
-        } else {
-            Vec::new()
-        },
+        kcflags: args
+            .has("stack-usage")
+            .then(|| "-fstack-usage".to_string())
+            .into_iter()
+            .chain(
+                args.get("kcflags")
+                    .into_iter()
+                    .flat_map(str::split_whitespace)
+                    .map(String::from),
+            )
+            .collect(),
         bringup,
         bringup_cc,
         targets,
