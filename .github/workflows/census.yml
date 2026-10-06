@@ -1,0 +1,120 @@
+# The demand census: a kernel built with gcc-14 and with rucc for each row and configuration asked
+# for, on the row's own architecture, every unit tried whatever else fails.
+#
+# The rucc build ends in rk demands, which counts the units that did not compile by the error that
+# stopped them, and the gcc-14 build ends in rk asm-inventory, which counts every instruction the
+# kernel hands the assembler itself. Both tables go to the step summary and the artifacts, and the
+# ones worth keeping go into reports/ in a pull request. allmodconfig is built with the census
+# fragment, which turns DWARF off so the tree fits on the runner, and defconfig with the test
+# fragment, as everywhere else.
+
+name: census
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The kernel version
+        required: false
+        default: 7.2.8
+      rows:
+        description: The rows, as a JSON list
+        required: false
+        default: '["X64", "A64"]'
+      configs:
+        description: The base configs, as a JSON list
+        required: false
+        default: '["defconfig", "allmodconfig"]'
+      rucc:
+        description: A branch, tag or commit of tamnd/rucc to build
+        required: false
+        default: v0.24.8
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RK_CACHE: ${{ github.workspace }}/../rk-cache
+
+jobs:
+  census:
+    name: ${{ inputs.version }} ${{ matrix.row }} ${{ matrix.config }} with ${{ matrix.cc }}
+    runs-on: ${{ matrix.row == 'A64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      matrix:
+        row: ${{ fromJSON(inputs.rows) }}
+        config: ${{ fromJSON(inputs.configs) }}
+        cc: [gcc-14, rucc]
+    env:
+      OUT: ${{ github.workspace }}/../${{ matrix.row }}-${{ matrix.config }}-${{ matrix.cc }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: room for the build tree
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - name: kernel build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -qy --no-install-recommends gcc-14 flex bison bc libelf-dev libssl-dev
+      - name: rucc ${{ inputs.rucc }} from source
+        if: matrix.cc == 'rucc'
+        run: |
+          git clone -q https://github.com/tamnd/rucc "$RUNNER_TEMP/rucc-src"
+          git -C "$RUNNER_TEMP/rucc-src" checkout -q "$REF"
+          cargo build --release --manifest-path "$RUNNER_TEMP/rucc-src/Cargo.toml" -p rucc
+          echo "$RUNNER_TEMP/rucc-src/target/release" >> "$GITHUB_PATH"
+          echo "rucc built from $(git -C "$RUNNER_TEMP/rucc-src" rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          REF: ${{ inputs.rucc }}
+      - name: build rk
+        run: cargo build --release --workspace
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ${{ env.RK_CACHE }}/archives
+          key: kernel-archives-${{ inputs.version }}-${{ hashFiles('pins.toml') }}
+          restore-keys: kernel-archives-${{ inputs.version }}-
+      - name: rk build
+        continue-on-error: true
+        run: |
+          target/release/rk build "$VERSION" --row "$ROW" --config "$CONFIG" --fragment "$FRAGMENT" \
+            --cc "$CC" --out "$OUT" --keep-going
+        env:
+          VERSION: ${{ inputs.version }}
+          ROW: ${{ matrix.row }}
+          CONFIG: ${{ matrix.config }}
+          FRAGMENT: ${{ matrix.config == 'allmodconfig' && 'census' || 'test' }}
+          CC: ${{ matrix.cc }}
+      - name: rk demands
+        if: matrix.cc == 'rucc'
+        run: |
+          target/release/rk demands --builds "$OUT" > "$OUT/demands.md"
+          cat "$OUT/demands.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: rk asm-inventory
+        if: matrix.cc == 'gcc-14'
+        run: |
+          target/release/rk asm-inventory --build "$OUT"
+          head -1 "$OUT/asm-inventory.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: keep the record
+        if: always()
+        run: |
+          mkdir -p record
+          cd "$OUT"
+          cp build.json summary.md config.log fragment.log build.log demands.md asm-inventory.md .config \
+            "$GITHUB_WORKSPACE/record/" 2>/dev/null || true
+          if [ -f compile.jsonl ]; then gzip -c compile.jsonl > "$GITHUB_WORKSPACE/record/compile.jsonl.gz"; fi
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: census-${{ inputs.version }}-${{ matrix.row }}-${{ matrix.config }}-${{ matrix.cc }}
+          path: record
+          include-hidden-files: true
+          retention-days: 30
