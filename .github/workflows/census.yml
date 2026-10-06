@@ -7,7 +7,7 @@
 # lines gcc-14 was given. The X64 defconfig one also runs the kernel-pp corpus from rucc-compat,
 # which preprocesses a sample of the units with rucc and with gcc-14 and compares the text. It is
 # given gcc-14 by name, since the runner's cc is gcc-13 and cannot take gcc-14's command lines. The
-# tables go to the step summary and the artifacts, and the ones worth keeping go into reports/ in a
+# tables go to the step summary and the artifacts, and the ones worth keeping go into results/census/ in a
 # pull request. allmodconfig is built with the census fragment, which turns DWARF off so the tree
 # fits on the runner, and defconfig with the test fragment, as everywhere else.
 
