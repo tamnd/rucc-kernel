@@ -1188,12 +1188,24 @@ fn baseline_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     };
     let mut results = Vec::new();
     for run in 1..=runs {
+        // Every run builds in the same directory and is then moved to its own, since a build with
+        // debug information writes the directory it was built in into `vmlinux`, and from there
+        // into its build ID and the image.
+        let building = plan.out.join("build");
         let out = plan.out.join(format!("run{run}"));
         eprintln!("rk: baseline run {run} of {runs} in {}", out.display());
+        for dir in [&building, &out] {
+            if dir.exists() {
+                std::fs::remove_dir_all(dir)
+                    .map_err(|e| format!("removing {}: {e}", dir.display()))?;
+            }
+        }
         let built = build::run(&build::Plan {
-            out: out.clone(),
+            out: building.clone(),
             ..plan.clone()
         })?;
+        std::fs::rename(&building, &out)
+            .map_err(|e| format!("moving {} to {}: {e}", building.display(), out.display()))?;
         let booted = if built.built {
             let initramfs = out.join("initramfs.cpio");
             write_initramfs(&initramfs, args.get("busybox"))?;

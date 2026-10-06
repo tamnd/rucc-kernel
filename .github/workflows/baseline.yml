@@ -27,20 +27,13 @@ env:
 jobs:
   baseline:
     name: ${{ matrix.version }} ${{ matrix.row }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.row == 'A64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
         version: [7.2.8, 6.12.111, 6.1.188]
         row: ${{ fromJSON(inputs.rows || '["X64", "A64"]') }}
-        include:
-          - row: X64
-            os: ubuntu-24.04
-            qemu: qemu-system-x86
-          - row: A64
-            os: ubuntu-24.04-arm
-            qemu: qemu-system-arm
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: Swatinem/rust-cache@v2.9.2
@@ -48,7 +41,7 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -qy --no-install-recommends gcc-14 flex bison bc libelf-dev libssl-dev \
-            cpio ${{ matrix.qemu }} busybox-static
+            cpio ${{ matrix.row == 'A64' && 'qemu-system-arm' || 'qemu-system-x86' }} busybox-static
       - name: let the runner user open /dev/kvm
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \

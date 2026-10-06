@@ -332,6 +332,10 @@ pub fn qemu_command(plan: &Plan, image: &Path, kvm: bool) -> Vec<String> {
         "2",
         "-nographic",
         "-no-reboot",
+        // No network card. Nothing the guest runs uses one, and the default card on an arm64
+        // `virt` machine needs an option ROM that a QEMU installed without its recommends lacks.
+        "-nic",
+        "none",
         "-accel",
         if kvm { "kvm" } else { "tcg" },
         "-cpu",
