@@ -10,5 +10,8 @@ Each file here is one `rk baseline` run: `defconfig` with the test fragment, bui
 | 6.12.111 | A64 | E10 | 4312 | 508 | tcg 4.9 | `74a89097cf4d` |
 | 6.1.188 | X64 | E10 | 2777 | 362 | kvm 1.9 | `9054fef56d65` |
 | 6.1.188 | A64 | E10 | 3888 | 465 | tcg 5.1 | `e7297282c54a` |
+| 7.2.8 | X32 | E11 | 2957 | 463 | kvm 1.7 | `8000f5a841c6` |
+| 6.12.111 | X32 | E10 | 2874 | 587 | kvm 1.6 | `08328ab389ef` |
+| 6.1.188 | X32 | E10 | 2722 | 556 | kvm 1.8 | `df4dc28b72e3` |
 
-Build and boot times are the mean of the three runs on a GitHub hosted runner. The A64 rows boot without KVM, so their boot times are not comparable with X64.
+Build and boot times are the mean of the three runs on a GitHub hosted runner. The A64 rows boot without KVM, so their boot times are not comparable with X64. The X32 rows are `i386_defconfig`, which is what `defconfig` gives with ARCH=i386, and they boot a static i686 busybox.

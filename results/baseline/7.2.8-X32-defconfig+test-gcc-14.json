@@ -1,0 +1,46 @@
+{
+  "version": "7.2.8",
+  "row": "X32",
+  "config": "defconfig",
+  "fragment": "test",
+  "era": "E11",
+  "compiler": {
+    "path": "/usr/bin/gcc-14",
+    "version": "gcc-14 (Ubuntu 14.2.0-4ubuntu2~24.04.1) 14.2.0",
+    "sha256": "ce298ce0c8fbdaa4b43f6e0596e37d25a35a07b5c743cb26f11815b76fccf90d",
+    "rucc": false
+  },
+  "reproducible": true,
+  "runs": [
+    {
+      "built": true,
+      "build-seconds": 466.9,
+      "units": 2957,
+      "config-sha256": "0d82695054fa774d8255f689330ea649b52ba36d5cc5ed4b395f8e92b633c3ab",
+      "image-sha256": "8000f5a841c67646b5c196d33b68664bc8d806aa0a45beefd887e9a2654b2883",
+      "booted": true,
+      "boot-seconds": 1.7,
+      "accel": "kvm"
+    },
+    {
+      "built": true,
+      "build-seconds": 461.7,
+      "units": 2957,
+      "config-sha256": "0d82695054fa774d8255f689330ea649b52ba36d5cc5ed4b395f8e92b633c3ab",
+      "image-sha256": "8000f5a841c67646b5c196d33b68664bc8d806aa0a45beefd887e9a2654b2883",
+      "booted": true,
+      "boot-seconds": 1.6,
+      "accel": "kvm"
+    },
+    {
+      "built": true,
+      "build-seconds": 460.7,
+      "units": 2957,
+      "config-sha256": "0d82695054fa774d8255f689330ea649b52ba36d5cc5ed4b395f8e92b633c3ab",
+      "image-sha256": "8000f5a841c67646b5c196d33b68664bc8d806aa0a45beefd887e9a2654b2883",
+      "booted": true,
+      "boot-seconds": 1.7,
+      "accel": "kvm"
+    }
+  ]
+}
