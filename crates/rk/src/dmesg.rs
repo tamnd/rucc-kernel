@@ -48,9 +48,15 @@ const MARKERS: &[&str] = &[
 /// kernel working, and the program is either a test whose own result says whether it passed or a
 /// program built by the other compiler, so it is not a splat of the kernel's. A fault inside the
 /// kernel prints `Oops: general protection fault` and is still one.
+///
+/// A line that starts `# ` is a kselftest program's own output, which the runner prefixes that way,
+/// and a test that prints `BUG:` or `WARNING:` about what it checked is not the kernel's splat
+/// either.
 #[must_use]
 pub fn is_splat(text: &str) -> bool {
-    !text.starts_with("traps: ") && MARKERS.iter().any(|m| text.contains(m))
+    !text.starts_with("traps: ")
+        && !text.starts_with("# ")
+        && MARKERS.iter().any(|m| text.contains(m))
 }
 
 /// A word with the parts that change between boots and compilers masked.
@@ -149,9 +155,10 @@ mod tests {
     }
 
     #[test]
-    fn a_user_program_that_faults_is_not_a_kernel_splat() {
+    fn a_user_program_that_faults_or_prints_a_marker_is_not_a_kernel_splat() {
         let console = "[ 163.048680] traps: fsgsbase_64[417] general protection fault ip:202c10 \
                        sp:7f9aabb32e60 error:402 in fsgsbase_64[1c10,202000+2000]\n\
+                       # [FAIL] BUG: GSBASE was not preserved\n\
                        [ 170.000000] Oops: general protection fault, probably for non-canonical \
                        address 0xdead000000000100: 0000 [#1] SMP\n";
         assert_eq!(

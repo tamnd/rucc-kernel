@@ -18,6 +18,13 @@ mkdir -p /proc /sys /dev /tmp
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev 2>/dev/null
+# devtmpfs has the device nodes and not the links a full system adds. kselftest's runner appends
+# every program's output to /dev/stdout, and without the link that makes a file in /dev which
+# grows until the guest's memory is full and every later write fails.
+ln -sf /proc/self/fd /dev/fd
+ln -sf /proc/self/fd/0 /dev/stdin
+ln -sf /proc/self/fd/1 /dev/stdout
+ln -sf /proc/self/fd/2 /dev/stderr
 mount -t tmpfs tmpfs /tmp 2>/dev/null
 
 suite=smoke
