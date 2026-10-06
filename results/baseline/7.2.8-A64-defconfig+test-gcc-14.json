@@ -1,0 +1,46 @@
+{
+  "version": "7.2.8",
+  "row": "A64",
+  "config": "defconfig",
+  "fragment": "test",
+  "era": "E11",
+  "compiler": {
+    "path": "/usr/bin/gcc-14",
+    "version": "gcc-14 (Ubuntu 14.2.0-4ubuntu2~24.04.1) 14.2.0",
+    "sha256": "bae5eacecacb47b9e5d4919adc9e70f170b36c8fc5a09cb9587344c650261365",
+    "rucc": false
+  },
+  "reproducible": true,
+  "runs": [
+    {
+      "built": true,
+      "build-seconds": 549.6,
+      "units": 4406,
+      "config-sha256": "01f1b41fdfbde240f6e0688f24b9acb69f5f2a6738e604da6cf3ce61d025ff5e",
+      "image-sha256": "31d6a8c7659b5aea56aa845cb55d7065ae15b52e9605b7d2faa0ba65f599029b",
+      "booted": true,
+      "boot-seconds": 8.6,
+      "accel": "tcg"
+    },
+    {
+      "built": true,
+      "build-seconds": 553.9,
+      "units": 4406,
+      "config-sha256": "01f1b41fdfbde240f6e0688f24b9acb69f5f2a6738e604da6cf3ce61d025ff5e",
+      "image-sha256": "31d6a8c7659b5aea56aa845cb55d7065ae15b52e9605b7d2faa0ba65f599029b",
+      "booted": true,
+      "boot-seconds": 8.7,
+      "accel": "tcg"
+    },
+    {
+      "built": true,
+      "build-seconds": 543.5,
+      "units": 4406,
+      "config-sha256": "01f1b41fdfbde240f6e0688f24b9acb69f5f2a6738e604da6cf3ce61d025ff5e",
+      "image-sha256": "31d6a8c7659b5aea56aa845cb55d7065ae15b52e9605b7d2faa0ba65f599029b",
+      "booted": true,
+      "boot-seconds": 8.5,
+      "accel": "tcg"
+    }
+  ]
+}
