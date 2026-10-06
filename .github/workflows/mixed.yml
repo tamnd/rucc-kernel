@@ -4,8 +4,8 @@
 # integer that function stores. The default is time64_to_tm, which only the KUnit case below
 # checks, so the kernel boots and that one case fails. rk mixed then has to find the object, the
 # fuel step, the pass and the function on its own, and the job fails unless the summary names the
-# inject-fault pass and the function. It needs a rucc with the pass, which is main until a release
-# has it.
+# inject-fault pass and the function. It needs a rucc with the pass, which every release from 0.24.3
+# on has.
 
 name: mixed
 
@@ -25,9 +25,9 @@ on:
         required: false
         default: kunit:time_test_cases.time64_to_tm_test_date_range
       rucc:
-        description: A branch or commit of tamnd/rucc to build
+        description: A branch, tag or commit of tamnd/rucc to build
         required: false
-        default: main
+        default: v0.24.6
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.run_id }}
