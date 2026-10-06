@@ -70,6 +70,8 @@ The nightly workflow builds every pin in the current set on X64 with gcc-14 and 
 
 The mixed workflow is run by hand. It builds the rucc kernel with `-fenable-inject-fault=time64_to_tm`, checks that the KUnit case for that function fails, and passes only when `rk mixed` traces the failure back to the `inject-fault` pass in that function.
 
+The object workflow is run by hand too. It builds one object, such as `drivers/hid/hid-input`, with gcc-14 and with rucc, and keeps the preprocessed source, the assembly, the object and the frame sizes from each, so that a function `rk frames` or `rk objtool-report` names can be read from both compilers without a configured tree.
+
 ## House style
 
 Prose in this repository is plain English with one paragraph per line, no em or en dashes and no horizontal rules. `scripts/style.sh` checks it on every pull request.
