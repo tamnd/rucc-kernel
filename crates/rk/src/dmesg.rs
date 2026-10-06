@@ -42,9 +42,15 @@ const MARKERS: &[&str] = &[
 ];
 
 /// Whether a line, without its timestamp, starts a splat.
+///
+/// A line that starts `traps: ` is the kernel saying it sent a signal to a user program that
+/// faulted, as in `traps: fsgsbase_64[417] general protection fault ip:202c10 ...`. That is the
+/// kernel working, and the program is either a test whose own result says whether it passed or a
+/// program built by the other compiler, so it is not a splat of the kernel's. A fault inside the
+/// kernel prints `Oops: general protection fault` and is still one.
 #[must_use]
 pub fn is_splat(text: &str) -> bool {
-    MARKERS.iter().any(|m| text.contains(m))
+    !text.starts_with("traps: ") && MARKERS.iter().any(|m| text.contains(m))
 }
 
 /// A word with the parts that change between boots and compilers masked.
@@ -139,6 +145,18 @@ mod tests {
         assert!(
             splats("[ 1.0] Freeing unused kernel image memory: 2048K\nRK-CHECK fork pass\n")
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_user_program_that_faults_is_not_a_kernel_splat() {
+        let console = "[ 163.048680] traps: fsgsbase_64[417] general protection fault ip:202c10 \
+                       sp:7f9aabb32e60 error:402 in fsgsbase_64[1c10,202000+2000]\n\
+                       [ 170.000000] Oops: general protection fault, probably for non-canonical \
+                       address 0xdead000000000100: 0000 [#1] SMP\n";
+        assert_eq!(
+            splats(console).into_iter().collect::<Vec<_>>(),
+            ["Oops: general protection fault, probably for non-canonical address N: N [#N] SMP"]
         );
     }
 }
