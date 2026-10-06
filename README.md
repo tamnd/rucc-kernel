@@ -72,7 +72,7 @@ The mixed workflow is run by hand. It builds the rucc kernel with `-fenable-inje
 
 The object workflow is run by hand too. It builds one object, such as `drivers/hid/hid-input`, with gcc-14 and with rucc, and keeps the preprocessed source, the assembly, the object and the frame sizes from each, so that a function `rk frames` or `rk objtool-report` names can be read from both compilers without a configured tree.
 
-The census workflow is run by hand as well. For each row and configuration it is given, `defconfig` and `allmodconfig` on X64 and A64 by default, it builds the kernel with gcc-14 and with rucc on the row's own architecture. The rucc build ends in `rk demands` and the gcc-14 build in `rk asm-inventory`. `allmodconfig` takes the census fragment, which turns DWARF off so the tree fits on a hosted runner.
+The census workflow is run by hand as well. For each row and configuration it is given, `defconfig` and `allmodconfig` on X64 and A64 by default, it builds the kernel with gcc-14 and with rucc on the row's own architecture. The rucc build ends in `rk demands`, and the gcc-14 build in `rk asm-inventory` and `rk syntax`. `allmodconfig` takes the census fragment, which turns DWARF off so the tree fits on a hosted runner.
 
 ## House style
 

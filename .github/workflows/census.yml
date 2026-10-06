@@ -2,11 +2,12 @@
 # for, on the row's own architecture, every unit tried whatever else fails.
 #
 # The rucc build ends in rk demands, which counts the units that did not compile by the error that
-# stopped them, and the gcc-14 build ends in rk asm-inventory, which counts every instruction the
-# kernel hands the assembler itself. Both tables go to the step summary and the artifacts, and the
-# ones worth keeping go into reports/ in a pull request. allmodconfig is built with the census
-# fragment, which turns DWARF off so the tree fits on the runner, and defconfig with the test
-# fragment, as everywhere else.
+# stopped them. The gcc-14 build ends in rk asm-inventory, which counts every instruction the kernel
+# hands the assembler itself, and in rk syntax, which runs rucc over every unit with the command
+# lines gcc-14 was given. The tables go to the step summary and the artifacts, and the ones worth
+# keeping go into reports/ in a pull request. allmodconfig is built with the census fragment, which
+# turns DWARF off so the tree fits on the runner, and defconfig with the test fragment, as
+# everywhere else.
 
 name: census
 
@@ -66,7 +67,6 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -qy --no-install-recommends gcc-14 flex bison bc libelf-dev libssl-dev
       - name: rucc ${{ inputs.rucc }} from source
-        if: matrix.cc == 'rucc'
         run: |
           git clone -q https://github.com/tamnd/rucc "$RUNNER_TEMP/rucc-src"
           git -C "$RUNNER_TEMP/rucc-src" checkout -q "$REF"
@@ -103,12 +103,17 @@ jobs:
         run: |
           target/release/rk asm-inventory --build "$OUT"
           head -1 "$OUT/asm-inventory.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: rk syntax
+        if: matrix.cc == 'gcc-14'
+        run: |
+          target/release/rk syntax --build "$OUT" --cc rucc > "$OUT/syntax.md" || true
+          cat "$OUT/syntax.md" >> "$GITHUB_STEP_SUMMARY"
       - name: keep the record
         if: always()
         run: |
           mkdir -p record
           cd "$OUT"
-          cp build.json summary.md config.log fragment.log build.log demands.md asm-inventory.md .config \
+          cp build.json summary.md config.log fragment.log build.log demands.md asm-inventory.md syntax.md .config \
             "$GITHUB_WORKSPACE/record/" 2>/dev/null || true
           if [ -f compile.jsonl ]; then gzip -c compile.jsonl > "$GITHUB_WORKSPACE/record/compile.jsonl.gz"; fi
       - uses: actions/upload-artifact@v7.0.1
