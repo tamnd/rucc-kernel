@@ -9,6 +9,11 @@ name: baseline
 
 on:
   workflow_dispatch:
+    inputs:
+      rows:
+        description: The rows to run, as a JSON list
+        required: false
+        default: '["X64", "A64"]'
   schedule:
     - cron: "41 2 * * 0"
 
@@ -28,7 +33,7 @@ jobs:
       fail-fast: false
       matrix:
         version: [7.2.8, 6.12.111, 6.1.188]
-        row: [X64, A64]
+        row: ${{ fromJSON(inputs.rows || '["X64", "A64"]') }}
         include:
           - row: X64
             os: ubuntu-24.04
