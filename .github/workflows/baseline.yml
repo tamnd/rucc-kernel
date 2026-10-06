@@ -66,5 +66,7 @@ jobs:
         if: always()
         with:
           name: baseline-${{ matrix.version }}-${{ matrix.row }}
-          path: results/baseline
+          path: |
+            results/baseline
+            work/*/run*/boot.log
           retention-days: 90

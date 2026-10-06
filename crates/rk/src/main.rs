@@ -1151,6 +1151,25 @@ fn asm_inventory(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// The sections of `vmlinux` that are not the same in every run, the first run held against each
+/// of the others, and nothing when a run has no `vmlinux` to read.
+fn differs_between_runs(out: &std::path::Path, runs: usize) -> Vec<String> {
+    let read = |run: usize| std::fs::read(out.join(format!("run{run}")).join("vmlinux")).ok();
+    let Some(first) = read(1) else {
+        return Vec::new();
+    };
+    let mut differs: Vec<String> = Vec::new();
+    for run in 2..=runs {
+        let Some(other) = read(run) else { continue };
+        for name in baseline::differing_sections(&first, &other).unwrap_or_default() {
+            if !differs.contains(&name) {
+                differs.push(name);
+            }
+        }
+    }
+    differs
+}
+
 /// Build and boot with the reference several times, and write the result under
 /// `results/baseline`.
 fn baseline_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
@@ -1178,21 +1197,35 @@ fn baseline_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         let booted = if built.built {
             let initramfs = out.join("initramfs.cpio");
             write_initramfs(&initramfs, args.get("busybox"))?;
-            Some(boot::run(&boot::Plan {
+            let booted = boot::run(&boot::Plan {
                 build: std::fs::canonicalize(&out).map_err(|e| e.to_string())?,
                 row: plan.row.clone(),
                 initramfs,
                 timeout,
                 append: String::new(),
                 stem: None,
-            })?)
+            })?;
+            // The log stays in the work directory, so the end of it goes where the job's log
+            // keeps it, which is the one place a boot that never started says why.
+            if !booted.passed() {
+                let log = std::fs::read_to_string(out.join("boot.log")).unwrap_or_default();
+                let lines: Vec<&str> = log.lines().collect();
+                eprintln!("rk: run {run} did not boot, the end of its console:");
+                for line in &lines[lines.len().saturating_sub(20)..] {
+                    eprintln!("  {line}");
+                }
+            }
+            Some(booted)
         } else {
             None
         };
         results.push(baseline::Run::from(&built, booted.as_ref()));
     }
     let fragment = plan.fragment.as_ref().map(|(name, _)| name.clone());
-    let baseline = baseline::Baseline::new(&plan, fragment, results);
+    let mut baseline = baseline::Baseline::new(&plan, fragment, results);
+    if !baseline.reproducible {
+        baseline.differs = differs_between_runs(&plan.out, runs);
+    }
     let path = repo
         .file("results")
         .join("baseline")

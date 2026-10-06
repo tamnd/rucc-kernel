@@ -8,6 +8,7 @@
 
 use crate::boot;
 use crate::build::{self, Compiler, Plan};
+use object::{Object as _, ObjectSection as _};
 use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;
 use std::path::Path;
@@ -84,6 +85,9 @@ pub struct Baseline {
     pub compiler: Compiler,
     /// Whether every run built the same image.
     pub reproducible: bool,
+    /// The sections of `vmlinux` whose bytes are not the same in every run, when the image is not.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub differs: Vec<String>,
     /// Every run.
     pub runs: Vec<Run>,
 }
@@ -104,6 +108,7 @@ impl Baseline {
             era: plan.era.id.clone(),
             compiler: plan.compiler.clone(),
             reproducible,
+            differs: Vec::new(),
             runs,
         }
     }
@@ -151,11 +156,18 @@ impl Baseline {
             self.file_name().trim_end_matches(".json"),
             self.compiler.version
         );
-        let _ = writeln!(
-            s,
-            "Reproducible: {}.\n",
-            if self.reproducible { "yes" } else { "no" }
-        );
+        let _ = if self.reproducible {
+            writeln!(s, "Reproducible: yes.\n")
+        } else if self.differs.is_empty() {
+            writeln!(s, "Reproducible: no.\n")
+        } else {
+            let sections: Vec<String> = self.differs.iter().map(|d| format!("`{d}`")).collect();
+            writeln!(
+                s,
+                "Reproducible: no. vmlinux differs between runs in {}.\n",
+                sections.join(", ")
+            )
+        };
         let _ = writeln!(
             s,
             "| run | built | build seconds | units | booted | boot seconds | failed checks |\n|---|---|---|---|---|---|---|"
@@ -179,6 +191,33 @@ impl Baseline {
         }
         s
     }
+}
+
+/// The sections of one ELF file whose bytes differ in another, or that the other does not have,
+/// in the order the first file has them. A section with no bytes in the file, such as `.bss`, is
+/// left out, since there is nothing in it to differ.
+pub fn differing_sections(first: &[u8], other: &[u8]) -> Result<Vec<String>, String> {
+    let first = object::File::parse(first).map_err(|e| e.to_string())?;
+    let other = object::File::parse(other).map_err(|e| e.to_string())?;
+    let mut differs = Vec::new();
+    for section in first.sections() {
+        let Ok(name) = section.name() else { continue };
+        let Some((offset, _)) = section.file_range() else {
+            continue;
+        };
+        if name.is_empty() || offset == 0 {
+            continue;
+        }
+        let bytes = section.data().map_err(|e| e.to_string())?;
+        let same = other
+            .section_by_name(name)
+            .and_then(|s| s.data().ok())
+            .is_some_and(|theirs| theirs == bytes);
+        if !same {
+            differs.push(name.to_string());
+        }
+    }
+    Ok(differs)
 }
 
 #[cfg(test)]
@@ -217,6 +256,7 @@ mod tests {
                 rucc: false,
             },
             reproducible,
+            differs: Vec::new(),
             runs,
         }
     }
@@ -238,6 +278,29 @@ mod tests {
             baseline(vec![run("a", Some(false))])
                 .summary()
                 .contains("no (kvm)")
+        );
+    }
+
+    #[test]
+    fn the_sections_that_differ_are_named() {
+        let elf = |notes: &[u8]| {
+            let mut b = crate::objects::fixture::Builder::new();
+            b.function("start_kernel", &[0xc3]);
+            b.section(".notes", notes);
+            b.section(".rodata.str", b"Linux version 7.2.8\0");
+            b.bytes()
+        };
+        let one = elf(b"build id one");
+        assert!(differing_sections(&one, &one).unwrap().is_empty());
+        assert_eq!(
+            differing_sections(&one, &elf(b"build id two")).unwrap(),
+            [".notes"]
+        );
+        let mut b = baseline(vec![run("a", Some(true)), run("b", Some(true))]);
+        b.differs = vec![".notes".to_string()];
+        assert!(
+            b.summary()
+                .contains("Reproducible: no. vmlinux differs between runs in `.notes`.")
         );
     }
 }
