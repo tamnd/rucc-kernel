@@ -5,3 +5,16 @@
 # defconfig build with the test fragment already asks for DWARF, so this turns it off here.
 
 CONFIG_DEBUG_INFO_NONE=y
+
+# 7.2 no longer asks the compiler before it offers KCOV, so allmodconfig passes
+# -fsanitize-coverage=trace-pc to every unit and rucc refuses it on each one, which hides every
+# other demand behind it. Plan section 8.10 keeps KCOV out of the grade, so the census leaves it out.
+
+# CONFIG_KCOV is not set
+
+# arm64 assumes every compiler it supports signs return addresses, so a kernel with pointer
+# authentication passes -msign-return-address or -mbranch-protection to every unit, and rucc
+# refuses both until tamnd/rucc#2286. The census turns both off to count what is behind them.
+
+# CONFIG_ARM64_PTR_AUTH_KERNEL is not set
+# CONFIG_ARM64_BTI_KERNEL is not set
