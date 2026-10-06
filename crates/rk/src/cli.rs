@@ -137,7 +137,7 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
                 "no-upstream-check",
             ],
         ),
-        "personas" => (true, &["era", "engine"]),
+        "personas" => (true, &["era", "engine", "for"]),
         "help" | "version" => (false, &[]),
         _ => return None,
     })
@@ -151,6 +151,7 @@ usage:
   rk fetch [VERSION] [--set NAME] [--all] [--no-upstream-check]
   rk sets [--releases FILE] [--write]
   rk personas [check] [--era E9,E10,E11] [--engine docker]
+  rk personas --for VERSION
   rk config-diff --reference DIR --other DIR [--why] [--source DIR]
   rk flags-diff --reference DIR --other DIR
   rk probes --reference DIR --other DIR
