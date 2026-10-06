@@ -1,0 +1,100 @@
+# One object built by both compilers, for a finding that names it.
+#
+# rk frames, rk objtool-report and rk mixed each end at an object and a function. What comes next
+# is reading that object's code from both compilers side by side, and that needs a configured tree,
+# which a laptop may not have room for. This builds just the object, with gcc-14 and with rucc,
+# through make's own single object targets, and keeps the preprocessed source, the assembly, the
+# object and the frame sizes from each.
+
+name: object
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The kernel version
+        required: false
+        default: 7.2.8
+      object:
+        description: The object, without its suffix
+        required: true
+        default: drivers/hid/hid-input
+      config:
+        description: The base config
+        required: false
+        default: tinyconfig
+      rucc:
+        description: A branch or commit of tamnd/rucc to build
+        required: false
+        default: main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RK_CACHE: ${{ github.workspace }}/../rk-cache
+
+jobs:
+  object:
+    name: ${{ inputs.version }} ${{ inputs.object }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: kernel build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -qy --no-install-recommends gcc-14 flex bison bc libelf-dev libssl-dev
+      - name: rucc ${{ inputs.rucc }} from source
+        run: |
+          git clone -q https://github.com/tamnd/rucc "$RUNNER_TEMP/rucc-src"
+          git -C "$RUNNER_TEMP/rucc-src" checkout -q "$REF"
+          cargo build --release --manifest-path "$RUNNER_TEMP/rucc-src/Cargo.toml" -p rucc
+          echo "$RUNNER_TEMP/rucc-src/target/release" >> "$GITHUB_PATH"
+          echo "rucc built from $(git -C "$RUNNER_TEMP/rucc-src" rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          REF: ${{ inputs.rucc }}
+      - name: build rk
+        run: cargo build --release --workspace
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ${{ env.RK_CACHE }}/archives
+          key: kernel-archives-${{ inputs.version }}-${{ hashFiles('pins.toml') }}
+          restore-keys: kernel-archives-${{ inputs.version }}-
+      - name: the object with each compiler
+        run: |
+          for cc in gcc-14 rucc; do
+            target/release/rk build "$VERSION" --row X64 --config "$CONFIG" --fragment test \
+              --cc "$cc" --targets "$OBJECT.i $OBJECT.s $OBJECT.o" --stack-usage --keep-going \
+              --out "$RUNNER_TEMP/$cc"
+            mkdir -p "record/$cc"
+            cp "$RUNNER_TEMP/$cc/$OBJECT".{i,s,o,su} "$RUNNER_TEMP/$cc"/{build.log,.config} "record/$cc/" || true
+          done
+        env:
+          VERSION: ${{ inputs.version }}
+          OBJECT: ${{ inputs.object }}
+          CONFIG: ${{ inputs.config }}
+      - name: the largest frames
+        run: |
+          for cc in gcc-14 rucc; do
+            echo "### $cc"
+            echo
+            echo '```'
+            sort -k2 -rn "record/$cc/$(basename "$OBJECT").su" 2>/dev/null | head -10 || true
+            echo '```'
+            echo
+          done | tee -a "$GITHUB_STEP_SUMMARY"
+        env:
+          OBJECT: ${{ inputs.object }}
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: object-${{ inputs.version }}
+          path: record
+          retention-days: 30
