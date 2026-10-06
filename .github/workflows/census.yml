@@ -4,10 +4,11 @@
 # The rucc build ends in rk demands, which counts the units that did not compile by the error that
 # stopped them. The gcc-14 build ends in rk asm-inventory, which counts every instruction the kernel
 # hands the assembler itself, and in rk syntax, which runs rucc over every unit with the command
-# lines gcc-14 was given. The tables go to the step summary and the artifacts, and the ones worth
-# keeping go into reports/ in a pull request. allmodconfig is built with the census fragment, which
-# turns DWARF off so the tree fits on the runner, and defconfig with the test fragment, as
-# everywhere else.
+# lines gcc-14 was given. The X64 defconfig one also runs the kernel-pp corpus from rucc-compat,
+# which preprocesses a sample of the units with rucc and with gcc-14 and compares the text. The
+# tables go to the step summary and the artifacts, and the ones worth keeping go into reports/ in a
+# pull request. allmodconfig is built with the census fragment, which turns DWARF off so the tree
+# fits on the runner, and defconfig with the test fragment, as everywhere else.
 
 name: census
 
@@ -108,12 +109,22 @@ jobs:
         run: |
           target/release/rk syntax --build "$OUT" --cc rucc > "$OUT/syntax.md" || true
           cat "$OUT/syntax.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: the kernel-pp corpus
+        if: matrix.cc == 'gcc-14' && matrix.row == 'X64' && matrix.config == 'defconfig'
+        run: |
+          git clone -q https://github.com/tamnd/rucc-compat "$RUNNER_TEMP/rucc-compat"
+          cd "$RUNNER_TEMP/rucc-compat"
+          cargo build --release -p rucc-compat
+          RUCC_COMPAT_KERNEL="$OUT" target/release/rucc-compat run kernel-pp --rucc "$(command -v rucc)" \
+            --report || true
+          cp results/kernel-pp.md "$OUT/kernel-pp.md" || true
+          cat "$OUT/kernel-pp.md" >> "$GITHUB_STEP_SUMMARY" || true
       - name: keep the record
         if: always()
         run: |
           mkdir -p record
           cd "$OUT"
-          cp build.json summary.md config.log fragment.log build.log demands.md asm-inventory.md syntax.md .config \
+          cp build.json summary.md config.log fragment.log build.log demands.md asm-inventory.md syntax.md kernel-pp.md .config \
             "$GITHUB_WORKSPACE/record/" 2>/dev/null || true
           if [ -f compile.jsonl ]; then gzip -c compile.jsonl > "$GITHUB_WORKSPACE/record/compile.jsonl.gz"; fi
       - uses: actions/upload-artifact@v7.0.1
