@@ -55,6 +55,9 @@ fn main() -> ExitCode {
             "fetch" => fetch(&repo, &args),
             "sets" => sets_command(&repo, &args),
             "personas" if args.target.as_deref() == Some("check") => personas_check(&repo, &args),
+            "personas" if args.target.is_none() && args.get("for").is_some() => {
+                personas_for(&repo, args.get("for").unwrap_or_default())
+            }
             "personas" if args.target.is_none() => personas_command(&repo),
             "personas" => Err("rk personas takes only the word check".to_string()),
             "build" => build_command(&repo, &args),
@@ -174,6 +177,16 @@ fn personas_command(repo: &Repo) -> Result<ExitCode, String> {
             row.name, row.arch, row.image, row.qemu, row.machine, row.cpu, row.console
         );
     }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `rk personas --for VERSION`: the era of one pin as `key=value` lines, for a workflow that
+/// builds the reference with the era's GCC. An empty version is the default pin.
+fn personas_for(repo: &Repo, version: &str) -> Result<ExitCode, String> {
+    let personas = personas::Personas::load(&repo.file("personas.toml"))?;
+    let pins = pins::Pins::load(&repo.file("pins.toml"))?;
+    let pin = pins.get(Some(version).filter(|v| !v.is_empty()))?;
+    print!("{}", personas.era_for(&pin.version)?.outputs());
     Ok(ExitCode::SUCCESS)
 }
 

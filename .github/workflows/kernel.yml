@@ -14,6 +14,11 @@
 # source, so that a result names exactly one compiler. A manual run can name a branch or commit of
 # tamnd/rucc instead, which is built from source and named by its commit in the step summary, so
 # that work merged since the last release can be tried against a kernel before it is released.
+#
+# The reference is the GCC of the pin's era in personas.toml, by its major release as Ubuntu 24.04
+# packages it: gcc-14 for 7.2.8 and gcc-12 for 6.12 and 6.1, which is the release rucc claims to be
+# for those. A gcc-14 reference for an E10 kernel differs from rucc in every symbol, probe and flag
+# the kernel decides by GCC version, and none of that is rucc's to fix.
 
 name: kernel
 
@@ -56,15 +61,29 @@ env:
   RUCC_SHA256: f37e42c301f6867087566f40e99d9be0960e8d99c035da632f8e28e3c05b3ed8
 
 jobs:
+  era:
+    name: the reference for the pin
+    runs-on: ubuntu-24.04
+    outputs:
+      gcc: ${{ steps.era.outputs.gcc }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: Swatinem/rust-cache@v2.9.2
+      - id: era
+        run: cargo run -q --release -p rk -- personas --for "$VERSION" | tee -a "$GITHUB_OUTPUT"
+        env:
+          VERSION: ${{ inputs.version }}
+
   build:
     name: ${{ matrix.config }} with ${{ matrix.cc }}
+    needs: era
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     continue-on-error: ${{ matrix.cc == 'rucc' }}
     strategy:
       fail-fast: false
       matrix:
-        cc: [gcc-14, rucc]
+        cc: ["${{ needs.era.outputs.gcc }}", rucc]
         config: [tinyconfig, defconfig]
     steps:
       - uses: actions/checkout@v7.0.1
@@ -72,8 +91,10 @@ jobs:
       - name: kernel build dependencies
         run: |
           sudo apt-get update -q
-          sudo apt-get install -qy --no-install-recommends gcc-14 flex bison bc libelf-dev libssl-dev \
+          sudo apt-get install -qy --no-install-recommends "$GCC" flex bison bc libelf-dev libssl-dev \
             cpio qemu-system-x86 busybox-static
+        env:
+          GCC: ${{ needs.era.outputs.gcc }}
       - name: let the runner user open /dev/kvm
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
@@ -114,10 +135,10 @@ jobs:
       - name: rk boot
         run: target/release/rk boot --build "$RUNNER_TEMP/out" --timeout 600
       - name: rk asm-inventory
-        if: matrix.cc == 'gcc-14'
+        if: matrix.cc != 'rucc'
         run: target/release/rk asm-inventory --build "$RUNNER_TEMP/out"
       - name: rk syntax
-        if: matrix.cc == 'gcc-14'
+        if: matrix.cc != 'rucc'
         run: |
           target/release/rk syntax --build "$RUNNER_TEMP/out" --cc rucc > "$RUNNER_TEMP/out/syntax.md" || true
           cat "$RUNNER_TEMP/out/syntax.md" >> "$GITHUB_STEP_SUMMARY"
@@ -149,11 +170,13 @@ jobs:
           retention-days: 30
 
   compare:
-    name: ${{ matrix.config }}, rucc against gcc-14
-    needs: build
+    name: ${{ matrix.config }}, rucc against ${{ needs.era.outputs.gcc }}
+    needs: [era, build]
     if: always()
     runs-on: ubuntu-24.04
     continue-on-error: true
+    env:
+      REF: records/X64-${{ matrix.config }}-${{ needs.era.outputs.gcc }}
     strategy:
       fail-fast: false
       matrix:
@@ -172,42 +195,42 @@ jobs:
           for r in records/*; do if [ -f "$r/cmd.tar.gz" ]; then tar -xzf "$r/cmd.tar.gz" -C "$r"; fi; done
       - name: rk config-diff
         run: |
-          target/release/rk config-diff --reference records/X64-${{ matrix.config }}-gcc-14 \
+          target/release/rk config-diff --reference "$REF" \
             --other records/X64-${{ matrix.config }}-rucc | tee -a "$GITHUB_STEP_SUMMARY"
       - name: rk probes
         if: always()
         run: |
-          target/release/rk probes --reference records/X64-${{ matrix.config }}-gcc-14 \
+          target/release/rk probes --reference "$REF" \
             --other records/X64-${{ matrix.config }}-rucc | tee -a "$GITHUB_STEP_SUMMARY"
       - name: rk flags-diff
         if: always()
         run: |
-          target/release/rk flags-diff --reference records/X64-${{ matrix.config }}-gcc-14 \
+          target/release/rk flags-diff --reference "$REF" \
             --other records/X64-${{ matrix.config }}-rucc | tee -a "$GITHUB_STEP_SUMMARY"
       - name: rk sections-diff
         if: always()
         run: |
-          target/release/rk sections-diff --reference records/X64-${{ matrix.config }}-gcc-14/sections.json \
+          target/release/rk sections-diff --reference "$REF"/sections.json \
             --other records/X64-${{ matrix.config }}-rucc/sections.json | tee -a "$GITHUB_STEP_SUMMARY"
       - name: rk symvers-diff
         if: always()
         run: |
-          target/release/rk symvers-diff --reference records/X64-${{ matrix.config }}-gcc-14 \
+          target/release/rk symvers-diff --reference "$REF" \
             --other records/X64-${{ matrix.config }}-rucc | tee -a "$GITHUB_STEP_SUMMARY"
       - name: rk vec-audit
         if: always()
         run: |
           target/release/rk vec-audit --build records/X64-${{ matrix.config }}-rucc/vec.json \
-            --reference records/X64-${{ matrix.config }}-gcc-14/vec.json | tee -a "$GITHUB_STEP_SUMMARY"
+            --reference "$REF"/vec.json | tee -a "$GITHUB_STEP_SUMMARY"
       - name: rk objtool-report
         if: always()
         run: |
-          target/release/rk objtool-report --reference records/X64-${{ matrix.config }}-gcc-14 \
+          target/release/rk objtool-report --reference "$REF" \
             --other records/X64-${{ matrix.config }}-rucc | tee -a "$GITHUB_STEP_SUMMARY"
       - name: rk frames
         if: always()
         run: |
-          target/release/rk frames --reference records/X64-${{ matrix.config }}-gcc-14/frames.json \
+          target/release/rk frames --reference "$REF"/frames.json \
             --other records/X64-${{ matrix.config }}-rucc/frames.json | tee -a "$GITHUB_STEP_SUMMARY"
 
   demands:

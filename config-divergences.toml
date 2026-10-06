@@ -37,5 +37,9 @@ symbol = "KCOV"
 reason = "only visible when the compiler can build it, see CC_HAS_SANCOV_TRACE_PC"
 
 [[divergence]]
+symbol = "GCC_VERSION"
+reason = "rucc claims the GCC of the era in personas.toml, 12.2.0 for 6.12 and 6.1, while the reference on the CI runner is Ubuntu 24.04's gcc-12, which is 12.3.0. The two differ only in the patch level, and both are before the 12.4 fix for asm goto outputs, so GCC_ASM_GOTO_OUTPUT_BROKEN agrees"
+
+[[divergence]]
 symbol = "AS_VERSION"
-reason = "rucc answers -Wa,--version with the binutils of the era in personas.toml, which is 2.44 for 7.2, while the reference on the CI runner is Ubuntu 24.04's binutils 2.42. No other symbol differs because of it, since every assembler feature test runs the assembler itself"
+reason = "rucc answers -Wa,--version with the binutils of the era in personas.toml, which is 2.44 for 7.2 and 2.40 for 6.12 and 6.1, while the reference on the CI runner is Ubuntu 24.04's binutils 2.42. No other symbol differs because of it, since every assembler feature test runs the assembler itself"

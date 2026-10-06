@@ -97,6 +97,18 @@ impl Era {
         let cut = head[..depth.min(head.len())].join(".");
         compare_versions(&cut, to) != Ordering::Greater
     }
+
+    /// The era as `key=value` lines for a workflow to append to `GITHUB_OUTPUT`. `gcc` is the
+    /// reference's GCC as an Ubuntu package names it, `gcc-12` for 12.2.0, so that a hosted runner
+    /// can build the reference with the major release the era was built with.
+    #[must_use]
+    pub fn outputs(&self) -> String {
+        let major = self.reference.gcc.split('.').next().unwrap_or_default();
+        format!(
+            "era={}\ngnuc={}\ngnu-as={}\ngcc=gcc-{major}\n",
+            self.id, self.gnuc, self.gnu_as
+        )
+    }
 }
 
 impl Personas {
@@ -222,6 +234,19 @@ mod tests {
         assert_eq!(era("6.14.11"), "E10");
         assert_eq!(era("6.15"), "E11");
         assert_eq!(era("7.3-rc5"), "E11");
+    }
+
+    #[test]
+    fn the_outputs_name_the_reference_gcc_by_its_major_release() {
+        let p = committed();
+        let out = p.era_for("6.12.111").unwrap().outputs();
+        assert_eq!(out, "era=E10\ngnuc=12.2.0\ngnu-as=2.40\ngcc=gcc-12\n");
+        assert!(
+            p.era_for("7.2.8")
+                .unwrap()
+                .outputs()
+                .ends_with("gcc=gcc-14\n")
+        );
     }
 
     #[test]
