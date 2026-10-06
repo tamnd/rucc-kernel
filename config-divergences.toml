@@ -35,3 +35,7 @@ reason = "rucc has no -fsanitize-coverage=trace-pc, and plan section 8.10 keeps 
 [[divergence]]
 symbol = "KCOV"
 reason = "only visible when the compiler can build it, see CC_HAS_SANCOV_TRACE_PC"
+
+[[divergence]]
+symbol = "AS_VERSION"
+reason = "rucc answers -Wa,--version with the binutils of the era in personas.toml, which is 2.44 for 7.2, while the reference on the CI runner is Ubuntu 24.04's binutils 2.42. No other symbol differs because of it, since every assembler feature test runs the assembler itself"
