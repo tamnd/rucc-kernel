@@ -4,6 +4,9 @@
 # The result files are uploaded, not committed from here. A person reads them and commits them to
 # results/baseline in a pull request, so that a baseline never changes without a review. The A64
 # job also says whether the arm runners have KVM, which is open question 8 of the plan.
+#
+# X32 is run by asking for it. An i386 kernel cannot run the runner's x86-64 busybox, so that row
+# boots a static i686 busybox from busybox.net, checked against the hash written here.
 
 name: baseline
 
@@ -23,6 +26,8 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RK_CACHE: ${{ github.workspace }}/../rk-cache
+  BUSYBOX_I686: https://busybox.net/downloads/binaries/1.35.0-i686-linux-musl/busybox
+  BUSYBOX_I686_SHA256: 27e409705b29937b9a6105038d9c2e3eb8dc3e2c8d606d22872dbde7f47c000f
 
 jobs:
   baseline:
@@ -49,6 +54,13 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm || true
           if [ -w /dev/kvm ]; then echo "KVM: yes" >> "$GITHUB_STEP_SUMMARY"; else echo "KVM: no" >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: a 32-bit busybox
+        if: matrix.row == 'X32'
+        run: |
+          curl -sfL -o "$RUNNER_TEMP/busybox" "$BUSYBOX_I686"
+          echo "$BUSYBOX_I686_SHA256  $RUNNER_TEMP/busybox" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/busybox"
+          echo "BUSYBOX=$RUNNER_TEMP/busybox" >> "$GITHUB_ENV"
       - name: build rk
         run: cargo build --release --workspace
       - uses: actions/cache@v6.1.0
@@ -59,7 +71,7 @@ jobs:
       - name: rk baseline
         run: |
           target/release/rk baseline ${{ matrix.version }} --row ${{ matrix.row }} --config defconfig \
-            --fragment test --cc gcc-14 --runs 3
+            --fragment test --cc gcc-14 --runs 3 --busybox "${BUSYBOX:-/bin/busybox}"
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
