@@ -621,8 +621,9 @@ fn frames_command(args: &Args) -> Result<ExitCode, String> {
 fn btf_command(args: &Args) -> Result<ExitCode, String> {
     let read = |path: &str| {
         let path = std::path::Path::new(path);
-        let elf = std::fs::read(path).is_ok_and(|b| b.starts_with(b"\x7fELF"));
-        if elf {
+        let binary =
+            std::fs::read(path).is_ok_and(|b| b.starts_with(b"\x7fELF") || btf::is_raw(&b));
+        if binary {
             btf::scan(path)
         } else {
             objects::load_or_scan(path, btf::scan)
