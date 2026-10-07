@@ -70,7 +70,15 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
         "demands" => (false, &["builds", "limit"]),
         "boot" => (
             false,
-            &["build", "row", "initramfs", "busybox", "timeout", "append"],
+            &[
+                "build",
+                "row",
+                "cpu",
+                "initramfs",
+                "busybox",
+                "timeout",
+                "append",
+            ],
         ),
         "test" => (
             false,
@@ -78,6 +86,7 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
                 "reference",
                 "other",
                 "row",
+                "cpu",
                 "kinds",
                 "busybox",
                 "rucc-busybox",
@@ -98,6 +107,7 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
                 "reference",
                 "other",
                 "row",
+                "cpu",
                 "unit",
                 "busybox",
                 "selftests",
@@ -114,6 +124,7 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
                 "reference",
                 "other",
                 "row",
+                "cpu",
                 "busybox",
                 "runs",
                 "timeout",
@@ -162,15 +173,15 @@ usage:
   rk objtool-report --reference DIR|LOG --other DIR|LOG
   rk frames --reference DIR|FILE [--other DIR|FILE] [--save FILE]
   rk syntax --build DIR [--cc rucc] [--allow FILE] [--jobs N]
-  rk boot --build DIR [--row X64] [--initramfs FILE | --busybox PATH] [--timeout 300]
-          [--append WORDS]
+  rk boot --build DIR [--row X64] [--cpu NAME] [--initramfs FILE | --busybox PATH]
+          [--timeout 300] [--append WORDS]
   rk test --reference DIR --other DIR [--kinds boot,smoke,kunit,kselftest,ltp] [--row X64]
-          [--runs 1] [--selftests DIR] [--rucc-selftests DIR] [--ltp DIR] [--rucc-ltp DIR]
-          [--busybox PATH] [--rucc-busybox PATH] [--timeout 600] [--out DIR]
-  rk mixed --reference DIR --other DIR --unit UNIT [--row X64] [--timeout 600] [--no-fuel]
-          [--selftests DIR] [--ltp DIR]
-  rk cross-modules --reference DIR --other DIR [--row X64] [--runs 1] [--timeout 600]
-          [--busybox PATH] [--out DIR]
+          [--cpu NAME] [--runs 1] [--selftests DIR] [--rucc-selftests DIR] [--ltp DIR]
+          [--rucc-ltp DIR] [--busybox PATH] [--rucc-busybox PATH] [--timeout 600] [--out DIR]
+  rk mixed --reference DIR --other DIR --unit UNIT [--row X64] [--cpu NAME] [--timeout 600]
+          [--no-fuel] [--selftests DIR] [--ltp DIR]
+  rk cross-modules --reference DIR --other DIR [--row X64] [--cpu NAME] [--runs 1]
+          [--timeout 600] [--busybox PATH] [--out DIR]
   rk selftests --build DIR [--cc COMPILER] [--collections timers,size] [--jobs N] [--out DIR]
   rk ltp --build DIR [--cc COMPILER] [--runtests syscalls,mm] [--jobs N] [--out DIR]
   rk initramfs --out FILE [--busybox PATH]

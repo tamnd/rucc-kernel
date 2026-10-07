@@ -10,6 +10,11 @@
 #
 # The rucc binary is the pinned release, checked against its hash, as in kernel.yml. A manual run
 # can name a branch or commit of tamnd/rucc instead.
+#
+# A manual run can also name the row, the versions and the QEMU CPU. A64 runs on the arm runner,
+# which has no KVM, so its boots are TCG and are given longer, and its rucc is built from source,
+# from the pinned release's tag when no branch or commit is named, since the release tarball is
+# the x86_64 one.
 
 name: nightly
 
@@ -26,6 +31,18 @@ on:
         description: The configuration target
         required: false
         default: tinyconfig
+      row:
+        description: The row, X64 or A64
+        required: false
+        default: X64
+      versions:
+        description: The versions as a JSON list, or empty for the current set
+        required: false
+        default: ""
+      cpu:
+        description: The QEMU CPU to boot on, or empty for the row's own
+        required: false
+        default: ""
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
@@ -40,6 +57,8 @@ env:
   RUCC_VERSION: v0.24.8
   RUCC_SHA256: f37e42c301f6867087566f40e99d9be0960e8d99c035da632f8e28e3c05b3ed8
   CONFIG: ${{ inputs.config || 'tinyconfig' }}
+  ROW: ${{ inputs.row || 'X64' }}
+  CPU: ${{ inputs.cpu }}
 
 jobs:
   set:
@@ -57,16 +76,20 @@ jobs:
           with open("pins.toml", "rb") as f:
               pins = tomllib.load(f)["pin"]
           versions = [p["version"] for p in pins if "current" in p.get("sets", [])]
+          if os.environ["ASKED"]:
+              versions = json.loads(os.environ["ASKED"])
           with open(os.environ["GITHUB_OUTPUT"], "a") as out:
               out.write(f"versions={json.dumps(versions)}\n")
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
-              out.write(f"The current set is {', '.join(versions)}.\n")
+              out.write(f"The versions are {', '.join(versions)}.\n")
+        env:
+          ASKED: ${{ inputs.versions }}
 
   test:
-    name: ${{ matrix.version }} X64
+    name: ${{ matrix.version }} ${{ inputs.row || 'X64' }}
     needs: set
-    runs-on: ubuntu-24.04
-    timeout-minutes: 300
+    runs-on: ${{ inputs.row == 'A64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: ${{ inputs.row == 'A64' && 355 || 300 }}
     strategy:
       fail-fast: false
       matrix:
@@ -78,16 +101,19 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -qy --no-install-recommends gcc-14 flex bison bc libelf-dev libssl-dev \
-            cpio qemu-system-x86 busybox-static libcap-dev libnuma-dev rsync libaio-dev libacl1-dev \
+            cpio "$QEMU" busybox-static libcap-dev libnuma-dev rsync libaio-dev libacl1-dev \
             libkeyutils-dev
+        env:
+          QEMU: ${{ inputs.row == 'A64' && 'qemu-system-arm' || 'qemu-system-x86' }}
       - name: let the runner user open /dev/kvm
+        if: inputs.row != 'A64'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
             | sudo tee /etc/udev/rules.d/99-kvm.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm || true
-      - name: rucc ${{ inputs.rucc }} from source
-        if: inputs.rucc != ''
+      - name: rucc ${{ inputs.rucc || env.RUCC_VERSION }} from source
+        if: inputs.rucc != '' || inputs.row == 'A64'
         run: |
           git clone -q https://github.com/tamnd/rucc "$RUNNER_TEMP/rucc-src"
           git -C "$RUNNER_TEMP/rucc-src" checkout -q "$REF"
@@ -95,9 +121,9 @@ jobs:
           echo "$RUNNER_TEMP/rucc-src/target/release" >> "$GITHUB_PATH"
           echo "rucc built from $(git -C "$RUNNER_TEMP/rucc-src" rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
         env:
-          REF: ${{ inputs.rucc }}
+          REF: ${{ inputs.rucc || env.RUCC_VERSION }}
       - name: rucc ${{ env.RUCC_VERSION }}
-        if: inputs.rucc == ''
+        if: inputs.rucc == '' && inputs.row != 'A64'
         run: |
           name="rucc-$RUCC_VERSION-x86_64-unknown-linux-gnu"
           gh release download "$RUCC_VERSION" -R tamnd/rucc -p "$name.tar.gz" -D "$RUNNER_TEMP"
@@ -115,12 +141,12 @@ jobs:
           restore-keys: kernel-archives-${{ matrix.version }}-
       - name: rk build with gcc-14
         run: |
-          target/release/rk build ${{ matrix.version }} --row X64 --config "$CONFIG" --fragment test \
+          target/release/rk build ${{ matrix.version }} --row "$ROW" --config "$CONFIG" --fragment test \
             --cc gcc-14 --targets "bzImage modules" --out "$RUNNER_TEMP/gcc" --stack-usage
       - name: rk build with rucc
         continue-on-error: true
         run: |
-          target/release/rk build ${{ matrix.version }} --row X64 --config "$CONFIG" --fragment test \
+          target/release/rk build ${{ matrix.version }} --row "$ROW" --config "$CONFIG" --fragment test \
             --cc rucc --targets "bzImage modules" --out "$RUNNER_TEMP/rucc" --keep-going --stack-usage
       - name: rk selftests with gcc-14
         run: |
@@ -134,7 +160,7 @@ jobs:
       - uses: actions/cache@v6.1.0
         with:
           path: ${{ env.RK_CACHE }}/ltp
-          key: ltp-${{ hashFiles('ltp.toml') }}
+          key: ltp-${{ runner.arch }}-${{ hashFiles('ltp.toml') }}
       - name: rk ltp with gcc-14
         run: |
           target/release/rk ltp --build "$RUNNER_TEMP/gcc" --cc gcc-14 --out "$RUNNER_TEMP/ltp-gcc"
@@ -145,6 +171,8 @@ jobs:
       - name: rk test
         id: test
         run: |
+          boot=(--timeout "$TIMEOUT")
+          if [ -n "$CPU" ]; then boot+=(--cpu "$CPU"); fi
           rucc_userland=()
           if [ -f "$RUNNER_TEMP/selftests-rucc/selftests.json" ]; then
             rucc_userland+=(--rucc-selftests "$RUNNER_TEMP/selftests-rucc")
@@ -154,13 +182,19 @@ jobs:
           fi
           target/release/rk test --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
             --kinds boot,smoke,kunit,kselftest,ltp --selftests "$RUNNER_TEMP/selftests-gcc" \
-            --ltp "$RUNNER_TEMP/ltp-gcc" "${rucc_userland[@]}" --out "$RUNNER_TEMP/test"
+            --ltp "$RUNNER_TEMP/ltp-gcc" "${rucc_userland[@]}" "${boot[@]}" --out "$RUNNER_TEMP/test"
+        env:
+          TIMEOUT: ${{ inputs.row == 'A64' && 1500 || 600 }}
       - name: rk cross-modules
         if: always() && steps.test.outcome != 'skipped'
         continue-on-error: true
         run: |
+          boot=(--timeout "$TIMEOUT")
+          if [ -n "$CPU" ]; then boot+=(--cpu "$CPU"); fi
           target/release/rk cross-modules --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
-            --out "$RUNNER_TEMP/cross"
+            "${boot[@]}" --out "$RUNNER_TEMP/cross"
+        env:
+          TIMEOUT: ${{ inputs.row == 'A64' && 1500 || 600 }}
       - name: rk objtool-report
         if: always() && steps.test.outcome != 'skipped'
         run: |
@@ -183,7 +217,9 @@ jobs:
         run: |
           unit=$(python3 -c 'import json, sys; t = json.load(open(sys.argv[1])); print(next((u["name"] for u in t["units"] if u["graded"] and not u["passed"] and u.get("attribution", "kernel") == "kernel"), ""))' "$RUNNER_TEMP/test/test.json")
           if [ -z "$unit" ]; then echo "no kernel failure to bisect"; exit 0; fi
-          target/release/rk mixed --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
+          boot=()
+          if [ -n "$CPU" ]; then boot+=(--cpu "$CPU"); fi
+          target/release/rk mixed "${boot[@]}" --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
             --unit "$unit" --selftests "$RUNNER_TEMP/selftests-gcc" --ltp "$RUNNER_TEMP/ltp-gcc" \
             --out "$RUNNER_TEMP/mixed"
       - name: keep the record
@@ -208,7 +244,7 @@ jobs:
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
-          name: nightly-${{ matrix.version }}-X64
+          name: nightly-${{ matrix.version }}-${{ inputs.row || 'X64' }}
           path: record
           include-hidden-files: true
           retention-days: 30
@@ -227,9 +263,10 @@ jobs:
         shell: python3 {0}
         run: |
           import json, os, pathlib
-          lines = ["### nightly, X64", "", "| version | graded | failed | splats | verdict | objtool | frames |", "|---|---|---|---|---|---|---|"]
+          row = os.environ["ROW"]
+          lines = [f"### nightly, {row}", "", "| version | graded | failed | splats | verdict | objtool | frames |", "|---|---|---|---|---|---|---|"]
           for record in sorted(pathlib.Path("records").iterdir()):
-              version = record.name.removeprefix("nightly-").removesuffix("-X64")
+              version = record.name.removeprefix("nightly-").removesuffix(f"-{row}")
               path = record / "test" / "test.json"
               checks = []
               for name in ("objtool", "frames"):
