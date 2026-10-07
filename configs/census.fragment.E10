@@ -1,0 +1,7 @@
+# The census fragment for era E10, merged into allmodconfig for rk demands and rk asm-inventory.
+#
+# allmodconfig turns on COMPILE_TEST, and with it DWARF for every unit, which takes the build tree
+# past the disk of a hosted runner. The census counts what each unit asks of the compiler, and a
+# defconfig build with the test fragment already asks for DWARF, so this turns it off here.
+
+CONFIG_DEBUG_INFO_NONE=y
