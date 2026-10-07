@@ -175,6 +175,10 @@ overrides = ['CONFIG_SYSTEM_TRUSTED_KEYS=""', '# CONFIG_RUST is not set']
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../configs/distro");
         let distros = Distros::load(&dir.join("distros.toml")).unwrap();
         assert!(distros.get("debian-13").is_some());
+        assert_eq!(
+            distros.get("debian-13-arm64").map(|d| d.row.as_str()),
+            Some("A64")
+        );
         assert!(distros.get("fedora-44").is_some());
         for d in &distros.distros {
             d.seed(&dir).unwrap();

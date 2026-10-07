@@ -39,6 +39,7 @@ rucc-kernel/
   configs/
     test.fragment.E11        per era
     distro/debian-13-amd64.config    pinned copies of distribution configs (these are distro files, not kernel files)
+    distro/debian-13-arm64.config
     distro/fedora-44-x86_64.config
   config-divergences.toml    05.2
   exclusions.toml            units excluded with the reference's failure log
