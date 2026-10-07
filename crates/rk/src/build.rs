@@ -211,7 +211,7 @@ pub struct Outcome {
 pub struct Calls {
     /// Every call.
     pub total: usize,
-    /// Probes.
+    /// Probes, and the units kbuild compiles only to see the compiler refuse them.
     pub probes: usize,
     /// Probes the compiler said no to.
     pub probes_failed: usize,
@@ -227,10 +227,22 @@ pub struct Calls {
     pub unreadable: usize,
 }
 
+/// Whether a record is one of the fortify tests, which `scripts/test_fortify.sh` compiles with
+/// `-Werror` to see the compiler refuse an overflow it can see. Failing is what they are for, so
+/// they count as probes and not as units.
+#[must_use]
+pub fn is_check(record: &CompileRecord) -> bool {
+    record
+        .inputs
+        .iter()
+        .any(|i| i.path.starts_with("lib/test_fortify/") || i.path.contains("/lib/test_fortify/"))
+}
+
 /// Whether a record is a unit: a C or assembly source compiled to an object.
 #[must_use]
 pub fn is_unit(record: &CompileRecord) -> bool {
     !record.probe
+        && !is_check(record)
         && record.argv.iter().any(|a| a == "-c")
         && record.inputs.iter().any(|i| {
             Path::new(&i.path)
@@ -251,7 +263,7 @@ pub fn count(records: &[CompileRecord], unreadable: usize) -> Calls {
         if record.delegated.is_some() {
             calls.delegated += 1;
         }
-        if record.probe {
+        if record.probe || is_check(record) {
             calls.probes += 1;
             if !record.succeeded() {
                 calls.probes_failed += 1;
@@ -735,6 +747,7 @@ mod tests {
 {"started":1,"argv":["rk-cc","-c","-o","kernel/fork.o","/src/kernel/fork.c"],"compiler":"/r","cwd":"/o","inputs":[{"path":"/src/kernel/fork.c","sha256":"a"}],"wall-seconds":0.1,"exit":0,"twice":{"identical":false,"differing":["kernel/fork.o"]}}
 {"started":1,"argv":["rk-cc","-c","-o","kernel/exit.o","/src/kernel/exit.c"],"compiler":"/r","cwd":"/o","inputs":[{"path":"/src/kernel/exit.c","sha256":"a"}],"wall-seconds":0.1,"exit":1,"stderr":"/src/kernel/exit.c:12:3: error: unknown attribute 'section' on line 40\n"}
 {"started":1,"argv":["rk-cc","-c","-o","mm/slub.o","/src/mm/slub.c"],"compiler":"/r","cwd":"/o","inputs":[{"path":"/src/mm/slub.c","sha256":"a"}],"wall-seconds":0.1,"exit":1,"stderr":"/src/mm/slub.c:99:1: error: unknown attribute 'cold' on line 7\n"}
+{"started":1,"argv":["rk-cc","-Werror","-c","-o","lib/test_fortify/write_overflow-memcpy.log.o","/src/lib/test_fortify/write_overflow-memcpy.c"],"compiler":"/r","cwd":"/o","inputs":[{"path":"/src/lib/test_fortify/write_overflow-memcpy.c","sha256":"a"}],"wall-seconds":0.1,"exit":1,"stderr":"error: call to '__write_overflow' declared with attribute error\n"}
 {"started":1,"argv":["rk-cc","-m16","-c","-o","arch/x86/boot/a20.o","/src/arch/x86/boot/a20.c"],"compiler":"/g","cwd":"/o","inputs":[{"path":"/src/arch/x86/boot/a20.c","sha256":"a"}],"wall-seconds":0.1,"exit":0,"delegated":"m16"}
 "#;
 
@@ -761,9 +774,9 @@ make: Leaving directory '/src/linux-7.2.8'
     fn the_log_is_counted_by_kind() {
         let (records, skipped) = parse_log(LOG);
         let calls = count(&records, skipped);
-        assert_eq!(calls.total, 5);
-        assert_eq!(calls.probes, 1);
-        assert_eq!(calls.probes_failed, 1);
+        assert_eq!(calls.total, 6);
+        assert_eq!(calls.probes, 2);
+        assert_eq!(calls.probes_failed, 2);
         assert_eq!(calls.units, 4);
         assert_eq!(calls.units_failed, 2);
         assert_eq!(calls.delegated, 1);
