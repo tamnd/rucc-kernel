@@ -63,7 +63,7 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
             (false, &["reference", "other"])
         }
         "sections-diff" => (false, &["reference", "other", "save", "all"]),
-        "frames" => (false, &["reference", "other", "save"]),
+        "frames" | "btf" => (false, &["reference", "other", "save"]),
         "vec-audit" => (false, &["build", "reference", "save"]),
         "modules-audit" => (false, &["build"]),
         "syntax" => (false, &["build", "cc", "allow", "jobs"]),
@@ -172,6 +172,7 @@ usage:
   rk modules-audit --build DIR
   rk objtool-report --reference DIR|LOG --other DIR|LOG
   rk frames --reference DIR|FILE [--other DIR|FILE] [--save FILE]
+  rk btf --reference DIR|VMLINUX|FILE [--other DIR|VMLINUX|FILE] [--save FILE]
   rk syntax --build DIR [--cc rucc] [--allow FILE] [--jobs N]
   rk boot --build DIR [--row X64] [--cpu NAME] [--initramfs FILE | --busybox PATH]
           [--timeout 300] [--append WORDS]

@@ -103,7 +103,7 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -qy --no-install-recommends gcc-14 flex bison bc libelf-dev libssl-dev \
             cpio "$QEMU" busybox-static libcap-dev libnuma-dev rsync libaio-dev libacl1-dev \
-            libkeyutils-dev
+            libkeyutils-dev dwarves
         env:
           QEMU: ${{ inputs.row == 'A64' && 'qemu-system-arm' || 'qemu-system-x86' }}
       - name: let the runner user open /dev/kvm
@@ -212,6 +212,16 @@ jobs:
             > "$RUNNER_TEMP/checks/frames.md"; then verdict=clean; else verdict=findings; fi
           echo "$verdict" > "$RUNNER_TEMP/checks/frames.status"
           cat "$RUNNER_TEMP/checks/frames.md"
+      - name: rk btf
+        if: always() && steps.test.outcome != 'skipped'
+        run: |
+          mkdir -p "$RUNNER_TEMP/checks"
+          rc=0
+          target/release/rk btf --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
+            > "$RUNNER_TEMP/checks/btf.md" || rc=$?
+          case $rc in 0) verdict=clean ;; 1) verdict=findings ;; *) verdict="not run" ;; esac
+          echo "$verdict" > "$RUNNER_TEMP/checks/btf.status"
+          cat "$RUNNER_TEMP/checks/btf.md"
       - name: rk mixed on the first failed unit
         if: failure() && steps.test.outcome == 'failure'
         timeout-minutes: 180
@@ -265,23 +275,23 @@ jobs:
         run: |
           import json, os, pathlib
           row = os.environ["ROW"]
-          lines = [f"### nightly, {row}", "", "| version | graded | failed | splats | verdict | objtool | frames |", "|---|---|---|---|---|---|---|"]
+          lines = [f"### nightly, {row}", "", "| version | graded | failed | splats | verdict | objtool | frames | btf |", "|---|---|---|---|---|---|---|---|"]
           for record in sorted(pathlib.Path("records").iterdir()):
               version = record.name.removeprefix("nightly-").removesuffix(f"-{row}")
               path = record / "test" / "test.json"
               checks = []
-              for name in ("objtool", "frames"):
+              for name in ("objtool", "frames", "btf"):
                   status = record / "checks" / f"{name}.status"
                   checks.append(status.read_text().strip() if status.exists() else "not run")
               if not path.exists():
-                  lines.append(f"| {version} | | | | not run | {checks[0]} | {checks[1]} |")
+                  lines.append(f"| {version} | | | | not run | {checks[0]} | {checks[1]} | {checks[2]} |")
                   continue
               t = json.loads(path.read_text())
               graded = [u for u in t["units"] if u["graded"]]
               failed = [u["name"] for u in graded if not u["passed"]]
               splats = len(t["splats"].get("other-only", []))
               verdict = "green" if not failed and not splats else "red"
-              lines.append(f"| {version} | {len(graded)} | {len(failed)} | {splats} | {verdict} | {checks[0]} | {checks[1]} |")
+              lines.append(f"| {version} | {len(graded)} | {len(failed)} | {splats} | {verdict} | {checks[0]} | {checks[1]} | {checks[2]} |")
           for record in sorted(pathlib.Path("records").iterdir()):
               summary = record / "mixed" / "summary.md"
               if summary.exists():
