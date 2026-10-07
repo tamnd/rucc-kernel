@@ -142,6 +142,12 @@ jobs:
             boot.json boot.log .config \
             "$GITHUB_WORKSPACE/record/" 2>/dev/null || true
           if [ -f compile.jsonl ]; then gzip -c compile.jsonl > "$GITHUB_WORKSPACE/record/compile.jsonl.gz"; fi
+          # The image and its symbols, so a boot that fails here can be tried again elsewhere.
+          if [ "$CONFIG" != allmodconfig ]; then
+            cp arch/*/boot/Image arch/*/boot/bzImage System.map "$GITHUB_WORKSPACE/record/" 2>/dev/null || true
+          fi
+        env:
+          CONFIG: ${{ matrix.config }}
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
