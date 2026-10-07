@@ -9,7 +9,8 @@
 # given gcc-14 by name, since the runner's cc is gcc-13 and cannot take gcc-14's command lines. The
 # tables go to the step summary and the artifacts, and the ones worth keeping go into results/census/ in a
 # pull request. allmodconfig is built with the census fragment, which turns DWARF off so the tree
-# fits on the runner, and defconfig with the test fragment, as everywhere else.
+# fits on the runner, and defconfig with the test fragment, as everywhere else. A defconfig that
+# built its image is then booted with rk boot, and boot.json and boot.log go into the artifact.
 
 name: census
 
@@ -120,12 +121,25 @@ jobs:
             --cc "$(command -v gcc-14)" --report || true
           cp results/kernel-pp.md "$OUT/kernel-pp.md" || true
           cat "$OUT/kernel-pp.md" >> "$GITHUB_STEP_SUMMARY" || true
+      # A defconfig that linked is booted under QEMU with the smoke checks of rk-init, so a row
+      # whose kernel builds is also seen to run. The arm64 runner has no KVM, so its boot is TCG
+      # and is given longer.
+      - name: rk boot
+        if: matrix.config == 'defconfig'
+        continue-on-error: true
+        run: |
+          sudo apt-get install -qy --no-install-recommends busybox-static \
+            "$([ "$ROW" = A64 ] && echo qemu-system-arm || echo qemu-system-x86)"
+          target/release/rk boot --build "$OUT" --row "$ROW" --timeout 1500
+        env:
+          ROW: ${{ matrix.row }}
       - name: keep the record
         if: always()
         run: |
           mkdir -p record
           cd "$OUT"
-          cp build.json summary.md config.log fragment.log build.log demands.md asm-inventory.md syntax.md kernel-pp.md .config \
+          cp build.json summary.md config.log fragment.log build.log demands.md asm-inventory.md syntax.md kernel-pp.md \
+            boot.json boot.log .config \
             "$GITHUB_WORKSPACE/record/" 2>/dev/null || true
           if [ -f compile.jsonl ]; then gzip -c compile.jsonl > "$GITHUB_WORKSPACE/record/compile.jsonl.gz"; fi
       - uses: actions/upload-artifact@v7.0.1
