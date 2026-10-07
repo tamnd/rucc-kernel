@@ -5,9 +5,9 @@
 # below checks, so the kernel boots and that one case fails. rk mixed then has to find the object,
 # the fuel step, the pass and the function on its own, and the job fails unless the summary names
 # the inject-fault pass and the function. It needs a rucc with the pass, which every release from
-# 0.24.3 on has. With the function left empty nothing is injected, and the row, config and targets
+# 0.24.3 on has. With the function set to none nothing is injected, and the row, config and targets
 # pick the kernel a real failure was seen in, such as A64 defconfig with the image only and the
-# boot unit.
+# boot unit. An input left empty takes its default, so none and image are words and not empty.
 
 name: mixed
 
@@ -19,7 +19,7 @@ on:
         required: false
         default: 7.2.8
       function:
-        description: The function to inject the fault into, or empty for none
+        description: The function to inject the fault into, or none
         required: false
         default: time64_to_tm
       row:
@@ -31,7 +31,7 @@ on:
         required: false
         default: tinyconfig
       targets:
-        description: The make targets, or empty for the row's image
+        description: The make targets, or image for the row's image
         required: false
         default: bzImage modules
       unit:
@@ -56,7 +56,7 @@ env:
 
 jobs:
   mixed:
-    name: ${{ inputs.version }} ${{ inputs.row }} ${{ inputs.config }}, ${{ inputs.function || inputs.unit }}
+    name: ${{ inputs.version }} ${{ inputs.row }} ${{ inputs.config }}, ${{ inputs.function != 'none' && inputs.function || inputs.unit }}
     runs-on: ${{ inputs.row == 'A64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 355
     steps:
@@ -99,7 +99,7 @@ jobs:
           VERSION: ${{ inputs.version }}
           ROW: ${{ inputs.row }}
           CONFIG: ${{ inputs.config }}
-          TARGETS: ${{ inputs.targets }}
+          TARGETS: ${{ inputs.targets != 'image' && inputs.targets || '' }}
       - name: rk build with rucc
         run: |
           target/release/rk build "$VERSION" --row "$ROW" --config "$CONFIG" --fragment test \
@@ -109,8 +109,8 @@ jobs:
           VERSION: ${{ inputs.version }}
           ROW: ${{ inputs.row }}
           CONFIG: ${{ inputs.config }}
-          TARGETS: ${{ inputs.targets }}
-          FUNCTION: ${{ inputs.function }}
+          TARGETS: ${{ inputs.targets != 'image' && inputs.targets || '' }}
+          FUNCTION: ${{ inputs.function != 'none' && inputs.function || '' }}
       - name: rk test
         id: test
         continue-on-error: true
@@ -146,7 +146,7 @@ jobs:
           grep -q '`inject-fault`' "$summary"
           grep -q "\`$FUNCTION\`" "$summary"
         env:
-          FUNCTION: ${{ inputs.function }}
+          FUNCTION: ${{ inputs.function != 'none' && inputs.function || '' }}
       - name: keep the record
         if: always()
         run: |
