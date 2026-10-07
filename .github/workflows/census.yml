@@ -9,8 +9,8 @@
 # given gcc-14 by name, since the runner's cc is gcc-13 and cannot take gcc-14's command lines. The
 # tables go to the step summary and the artifacts, and the ones worth keeping go into results/census/ in a
 # pull request. allmodconfig is built with the census fragment, which turns DWARF off so the tree
-# fits on the runner, and defconfig with the test fragment, as everywhere else. A defconfig that
-# built its image is then booted with rk boot, and boot.json and boot.log go into the artifact.
+# fits on the runner, and defconfig with the test fragment, as everywhere else. Any other config
+# that built its image is then booted with rk boot, and boot.json and boot.log go into the artifact.
 
 name: census
 
@@ -121,11 +121,11 @@ jobs:
             --cc "$(command -v gcc-14)" --report || true
           cp results/kernel-pp.md "$OUT/kernel-pp.md" || true
           cat "$OUT/kernel-pp.md" >> "$GITHUB_STEP_SUMMARY" || true
-      # A defconfig that linked is booted under QEMU with the smoke checks of rk-init, so a row
+      # A defconfig or distribution config that linked is booted under QEMU with the smoke checks of rk-init, so a row
       # whose kernel builds is also seen to run. The arm64 runner has no KVM, so its boot is TCG
       # and is given longer.
       - name: rk boot
-        if: matrix.config == 'defconfig'
+        if: matrix.config != 'allmodconfig'
         continue-on-error: true
         run: |
           sudo apt-get install -qy --no-install-recommends busybox-static \

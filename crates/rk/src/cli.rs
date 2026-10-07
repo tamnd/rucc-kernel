@@ -179,7 +179,7 @@ usage:
   rk asm-inventory --build DIR [--jobs N]
   rk demands --builds \"DIR DIR ...\" [--limit 40]
   rk build [VERSION] --cc COMPILER [--row X64] [--config defconfig] [--out DIR] [--jobs N]
-           [--fragment test] (--config also takes debian-13 or fedora-44)
+           [--fragment test] (--config also takes debian-13, debian-13-arm64 or fedora-44)
            [--targets \"vmlinux bzImage\"] [--keep-going] [--twice] [--stack-usage]
            [--kcflags \"-fenable-inject-fault=f\"] [--config-only]
            [--bringup m16 --bringup-cc gcc]

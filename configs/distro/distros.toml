@@ -10,6 +10,7 @@
 # out of it, and record both hashes here:
 #
 #   docker run --rm -v "$PWD:/out" debian:13 sh -c 'apt-get update && cd /out && apt-get download linux-image-6.12.111+deb13-amd64'
+#   docker run --rm --platform linux/arm64 -v "$PWD:/out" debian:13 sh -c 'apt-get update && cd /out && apt-get download linux-image-6.12.111+deb13-arm64'
 #   docker run --rm -v "$PWD:/out" fedora:44 sh -c 'cd /out && dnf download kernel-core-7.2.8-200.fc44'
 
 [[distro]]
@@ -20,6 +21,21 @@ row = "X64"
 package = "linux-image-6.12.111+deb13-amd64_6.12.111-1_amd64.deb"
 package_sha256 = "792e7a407f8f39fa0db3deeb6cda4e4bb56042963376133a072856b1c685d4f3"
 config_sha256 = "7264f6c17e856bf18ec53085a01be10d8e466f32a8dcb13c08c4e705d3b2c35b"
+compiler = "gcc 14.2.0"
+overrides = [
+  'CONFIG_SYSTEM_TRUSTED_KEYS=""',
+  'CONFIG_SYSTEM_REVOCATION_KEYS=""',
+  'CONFIG_MODULE_SIG_KEY="certs/signing_key.pem"',
+]
+
+[[distro]]
+name = "debian-13-arm64"
+file = "debian-13-arm64.config"
+version = "6.12.111"
+row = "A64"
+package = "linux-image-6.12.111+deb13-arm64_6.12.111-1_arm64.deb"
+package_sha256 = "981370389cb9f6241b41f66ea5c8a0e7bdd28b9e959cec4d3bac97b1eb1248bf"
+config_sha256 = "0f442d89365ea22dc5169463634ee62903925200844558479666cbe3eeb7e555"
 compiler = "gcc 14.2.0"
 overrides = [
   'CONFIG_SYSTEM_TRUSTED_KEYS=""',
