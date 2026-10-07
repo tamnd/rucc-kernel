@@ -4,6 +4,7 @@
 mod asm;
 mod baseline;
 mod boot;
+mod btf;
 mod build;
 mod cli;
 mod cross;
@@ -71,6 +72,7 @@ fn main() -> ExitCode {
             "modules-audit" => modules_audit(&args),
             "objtool-report" => objtool_report(&args),
             "frames" => frames_command(&args),
+            "btf" => btf_command(&args),
             "demands" => demands_command(&args),
             "boot" => boot_command(&repo, &args),
             "test" => test_command(&repo, &args),
@@ -612,6 +614,35 @@ fn frames_command(args: &Args) -> Result<ExitCode, String> {
     let other = objects::load_or_scan(std::path::Path::new(other), frames::scan)?;
     let comparison = frames::compare(&reference, &other);
     print!("{}", frames::report(&comparison));
+    Ok(verdict(comparison.clean()))
+}
+
+/// Compare the BTF of two builds' vmlinux.
+fn btf_command(args: &Args) -> Result<ExitCode, String> {
+    let read = |path: &str| {
+        let path = std::path::Path::new(path);
+        let elf = std::fs::read(path).is_ok_and(|b| b.starts_with(b"\x7fELF"));
+        if elf {
+            btf::scan(path)
+        } else {
+            objects::load_or_scan(path, btf::scan)
+        }
+    };
+    let reference = read(args.get("reference").ok_or("rk btf needs --reference")?)?;
+    if let Some(path) = args.get("save") {
+        objects::save(std::path::Path::new(path), &reference)?;
+        eprintln!("saved {} types to {path}", reference.types.len());
+    }
+    let Some(other) = args.get("other") else {
+        return if args.get("save").is_some() {
+            Ok(ExitCode::SUCCESS)
+        } else {
+            Err("rk btf needs --other, or --save to keep the reference".to_string())
+        };
+    };
+    let other = read(other)?;
+    let comparison = btf::compare(&reference, &other);
+    print!("{}", btf::report(&comparison));
     Ok(verdict(comparison.clean()))
 }
 
