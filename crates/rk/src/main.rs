@@ -722,6 +722,15 @@ fn write_initramfs(out: &std::path::Path, busybox: Option<&str>) -> Result<(), S
         .map_err(|e| format!("writing {}: {e}", out.display()))
 }
 
+/// The row, with the QEMU CPU `--cpu` names in place of its own, so that an arm64 kernel can be
+/// run on `cortex-a57` as well as on `max`.
+fn with_cpu(mut row: personas::Row, args: &Args) -> personas::Row {
+    if let Some(cpu) = args.get("cpu") {
+        row.cpu = cpu.to_string();
+    }
+    row
+}
+
 /// Boot a build under QEMU and run the smoke checks.
 fn boot_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     let build = std::path::PathBuf::from(args.get("build").ok_or("rk boot needs --build")?);
@@ -735,7 +744,7 @@ fn boot_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
             .map_or_else(|| "X64".to_string(), |o| o.row),
     };
     let rows = personas::Rows::load(&repo.file("rows.toml"))?;
-    let row = rows.get(&row_name)?.clone();
+    let row = with_cpu(rows.get(&row_name)?.clone(), args);
     let initramfs = if let Some(path) = args.get("initramfs") {
         std::path::PathBuf::from(path)
     } else {
@@ -820,7 +829,7 @@ fn test_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         str::to_string,
     );
     let rows = personas::Rows::load(&repo.file("rows.toml"))?;
-    let row = rows.get(&row_name)?.clone();
+    let row = with_cpu(rows.get(&row_name)?.clone(), args);
     let number = |name: &str, default: u64| -> Result<u64, String> {
         args.get(name).map_or(Ok(default), |n| {
             n.parse()
@@ -1016,7 +1025,7 @@ fn cross_modules(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         str::to_string,
     );
     let rows = personas::Rows::load(&repo.file("rows.toml"))?;
-    let row = rows.get(&row_name)?.clone();
+    let row = with_cpu(rows.get(&row_name)?.clone(), args);
     let number = |name: &str, default: u64| -> Result<u64, String> {
         args.get(name).map_or(Ok(default), |n| {
             n.parse()
@@ -1070,7 +1079,10 @@ fn mixed_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         .to_string();
     let built = outcome_of(&other)?;
     let rows = personas::Rows::load(&repo.file("rows.toml"))?;
-    let row = rows.get(args.get("row").unwrap_or(&built.row))?.clone();
+    let row = with_cpu(
+        rows.get(args.get("row").unwrap_or(&built.row))?.clone(),
+        args,
+    );
     let number = |name: &str, default: u64| -> Result<u64, String> {
         args.get(name).map_or(Ok(default), |n| {
             n.parse()
