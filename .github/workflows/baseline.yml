@@ -5,6 +5,9 @@
 # results/baseline in a pull request, so that a baseline never changes without a review. The A64
 # job also says whether the arm runners have KVM, which is open question 8 of the plan.
 #
+# A manual run can name other versions and another config, such as the rest of the current set or
+# debian-13-arm64 on 6.12.111, which is how the A64 baselines cover the whole set.
+#
 # X32 is run by asking for it. An i386 kernel cannot run the runner's x86-64 busybox, so that row
 # boots a static i686 busybox from busybox.net, checked against the hash written here.
 
@@ -17,6 +20,14 @@ on:
         description: The rows to run, as a JSON list
         required: false
         default: '["X64", "A64"]'
+      versions:
+        description: The versions to run, as a JSON list
+        required: false
+        default: '["7.2.8", "6.12.111", "6.1.188"]'
+      config:
+        description: The base config, defconfig or a pinned distribution config
+        required: false
+        default: defconfig
   schedule:
     - cron: "41 2 * * 0"
 
@@ -37,7 +48,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: [7.2.8, 6.12.111, 6.1.188]
+        version: ${{ fromJSON(inputs.versions || '["7.2.8", "6.12.111", "6.1.188"]') }}
         row: ${{ fromJSON(inputs.rows || '["X64", "A64"]') }}
     steps:
       - uses: actions/checkout@v7.0.1
@@ -70,8 +81,10 @@ jobs:
           restore-keys: kernel-archives-${{ matrix.version }}-
       - name: rk baseline
         run: |
-          target/release/rk baseline ${{ matrix.version }} --row ${{ matrix.row }} --config defconfig \
+          target/release/rk baseline ${{ matrix.version }} --row ${{ matrix.row }} --config "$CONFIG" \
             --fragment test --cc gcc-14 --runs 3 --busybox "${BUSYBOX:-/bin/busybox}"
+        env:
+          CONFIG: ${{ inputs.config || 'defconfig' }}
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
