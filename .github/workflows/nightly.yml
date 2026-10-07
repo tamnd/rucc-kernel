@@ -59,6 +59,7 @@ env:
   CONFIG: ${{ inputs.config || 'tinyconfig' }}
   ROW: ${{ inputs.row || 'X64' }}
   CPU: ${{ inputs.cpu }}
+  TARGETS: ${{ inputs.row == 'A64' && 'Image modules' || 'bzImage modules' }}
 
 jobs:
   set:
@@ -142,12 +143,12 @@ jobs:
       - name: rk build with gcc-14
         run: |
           target/release/rk build ${{ matrix.version }} --row "$ROW" --config "$CONFIG" --fragment test \
-            --cc gcc-14 --targets "bzImage modules" --out "$RUNNER_TEMP/gcc" --stack-usage
+            --cc gcc-14 --targets "$TARGETS" --out "$RUNNER_TEMP/gcc" --stack-usage
       - name: rk build with rucc
         continue-on-error: true
         run: |
           target/release/rk build ${{ matrix.version }} --row "$ROW" --config "$CONFIG" --fragment test \
-            --cc rucc --targets "bzImage modules" --out "$RUNNER_TEMP/rucc" --keep-going --stack-usage
+            --cc rucc --targets "$TARGETS" --out "$RUNNER_TEMP/rucc" --keep-going --stack-usage
       - name: rk selftests with gcc-14
         run: |
           target/release/rk selftests --build "$RUNNER_TEMP/gcc" --cc gcc-14 \
