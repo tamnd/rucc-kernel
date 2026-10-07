@@ -348,6 +348,14 @@ pub fn qemu_command(plan: &Plan, image: &Path, kvm: bool) -> Vec<String> {
     } else {
         plan.row.cpu.clone()
     });
+    // A kernel that dies before its serial driver is up prints nothing on the console, and with
+    // `panic=-1` and `-no-reboot` QEMU just exits. On a machine with a device tree a bare
+    // `earlycon` finds the UART from `/chosen` and the oops is in the log.
+    let early = if matches!(plan.row.arch.as_str(), "arm64" | "riscv") {
+        "earlycon "
+    } else {
+        ""
+    };
     words.extend([
         "-kernel".to_string(),
         image.display().to_string(),
@@ -355,7 +363,7 @@ pub fn qemu_command(plan: &Plan, image: &Path, kvm: bool) -> Vec<String> {
         plan.initramfs.display().to_string(),
         "-append".to_string(),
         format!(
-            "console={} panic=-1 oops=panic rdinit=/init {}",
+            "console={} {early}panic=-1 oops=panic rdinit=/init {}",
             plan.row.console, plan.append
         )
         .trim_end()
@@ -538,6 +546,33 @@ mod tests {
         assert_eq!(memory_mib(200 << 20), 1024);
         assert_eq!(memory_mib(400 << 20), 1536);
         assert_eq!(memory_mib((400 << 20) + 1), 1536);
+    }
+
+    #[test]
+    fn a_device_tree_machine_gets_an_early_console() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rows.toml");
+        let rows = crate::personas::Rows::load(&path).unwrap();
+        let line = |name: &str| {
+            let plan = Plan {
+                build: PathBuf::from("b"),
+                row: rows.get(name).unwrap().clone(),
+                initramfs: PathBuf::from("i"),
+                timeout: 1,
+                append: String::new(),
+                stem: None,
+            };
+            qemu_command(&plan, Path::new("Image"), false)
+                .pop()
+                .unwrap()
+        };
+        assert_eq!(
+            line("A64"),
+            "console=ttyAMA0 earlycon panic=-1 oops=panic rdinit=/init"
+        );
+        assert_eq!(
+            line("X64"),
+            "console=ttyS0 panic=-1 oops=panic rdinit=/init"
+        );
     }
 
     #[test]
