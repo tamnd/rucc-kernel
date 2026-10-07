@@ -66,7 +66,8 @@ const DECL_TAG: u32 = 17;
 const TYPE_TAG: u32 = 18;
 const ENUM64: u32 = 19;
 
-/// Read the `.BTF` section of a vmlinux, or of the vmlinux in a build directory.
+/// Read the `.BTF` section of a vmlinux, or of the vmlinux in a build directory, or a file that is
+/// BTF alone, such as `/sys/kernel/btf/vmlinux` or what `pahole --btf_encode_detached` writes.
 pub fn scan(path: &Path) -> Result<Btf, String> {
     let file = if path.is_dir() {
         path.join("vmlinux")
@@ -74,12 +75,21 @@ pub fn scan(path: &Path) -> Result<Btf, String> {
         path.to_path_buf()
     };
     let data = std::fs::read(&file).map_err(|e| format!("reading {}: {e}", file.display()))?;
+    if is_raw(&data) {
+        return parse(&data).map_err(|e| format!("{}: {e}", file.display()));
+    }
     let elf = object::File::parse(&*data).map_err(|e| format!("{}: {e}", file.display()))?;
     let section = elf
         .section_by_name(".BTF")
         .ok_or_else(|| format!("{} has no .BTF section", file.display()))?;
     let bytes = section.data().map_err(|e| e.to_string())?;
     parse(bytes).map_err(|e| format!("{}: {e}", file.display()))
+}
+
+/// Whether a file is BTF alone, starting with the magic in either byte order.
+#[must_use]
+pub fn is_raw(data: &[u8]) -> bool {
+    matches!(data.get(..2), Some([0x9f, 0xeb] | [0xeb, 0x9f]))
 }
 
 /// Read a `.BTF` section.
@@ -172,9 +182,25 @@ impl Table<'_> {
         match t.kind {
             PTR => format!("*{}", next(t.size_or_type)),
             ARRAY => format!("[{}]{}", t.extra[2], next(t.extra[0])),
-            CONST => format!("const {}", next(t.size_or_type)),
-            VOLATILE => format!("volatile {}", next(t.size_or_type)),
-            RESTRICT => format!("restrict {}", next(t.size_or_type)),
+            CONST | VOLATILE | RESTRICT => {
+                // gcc writes `const volatile` as volatile over const and rucc the other way, which
+                // says the same, so a run of qualifiers is written in one order.
+                let mut words = Vec::new();
+                let mut under = id;
+                while let Some(q) = self.get(under)
+                    && matches!(q.kind, CONST | VOLATILE | RESTRICT)
+                {
+                    words.push(match q.kind {
+                        CONST => "const",
+                        VOLATILE => "volatile",
+                        _ => "restrict",
+                    });
+                    under = q.size_or_type;
+                }
+                words.sort_unstable();
+                words.dedup();
+                format!("{} {}", words.join(" "), next(under))
+            }
             TYPE_TAG => format!("tag({}) {}", t.name, next(t.size_or_type)),
             FUNC_PROTO => self.proto(t, depth),
             STRUCT | UNION | ENUM | ENUM64 if t.name.is_empty() => self.body(t, depth),
@@ -540,6 +566,34 @@ mod tests {
         let c = compare(&a, &d);
         assert!(c.clean(), "{}", report(&c));
         assert!(report(&c).contains("- `f`"));
+    }
+
+    #[test]
+    fn qualifiers_are_written_in_one_order() {
+        let int = [1, info(INT, 0), 4, 1 << 24 | 32];
+        let cv = |first, second| {
+            let mut words = int.to_vec();
+            words.extend_from_slice(&[0, info(first, 0), 1, 0, info(second, 0), 2]);
+            words.extend_from_slice(&[19, info(TYPEDEF, 0), 3]);
+            parse(&section(&words, STRINGS)).unwrap()
+        };
+        let a = cv(CONST, VOLATILE);
+        assert_eq!(a, cv(VOLATILE, CONST));
+        assert_eq!(
+            a.types["typedef u"].iter().next().unwrap(),
+            "const volatile int"
+        );
+    }
+
+    #[test]
+    fn a_file_of_btf_alone_is_read_as_is() {
+        let dir = std::env::temp_dir().join(format!("rk-btf-raw-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("vmlinux.btf");
+        std::fs::write(&path, sample(false)).unwrap();
+        let read = scan(&path);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(read.unwrap(), parse(&sample(false)).unwrap());
     }
 
     #[test]
