@@ -130,7 +130,16 @@ jobs:
         run: |
           sudo apt-get install -qy --no-install-recommends busybox-static \
             "$([ "$ROW" = A64 ] && echo qemu-system-arm || echo qemu-system-x86)"
-          target/release/rk boot --build "$OUT" --row "$ROW" --timeout 1500
+          # An i386 kernel cannot run the runner's own 64 bit busybox, so X32 gets the i386 one.
+          busybox=()
+          if [ "$ROW" = X32 ]; then
+            sudo dpkg --add-architecture i386
+            sudo apt-get update -q
+            (cd "$RUNNER_TEMP" && apt-get download busybox-static:i386 \
+              && dpkg-deb -x busybox-static_*_i386.deb busybox-i386)
+            busybox=(--busybox "$RUNNER_TEMP/busybox-i386/bin/busybox")
+          fi
+          target/release/rk boot --build "$OUT" --row "$ROW" --timeout 1500 "${busybox[@]}"
         env:
           ROW: ${{ matrix.row }}
       - name: keep the record

@@ -198,6 +198,24 @@ pub fn is_static_elf(bytes: &[u8]) -> bool {
     })
 }
 
+/// Whether an ELF program runs on a kernel of that kbuild `ARCH`, read from its `e_machine` and its
+/// class. An i386 kernel cannot start a 64 bit program, so a busybox taken from an amd64 runner
+/// panics an X32 boot with "No working init found" before any check runs.
+#[must_use]
+pub fn runs_on(bytes: &[u8], arch: &str) -> bool {
+    if bytes.len() < 20 || &bytes[..4] != b"\x7fELF" {
+        return false;
+    }
+    let machine = u16::from_le_bytes([bytes[18], bytes[19]]);
+    match arch {
+        "x86_64" => machine == 62 || machine == 3,
+        "i386" => machine == 3 && bytes[4] == 1,
+        "arm64" => machine == 183,
+        "riscv" => machine == 243,
+        _ => true,
+    }
+}
+
 /// Everything `rk boot` was asked to do.
 #[derive(Debug, Clone)]
 pub struct Plan {
@@ -512,6 +530,25 @@ mod tests {
         elf[0x40] = 3;
         assert!(!is_static_elf(&elf));
         assert!(!is_static_elf(b"#!/bin/sh"));
+    }
+
+    #[test]
+    fn a_busybox_is_checked_against_the_row_it_boots() {
+        let mut elf = vec![0u8; 0x40];
+        elf[..4].copy_from_slice(b"\x7fELF");
+        elf[4] = 2;
+        elf[18] = 62;
+        assert!(runs_on(&elf, "x86_64"));
+        assert!(!runs_on(&elf, "i386"));
+        assert!(!runs_on(&elf, "arm64"));
+        elf[4] = 1;
+        elf[18] = 3;
+        assert!(runs_on(&elf, "i386"));
+        assert!(runs_on(&elf, "x86_64"));
+        elf[4] = 2;
+        elf[18] = 183;
+        assert!(runs_on(&elf, "arm64"));
+        assert!(!runs_on(b"#!/bin/sh", "x86_64"));
     }
 
     #[test]

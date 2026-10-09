@@ -780,8 +780,19 @@ fn boot_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     let initramfs = if let Some(path) = args.get("initramfs") {
         std::path::PathBuf::from(path)
     } else {
+        let busybox = read_busybox(args.get("busybox"))?;
+        if !boot::runs_on(&busybox, &row.arch) {
+            return Err(format!(
+                "{} is not a program the {} row's {} kernel can run; pass --busybox with one \
+                 built for it",
+                args.get("busybox").unwrap_or("/bin/busybox"),
+                row.name,
+                row.arch
+            ));
+        }
         let path = build.join("initramfs.cpio");
-        write_initramfs(&path, args.get("busybox"))?;
+        std::fs::write(&path, boot::initramfs(&busybox))
+            .map_err(|e| format!("writing {}: {e}", path.display()))?;
         path
     };
     let timeout = match args.get("timeout") {
