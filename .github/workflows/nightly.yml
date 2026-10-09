@@ -14,7 +14,8 @@
 # A manual run can also name the row, the versions and the QEMU CPU. A64 runs on the arm runner,
 # which has no KVM, so its boots are TCG and are given longer, and its rucc is built from source,
 # from the pinned release's tag when no branch or commit is named, since the release tarball is
-# the x86_64 one.
+# the x86_64 one. X32 pins no selftests or LTP in rows.toml, so its nights build neither and are
+# graded on boot, smoke and KUnit, which is what the K4 exit criterion asks for.
 
 name: nightly
 
@@ -32,7 +33,7 @@ on:
         required: false
         default: tinyconfig
       row:
-        description: The row, X64 or A64
+        description: The row, X64, A64 or X32
         required: false
         default: X64
       versions:
@@ -150,10 +151,12 @@ jobs:
           target/release/rk build ${{ matrix.version }} --row "$ROW" --config "$CONFIG" --fragment test \
             --cc rucc --targets "$TARGETS" --out "$RUNNER_TEMP/rucc" --keep-going --stack-usage
       - name: rk selftests with gcc-14
+        if: inputs.row != 'X32'
         run: |
           target/release/rk selftests --build "$RUNNER_TEMP/gcc" --cc gcc-14 \
             --out "$RUNNER_TEMP/selftests-gcc"
       - name: rk selftests with rucc
+        if: inputs.row != 'X32'
         continue-on-error: true
         run: |
           target/release/rk selftests --build "$RUNNER_TEMP/gcc" --cc rucc \
@@ -163,9 +166,11 @@ jobs:
           path: ${{ env.RK_CACHE }}/ltp
           key: ltp-${{ runner.arch }}-${{ hashFiles('ltp.toml') }}
       - name: rk ltp with gcc-14
+        if: inputs.row != 'X32'
         run: |
           target/release/rk ltp --build "$RUNNER_TEMP/gcc" --cc gcc-14 --out "$RUNNER_TEMP/ltp-gcc"
       - name: rk ltp with rucc
+        if: inputs.row != 'X32'
         continue-on-error: true
         run: |
           target/release/rk ltp --build "$RUNNER_TEMP/gcc" --cc rucc --out "$RUNNER_TEMP/ltp-rucc"
@@ -174,6 +179,16 @@ jobs:
         run: |
           boot=(--timeout "$TIMEOUT")
           if [ -n "$CPU" ]; then boot+=(--cpu "$CPU"); fi
+          kinds=boot,smoke,kunit
+          userland=()
+          if [ -f "$RUNNER_TEMP/selftests-gcc/selftests.json" ]; then
+            kinds+=,kselftest
+            userland+=(--selftests "$RUNNER_TEMP/selftests-gcc")
+          fi
+          if [ -f "$RUNNER_TEMP/ltp-gcc/ltp.json" ]; then
+            kinds+=,ltp
+            userland+=(--ltp "$RUNNER_TEMP/ltp-gcc")
+          fi
           rucc_userland=()
           if [ -f "$RUNNER_TEMP/selftests-rucc/selftests.json" ]; then
             rucc_userland+=(--rucc-selftests "$RUNNER_TEMP/selftests-rucc")
@@ -182,8 +197,7 @@ jobs:
             rucc_userland+=(--rucc-ltp "$RUNNER_TEMP/ltp-rucc")
           fi
           target/release/rk test --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
-            --kinds boot,smoke,kunit,kselftest,ltp --selftests "$RUNNER_TEMP/selftests-gcc" \
-            --ltp "$RUNNER_TEMP/ltp-gcc" "${rucc_userland[@]}" "${boot[@]}" --out "$RUNNER_TEMP/test"
+            --kinds "$kinds" "${userland[@]}" "${rucc_userland[@]}" "${boot[@]}" --out "$RUNNER_TEMP/test"
         env:
           TIMEOUT: ${{ inputs.row == 'A64' && 1500 || 600 }}
       - name: rk cross-modules
@@ -230,9 +244,10 @@ jobs:
           if [ -z "$unit" ]; then echo "no kernel failure to bisect"; exit 0; fi
           boot=()
           if [ -n "$CPU" ]; then boot+=(--cpu "$CPU"); fi
+          if [ -d "$RUNNER_TEMP/selftests-gcc" ]; then boot+=(--selftests "$RUNNER_TEMP/selftests-gcc"); fi
+          if [ -d "$RUNNER_TEMP/ltp-gcc" ]; then boot+=(--ltp "$RUNNER_TEMP/ltp-gcc"); fi
           target/release/rk mixed "${boot[@]}" --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
-            --unit "$unit" --selftests "$RUNNER_TEMP/selftests-gcc" --ltp "$RUNNER_TEMP/ltp-gcc" \
-            --out "$RUNNER_TEMP/mixed"
+            --unit "$unit" --out "$RUNNER_TEMP/mixed"
       - name: keep the record
         if: always()
         run: |
