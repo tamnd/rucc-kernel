@@ -23,6 +23,10 @@ on:
         description: The base config
         required: false
         default: tinyconfig
+      row:
+        description: The row, X64, X32 or A64
+        required: false
+        default: X64
       rucc:
         description: A branch or commit of tamnd/rucc to build
         required: false
@@ -41,8 +45,8 @@ env:
 
 jobs:
   object:
-    name: ${{ inputs.version }} ${{ inputs.object }}
-    runs-on: ubuntu-24.04
+    name: ${{ inputs.version }} ${{ inputs.row }} ${{ inputs.object }}
+    runs-on: ${{ inputs.row == 'A64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7.0.1
@@ -70,7 +74,7 @@ jobs:
       - name: the object with each compiler
         run: |
           for cc in gcc-14 rucc; do
-            target/release/rk build "$VERSION" --row X64 --config "$CONFIG" --fragment test \
+            target/release/rk build "$VERSION" --row "$ROW" --config "$CONFIG" --fragment test \
               --cc "$cc" --targets "$OBJECT.i $OBJECT.s $OBJECT.o" --stack-usage --keep-going \
               --out "$RUNNER_TEMP/$cc"
             mkdir -p "record/$cc"
@@ -80,6 +84,7 @@ jobs:
           VERSION: ${{ inputs.version }}
           OBJECT: ${{ inputs.object }}
           CONFIG: ${{ inputs.config }}
+          ROW: ${{ inputs.row }}
       - name: the largest frames
         run: |
           for cc in gcc-14 rucc; do
@@ -95,6 +100,6 @@ jobs:
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
-          name: object-${{ inputs.version }}
+          name: object-${{ inputs.version }}-${{ inputs.row }}
           path: record
           retention-days: 30
