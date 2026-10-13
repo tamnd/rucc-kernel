@@ -47,3 +47,11 @@ reason = "rucc answers -Wa,--version with the binutils of the era in personas.to
 [[divergence]]
 symbol = "CC_CAN_LINK"
 reason = "The build host decides this, not the compiler. On X32 Kconfig asks if $(CC) -m32 links a program. The reference gcc on server2 and on the CI runner has no 32-bit multilib, so it says no, while rucc finds the i686 cross libc and says yes. Only the user-space test programs depend on it, and no other symbol changes"
+
+[[divergence]]
+symbol = "CC_CAN_LINK_STATIC"
+reason = "The same as CC_CAN_LINK, one level stricter. On X32 in 6.1 Kconfig asks if $(CC) -m32 -static links a program. The reference gcc has no 32-bit multilib and says no, while rucc finds the static i686 cross libc and says yes. Only the user-space test programs depend on it"
+
+[[divergence]]
+symbol = "GCC_ASM_GOTO_OUTPUT_WORKAROUND"
+reason = "This follows GCC_VERSION. In 6.1 it is y for gcc 12.0 to 12.3, which have bug 113921 in asm goto with outputs, and it adds an empty asm volatile after each asm goto. rucc claims 12.2.0 for 6.1 and gets it, and so does the CI reference gcc-12 at 12.3.0. A reference gcc-13 at 13.3, as on server2, has the fix and does not. The extra empty asm emits no code"
