@@ -294,8 +294,17 @@ pub struct Plan {
     pub out: PathBuf,
 }
 
+/// KUnit modules that rk test leaves out for both kernels, because the test races with itself and
+/// a splat it prints tells nothing about the compiler. `KUNIT_ALL_TESTS=m` hides their prompts, so
+/// the fragment cannot turn them off.
+///
+/// `test_ratelimit_stress` sets a flag that its threads stop on and then calls `kthread_stop` on
+/// them. A thread that sees the flag and exits first frees its task, and `kthread_stop` then
+/// reports `refcount_t: addition on 0`. Upstream fixes the test with `kthread_should_stop()`.
+const LEFT_OUT: &[&str] = &["lib/tests/test_ratelimit.ko"];
+
 /// The modules of a build as files for the initramfs, under `lib/modules/rk`, and the `order`
-/// file listing them in the order kbuild built them.
+/// file listing them in the order kbuild built them, without the ones in [`LEFT_OUT`].
 pub fn modules(build: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
     let Ok(order) = std::fs::read_to_string(build.join("modules.order")) else {
         return Ok(Vec::new());
@@ -308,6 +317,9 @@ pub fn modules(build: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
             .or_else(|| line.strip_suffix(".o"))
             .unwrap_or(line);
         let name = format!("{stem}.ko");
+        if LEFT_OUT.contains(&name.as_str()) {
+            continue;
+        }
         let path = build.join(&name);
         let bytes = std::fs::read(&path).map_err(|e| {
             format!(
@@ -675,6 +687,30 @@ mod tests {
         assert_eq!(kind_of("kselftest:timers:posix_timers"), Kind::Kselftest);
         assert_eq!(suite_kind("kselftest:timers"), Kind::Kselftest);
         assert_eq!(suite_kind("kunit"), Kind::Kunit);
+    }
+
+    #[test]
+    fn a_racy_kunit_module_is_left_out_of_the_initramfs() {
+        let dir = std::env::temp_dir().join(format!("rk-testrun-modules-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("lib/tests")).unwrap();
+        std::fs::write(dir.join("lib/tests/list-test.ko"), b"list").unwrap();
+        std::fs::write(dir.join("lib/tests/test_ratelimit.ko"), b"race").unwrap();
+        std::fs::write(
+            dir.join("modules.order"),
+            "lib/tests/test_ratelimit.o\nlib/tests/list-test.o\n",
+        )
+        .unwrap();
+        let files = modules(&dir).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        let names: Vec<&str> = files.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "lib/modules/rk/lib/tests/list-test.ko",
+                "lib/modules/rk/order"
+            ]
+        );
+        assert_eq!(files[1].1, b"lib/tests/list-test.ko\n");
     }
 
     fn booted() -> boot::Outcome {
