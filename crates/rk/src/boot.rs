@@ -384,6 +384,18 @@ pub fn qemu_command(plan: &Plan, image: &Path, kvm: bool) -> Vec<String> {
     } else {
         ""
     };
+    // In 7.2 the clocksource watchdog checks the TSC of each CPU from a timer. It queues a call
+    // on the other CPU and waits for it with interrupts off. If the timer interrupts a CPU that
+    // has queued a call on the same CPU but not yet sent the IPI, the IPI never goes out. The
+    // wait has a timeout, but early in boot the clock it reads is jiffies, and jiffies stop
+    // while the waiting CPU has interrupts off. The boot hangs in SMP bringup. The rucc kernel
+    // of 7.2.8 did this once in about 60 boots, and the gcc kernel has the same window. With
+    // `tsc=nowatchdog` the TSC is not watched and the watchdog does not run.
+    let tsc = if matches!(plan.row.arch.as_str(), "x86_64" | "i386") {
+        "tsc=nowatchdog "
+    } else {
+        ""
+    };
     words.extend([
         "-kernel".to_string(),
         image.display().to_string(),
@@ -391,7 +403,7 @@ pub fn qemu_command(plan: &Plan, image: &Path, kvm: bool) -> Vec<String> {
         plan.initramfs.display().to_string(),
         "-append".to_string(),
         format!(
-            "console={} {early}panic=-1 oops=panic rdinit=/init {}",
+            "console={} {early}{tsc}panic=-1 oops=panic rdinit=/init {}",
             plan.row.console, plan.append
         )
         .trim_end()
@@ -618,7 +630,7 @@ mod tests {
         );
         assert_eq!(
             line("X64"),
-            "console=ttyS0 panic=-1 oops=panic rdinit=/init"
+            "console=ttyS0 tsc=nowatchdog panic=-1 oops=panic rdinit=/init"
         );
     }
 

@@ -76,12 +76,13 @@ The grading follows 02.3: a unit that passes 3 of 3 with the reference must pass
 ```
 qemu-system-x86_64 -machine q35,accel=kvm:tcg -cpu host|max -smp 4 -m 2G \
   -kernel <bzImage|vmlinux> -initrd <rk-initramfs.cpio.gz> \
-  -append "console=ttyS0 panic=-1 oops=panic rk.suite=<s> rk.seed=<n>" \
+  -append "console=ttyS0 tsc=nowatchdog panic=-1 oops=panic rk.suite=<s> rk.seed=<n>" \
   -nographic -no-reboot \
   -virtfs local,path=<results>,mount_tag=rk,security_model=none \
   -device virtio-rng-pci
 ```
 
+- **x86 clocksource watchdog:** x86 rows boot with `tsc=nowatchdog`. In 7.2 the watchdog can wait with interrupts off for a call that another CPU never gets, and the boot then hangs in SMP bringup. Both the reference and rucc kernels have this race, so the parameter goes on both. The comment in `crates/rk/src/boot.rs` gives the details.
 - **arm64:** `-machine virt -cpu max`, console `ttyAMA0`.
 - **i386:** `-machine pc -cpu qemu32` or `pentium3` to match `CONFIG_M*`.
 - **riscv64:** `-machine virt -bios default`.
