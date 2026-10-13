@@ -7,7 +7,7 @@
 //! `rk.suite=` on the kernel command line, and the kunit boot carries the build's modules in its
 //! initramfs. The units the reference passes in every run are the graded set, and the rucc kernel
 //! must pass every one of them in every run. A unit the reference does not always pass is
-//! reported and not graded.
+//! reported and not graded, and so is a unit of a suite in [`RACY`].
 //!
 //! Both kernels' consoles are their dmesg. The splats in them are normalized (see `dmesg`), and a
 //! splat that only the rucc kernel prints is a failure even when every unit passed.
@@ -216,13 +216,31 @@ pub struct Unit {
     pub reference: Vec<Status>,
     /// The rucc kernel's result in each run.
     pub other: Vec<Status>,
-    /// Whether it is graded: the reference passed it every time.
+    /// Whether it is graded: the reference passed it every time, and its suite is not racy.
     pub graded: bool,
     /// Whether the rucc kernel passed it every time.
     pub passed: bool,
     /// For a graded unit the rucc kernel failed: `kernel`, `userland` or `interaction`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attribution: Option<String>,
+}
+
+/// KUnit suites whose units are reported and not graded, because the test races with the kernel
+/// itself and a failure tells nothing about the compiler.
+///
+/// Each `*_iommu_test` suite in `iommu_pt_kunit_test.ko` reads `NR_SECONDARY_PAGETABLE` before a
+/// case and checks that it is the same after. The counter is the global one, and the vmstat worker
+/// folds each CPU's part into it once a second. When the worker runs during a case, the counter
+/// moves by the pages the case had, the check fails, and the cleanup stops before it unregisters
+/// `pt_kunit_dev`, so the suites after it fail too. The GCC kernel fails the same way with a slower
+/// userland.
+const RACY: &[&str] = &["_iommu_test"];
+
+/// Whether a unit is in a suite of [`RACY`].
+fn racy(name: &str) -> bool {
+    name.strip_prefix("kunit:")
+        .and_then(|rest| rest.split('.').next())
+        .is_some_and(|suite| RACY.iter().any(|end| suite.ends_with(end)))
 }
 
 /// Grade the rucc kernel's results against the reference's over `runs` runs.
@@ -239,7 +257,7 @@ pub fn grade(reference: &Results, other: &Results, runs: usize) -> Vec<Unit> {
                 name: name.clone(),
                 reference: r.clone(),
                 other: o.clone(),
-                graded: r.len() == runs && r.iter().all(|s| *s == Status::Pass),
+                graded: !racy(name) && r.len() == runs && r.iter().all(|s| *s == Status::Pass),
                 passed: o.len() == runs && o.iter().all(|s| *s == Status::Pass),
                 attribution: None,
             }
@@ -649,7 +667,7 @@ pub fn summary(o: &Outcome) -> String {
     if !ungraded.is_empty() {
         let _ = writeln!(
             s,
-            "{} units are not graded because the reference did not pass them every time, and the rucc kernel passed {} of those.",
+            "{} units are not graded because the reference did not pass them every time or their test is racy, and the rucc kernel passed {} of those.",
             ungraded.len(),
             ungraded.iter().filter(|u| u.passed).count()
         );
@@ -773,6 +791,28 @@ mod tests {
         assert!(by_name["boot"].graded && by_name["boot"].passed);
         assert!(by_name["kunit:a"].graded && !by_name["kunit:a"].passed);
         assert!(!by_name["kunit:flaky"].graded);
+    }
+
+    #[test]
+    fn a_racy_suite_is_not_graded() {
+        let mut reference = Results::new();
+        let mut other = Results::new();
+        let units: Units = [
+            "kunit:amdv1_iommu_test.test_increase_level",
+            "kunit:amdv1_iommu_test.test_increase_level.amdv1_cfg_1",
+            "kunit:amdv1_fmt_test.test_attr_from_entry",
+        ]
+        .into_iter()
+        .map(|u| (u.to_string(), Status::Pass))
+        .collect();
+        add_run(&mut reference, 0, &units);
+        add_run(&mut other, 0, &units);
+        let graded: Vec<String> = grade(&reference, &other, 1)
+            .into_iter()
+            .filter(|u| u.graded)
+            .map(|u| u.name)
+            .collect();
+        assert_eq!(graded, ["kunit:amdv1_fmt_test.test_attr_from_entry"]);
     }
 
     #[test]
