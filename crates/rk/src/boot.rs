@@ -340,6 +340,16 @@ pub fn qemu_command(plan: &Plan, image: &Path, kvm: bool) -> Vec<String> {
     };
     let initramfs = std::fs::metadata(&plan.initramfs).map_or(0, |m| m.len());
     let memory = format!("{}M", memory_mib(initramfs));
+    // x86 patches a static key with an INT3 while the other CPUs run, and its handler gives up
+    // once the patch is done. With one host thread for each vCPU, QEMU 8.2 can let a vCPU run
+    // the INT3 after the patch is done, and the kernel dies with "Oops: int3". The gcc and rucc
+    // kernels of 7.2.8 each did this in about one boot of 30. With one thread for both vCPUs
+    // every write to the text is seen in order. arm64 patches under stop_machine and needs none.
+    let accel = match (kvm, plan.row.arch.as_str()) {
+        (true, _) => "kvm",
+        (false, "x86_64" | "i386") => "tcg,thread=single",
+        (false, _) => "tcg",
+    };
     let mut words: Vec<String> = [
         plan.row.qemu.as_str(),
         "-M",
@@ -355,7 +365,7 @@ pub fn qemu_command(plan: &Plan, image: &Path, kvm: bool) -> Vec<String> {
         "-nic",
         "none",
         "-accel",
-        if kvm { "kvm" } else { "tcg" },
+        accel,
         "-cpu",
     ]
     .iter()
@@ -610,6 +620,29 @@ mod tests {
             line("X64"),
             "console=ttyS0 panic=-1 oops=panic rdinit=/init"
         );
+    }
+
+    #[test]
+    fn x86_under_tcg_runs_both_cpus_on_one_thread() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rows.toml");
+        let rows = crate::personas::Rows::load(&path).unwrap();
+        let accel = |name: &str, kvm: bool| {
+            let plan = Plan {
+                build: PathBuf::from("b"),
+                row: rows.get(name).unwrap().clone(),
+                initramfs: PathBuf::from("i"),
+                timeout: 1,
+                append: String::new(),
+                stem: None,
+            };
+            let words = qemu_command(&plan, Path::new("Image"), kvm);
+            let at = words.iter().position(|w| w == "-accel").unwrap();
+            words[at + 1].clone()
+        };
+        assert_eq!(accel("X64", false), "tcg,thread=single");
+        assert_eq!(accel("X32", false), "tcg,thread=single");
+        assert_eq!(accel("A64", false), "tcg");
+        assert_eq!(accel("X64", true), "kvm");
     }
 
     #[test]
