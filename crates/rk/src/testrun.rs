@@ -313,13 +313,22 @@ pub struct Plan {
 }
 
 /// KUnit modules that rk test leaves out for both kernels, because the test races with itself and
-/// a splat it prints tells nothing about the compiler. `KUNIT_ALL_TESTS=m` hides their prompts, so
-/// the fragment cannot turn them off.
+/// a splat or a hang it causes tells nothing about the compiler. `KUNIT_ALL_TESTS=m` hides their
+/// prompts, so the fragment cannot turn them off.
 ///
 /// `test_ratelimit_stress` sets a flag that its threads stop on and then calls `kthread_stop` on
 /// them. A thread that sees the flag and exits first frees its task, and `kthread_stop` then
 /// reports `refcount_t: addition on 0`. Upstream fixes the test with `kthread_should_stop()`.
-const LEFT_OUT: &[&str] = &["lib/tests/test_ratelimit.ko"];
+///
+/// The mock scheduler of `drm-sched-tests` signals a job's fence from the job's hrtimer, with its
+/// lock held and interrupts off. When that drops the last reference to the fence, the release
+/// calls `hrtimer_cancel` on the timer that is running, which waits for itself, and the other CPU
+/// then waits for the lock. The guest prints nothing more, and every suite after it fails. A GCC
+/// kernel hangs the same way.
+const LEFT_OUT: &[&str] = &[
+    "lib/tests/test_ratelimit.ko",
+    "drivers/gpu/drm/scheduler/tests/drm-sched-tests.ko",
+];
 
 /// The modules of a build as files for the initramfs, under `lib/modules/rk`, and the `order`
 /// file listing them in the order kbuild built them, without the ones in [`LEFT_OUT`].
@@ -713,9 +722,12 @@ mod tests {
         std::fs::create_dir_all(dir.join("lib/tests")).unwrap();
         std::fs::write(dir.join("lib/tests/list-test.ko"), b"list").unwrap();
         std::fs::write(dir.join("lib/tests/test_ratelimit.ko"), b"race").unwrap();
+        let sched = dir.join("drivers/gpu/drm/scheduler/tests");
+        std::fs::create_dir_all(&sched).unwrap();
+        std::fs::write(sched.join("drm-sched-tests.ko"), b"hang").unwrap();
         std::fs::write(
             dir.join("modules.order"),
-            "lib/tests/test_ratelimit.o\nlib/tests/list-test.o\n",
+            "lib/tests/test_ratelimit.o\ndrivers/gpu/drm/scheduler/tests/drm-sched-tests.o\nlib/tests/list-test.o\n",
         )
         .unwrap();
         let files = modules(&dir).unwrap();
