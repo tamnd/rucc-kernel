@@ -5,7 +5,9 @@
 //! normalized: the printk timestamp is taken off, and so is everything that changes from boot to
 //! boot or from compiler to compiler, which is addresses, offsets into functions, PIDs, CPU
 //! numbers and the numbers in thread names. Source locations like `kernel/fork.c:123` are kept,
-//! since both kernels are built from the same tree.
+//! since both kernels are built from the same tree. The function after a source location is
+//! dropped, because it is the function the code was inlined into: a `WARN_ON` in a static helper
+//! that GCC inlines and rucc does not names a different function at the same line.
 //!
 //! The rucc kernel's set of normalized splats must be a subset of the reference's. A splat only
 //! the rucc kernel prints is a failure even when every test passed, and it is how a broken memory
@@ -59,9 +61,14 @@ pub fn is_splat(text: &str) -> bool {
         && MARKERS.iter().any(|m| text.contains(m))
 }
 
+/// Whether a word is a source location, like `kernel/fork.c:123`.
+fn is_location(word: &str) -> bool {
+    word.contains(".c:") || word.contains(".h:") || word.contains(".S:")
+}
+
 /// A word with the parts that change between boots and compilers masked.
 fn mask_word(word: &str) -> String {
-    if word.contains(".c:") || word.contains(".h:") || word.contains(".S:") {
+    if is_location(word) {
         return word.to_string();
     }
     if let Some((name, _)) = word.split_once("+0x") {
@@ -95,10 +102,15 @@ fn mask_word(word: &str) -> String {
 /// A splat's first line, normalized.
 #[must_use]
 pub fn normalize(text: &str) -> String {
-    text.split_whitespace()
-        .map(mask_word)
-        .collect::<Vec<_>>()
-        .join(" ")
+    let mut words = Vec::new();
+    let mut after_location = false;
+    for word in text.split_whitespace() {
+        if !(after_location && word.contains("+0x")) {
+            words.push(mask_word(word));
+        }
+        after_location = is_location(word);
+    }
+    words.join(" ")
 }
 
 /// The normalized splats of a console log.
@@ -126,7 +138,20 @@ mod tests {
         assert_eq!(splats(a), splats(b));
         assert_eq!(
             splats(a).into_iter().collect::<Vec<_>>(),
-            ["WARNING: CPU: N PID: N at kernel/fork.c:123 copy_process+N"]
+            ["WARNING: CPU: N PID: N at kernel/fork.c:123"]
+        );
+    }
+
+    #[test]
+    fn the_function_a_warning_was_inlined_into_does_not_count() {
+        let gcc = "WARNING: CPU: 1 PID: 1918 at drivers/gpu/drm/drm_rect.c:137 \
+                   drm_rect_calc_hscale+0x49/0x60";
+        let rucc = "WARNING: CPU: 1 PID: 1918 at drivers/gpu/drm/drm_rect.c:137 \
+                    drm_calc_scale+0x49/0x60";
+        assert_eq!(normalize(gcc), normalize(rucc));
+        assert_eq!(
+            normalize(gcc),
+            "WARNING: CPU: N PID: N at drivers/gpu/drm/drm_rect.c:137"
         );
     }
 
