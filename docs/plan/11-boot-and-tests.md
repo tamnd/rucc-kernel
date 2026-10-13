@@ -46,6 +46,7 @@ Notes:
 - **`KUNIT_ALL_TESTS=m` builds every KUnit suite the configuration allows.** It is legal because it only turns things on, and it is the largest single source of tests. It also means `defconfig` plus the fragment compiles a few hundred more units than `defconfig`, which we want.
 - **`PANIC_ON_OOPS` makes an oops end the run** with a clear marker rather than a hang.
 - **`KUNIT_FAULT_TEST` is off.** Its `kunit_fault` suite dereferences NULL on purpose to show that KUnit survives a fault. With `PANIC_ON_OOPS` that oops ends the run, and every suite after it does not run. Some kernels, such as 6.12, turn it on by default. It is off for both builds, so it is fair.
+- **`test_ratelimit.ko` is left out of the initramfs.** Its `test_ratelimit_stress` case races with its own threads, and when a thread exits before `kthread_stop` reaches it, the log has `refcount_t: addition on 0`. `KUNIT_ALL_TESTS=m` hides its prompt, so `rk test` leaves the module out for both kernels instead. Upstream fixes the test with `kthread_should_stop()`.
 - **`CONFIG_PVH` and `HYPERVISOR_GUEST`** are for 09.6's direct boot. They are on for both builds, so they are fair.
 - **Older eras' fragments** drop what does not exist:
   - KUnit before 5.5;
