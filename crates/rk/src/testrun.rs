@@ -703,7 +703,13 @@ mod tests {
         let files = modules(&dir).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
         let names: Vec<&str> = files.iter().map(|(name, _)| name.as_str()).collect();
-        assert_eq!(names, ["lib/modules/rk/lib/tests/list-test.ko", "lib/modules/rk/order"]);
+        assert_eq!(
+            names,
+            [
+                "lib/modules/rk/lib/tests/list-test.ko",
+                "lib/modules/rk/order"
+            ]
+        );
         assert_eq!(files[1].1, b"lib/tests/list-test.ko\n");
     }
 
