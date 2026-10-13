@@ -1,8 +1,9 @@
 # The test fragment for era E9, merged into every graded configuration, the reference's and rucc's alike.
 #
-# It only turns things on. The first block is what tinyconfig lacks to reach userspace at all, the
-# rest is the boot rig and the test suites, as in docs/plan/11-boot-and-tests.md. rk build merges it
-# after the configuration target, runs olddefconfig, and records every request that did not take.
+# It turns things on, except for the KUnit fault test. The first block is what tinyconfig lacks to
+# reach userspace at all, the rest is the boot rig and the test suites, as in
+# docs/plan/11-boot-and-tests.md. rk build merges it after the configuration target, runs
+# olddefconfig, and records every request that did not take.
 
 # enough of a kernel to run init from an initramfs
 CONFIG_PRINTK=y
@@ -39,6 +40,8 @@ CONFIG_9P_FS=y
 # test infrastructure
 CONFIG_KUNIT=y
 CONFIG_KUNIT_ALL_TESTS=m
+# kunit_fault oopses on purpose, and with oops=panic that stops the run before the later suites
+# CONFIG_KUNIT_FAULT_TEST is not set
 CONFIG_DEBUG_STACK_USAGE=y
 CONFIG_PRINTK_TIME=y
 CONFIG_PANIC_ON_OOPS=y

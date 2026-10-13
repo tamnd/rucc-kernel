@@ -371,6 +371,10 @@ CONFIG_GCC_VERSION=140200
             );
             let text = std::fs::read_to_string(&path).unwrap();
             assert!(parse_fragment(&text).len() > 20, "{path}");
+            assert!(
+                parse_fragment(&text).contains(&("KUNIT_FAULT_TEST".to_string(), "n".to_string())),
+                "{path}"
+            );
         }
     }
 
