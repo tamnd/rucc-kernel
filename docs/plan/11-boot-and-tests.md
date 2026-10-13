@@ -4,7 +4,7 @@ A kernel build that links proves little. This document defines the boot rig, the
 
 ## 11.1 The test fragment
 
-`rucc-kernel/configs/test.fragment` is merged into every graded configuration. It only turns things on (02.1), and its contents are fixed per era. The fragment for E10 and E11:
+`rucc-kernel/configs/test.fragment` is merged into every graded configuration. It only turns things on (02.1), with one exception given below, and its contents are fixed per era. The fragment for E10 and E11:
 
 ```
 # console and init
@@ -32,6 +32,7 @@ CONFIG_9P_FS=y
 # test infrastructure
 CONFIG_KUNIT=y
 CONFIG_KUNIT_ALL_TESTS=m               # built as modules, loaded by rk-init
+# CONFIG_KUNIT_FAULT_TEST is not set  # oopses on purpose
 CONFIG_DEBUG_STACK_USAGE=y             # 02.5 stack high water mark
 CONFIG_PRINTK_TIME=y
 CONFIG_PANIC_ON_OOPS=y
@@ -44,6 +45,7 @@ CONFIG_PARAVIRT=y
 Notes:
 - **`KUNIT_ALL_TESTS=m` builds every KUnit suite the configuration allows.** It is legal because it only turns things on, and it is the largest single source of tests. It also means `defconfig` plus the fragment compiles a few hundred more units than `defconfig`, which we want.
 - **`PANIC_ON_OOPS` makes an oops end the run** with a clear marker rather than a hang.
+- **`KUNIT_FAULT_TEST` is off.** Its `kunit_fault` suite dereferences NULL on purpose to show that KUnit survives a fault. With `PANIC_ON_OOPS` that oops ends the run, and every suite after it does not run. Some kernels, such as 6.12, turn it on by default. It is off for both builds, so it is fair.
 - **`CONFIG_PVH` and `HYPERVISOR_GUEST`** are for 09.6's direct boot. They are on for both builds, so they are fair.
 - **Older eras' fragments** drop what does not exist:
   - KUnit before 5.5;
