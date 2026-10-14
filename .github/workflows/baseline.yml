@@ -85,7 +85,7 @@ jobs:
             --fragment test --cc gcc-14 --runs 3 --busybox "${BUSYBOX:-/bin/busybox}"
         env:
           CONFIG: ${{ inputs.config || 'defconfig' }}
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: baseline-${{ matrix.version }}-${{ matrix.row }}
