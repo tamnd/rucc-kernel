@@ -5,9 +5,12 @@
 //! normalized: the printk timestamp is taken off, and so is everything that changes from boot to
 //! boot or from compiler to compiler, which is addresses, offsets into functions, PIDs, CPU
 //! numbers and the numbers in thread names. Source locations like `kernel/fork.c:123` are kept,
-//! since both kernels are built from the same tree. The function after a source location is
-//! dropped, because it is the function the code was inlined into: a `WARN_ON` in a static helper
-//! that GCC inlines and rucc does not names a different function at the same line.
+//! since both kernels are built from the same tree. What comes after a source location is
+//! dropped. The function there is the function the code was inlined into: a `WARN_ON` in a static
+//! helper that GCC inlines and rucc does not names a different function at the same line. In
+//! newer kernels, like 7.2, a warning also names the CPU and the task after the function, as in
+//! `WARNING: kernel/time/hrtimer.c:1071 at hrtimer_forward+0x16a/0x250, CPU#1: swapper/1/0`, and
+//! the task is whatever ran when the timer or the test hit the line.
 //!
 //! The rucc kernel's set of normalized splats must be a subset of the reference's. A splat only
 //! the rucc kernel prints is a failure even when every test passed, and it is how a broken memory
@@ -103,12 +106,11 @@ fn mask_word(word: &str) -> String {
 #[must_use]
 pub fn normalize(text: &str) -> String {
     let mut words = Vec::new();
-    let mut after_location = false;
     for word in text.split_whitespace() {
-        if !(after_location && word.contains("+0x")) {
-            words.push(mask_word(word));
+        words.push(mask_word(word));
+        if is_location(word) {
+            break;
         }
-        after_location = is_location(word);
     }
     words.join(" ")
 }
@@ -153,6 +155,16 @@ mod tests {
             normalize(gcc),
             "WARNING: CPU: N PID: N at drivers/gpu/drm/drm_rect.c:137"
         );
+    }
+
+    #[test]
+    fn the_function_and_the_task_after_a_location_do_not_count() {
+        let gcc = "WARNING: kernel/time/hrtimer.c:1071 at hrtimer_forward+0x1a0/0x270, CPU#0: \
+                   kunit_try_catch/784";
+        let rucc = "WARNING: kernel/time/hrtimer.c:1071 at hrtimer_forward+0x16a/0x250, CPU#0: \
+                    swapper/0/0";
+        assert_eq!(normalize(gcc), normalize(rucc));
+        assert_eq!(normalize(gcc), "WARNING: kernel/time/hrtimer.c:1071");
     }
 
     #[test]
