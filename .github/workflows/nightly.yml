@@ -15,7 +15,8 @@
 # which has no KVM, so its boots are TCG and are given longer, and its rucc is built from source,
 # from the pinned release's tag when no branch or commit is named, since the release tarball is
 # the x86_64 one. X32 pins no selftests or LTP in rows.toml, so its nights build neither and are
-# graded on boot, smoke and KUnit, which is what the K4 exit criterion asks for.
+# graded on boot, smoke and KUnit, which is what the K4 exit criterion asks for. A manual run with
+# userland set to no builds neither on any row, which keeps an A64 night on TCG inside the job's time.
 
 name: nightly
 
@@ -44,6 +45,10 @@ on:
         description: The QEMU CPU to boot on, or empty for the row's own
         required: false
         default: ""
+      userland:
+        description: Whether to build and run the selftests and LTP, yes or no
+        required: false
+        default: "yes"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
@@ -151,12 +156,12 @@ jobs:
           target/release/rk build ${{ matrix.version }} --row "$ROW" --config "$CONFIG" --fragment test \
             --cc rucc --targets "$TARGETS" --out "$RUNNER_TEMP/rucc" --keep-going --stack-usage
       - name: rk selftests with gcc-14
-        if: inputs.row != 'X32'
+        if: inputs.row != 'X32' && inputs.userland != 'no'
         run: |
           target/release/rk selftests --build "$RUNNER_TEMP/gcc" --cc gcc-14 \
             --out "$RUNNER_TEMP/selftests-gcc"
       - name: rk selftests with rucc
-        if: inputs.row != 'X32'
+        if: inputs.row != 'X32' && inputs.userland != 'no'
         continue-on-error: true
         run: |
           target/release/rk selftests --build "$RUNNER_TEMP/gcc" --cc rucc \
@@ -166,11 +171,11 @@ jobs:
           path: ${{ env.RK_CACHE }}/ltp
           key: ltp-${{ runner.arch }}-${{ hashFiles('ltp.toml') }}
       - name: rk ltp with gcc-14
-        if: inputs.row != 'X32'
+        if: inputs.row != 'X32' && inputs.userland != 'no'
         run: |
           target/release/rk ltp --build "$RUNNER_TEMP/gcc" --cc gcc-14 --out "$RUNNER_TEMP/ltp-gcc"
       - name: rk ltp with rucc
-        if: inputs.row != 'X32'
+        if: inputs.row != 'X32' && inputs.userland != 'no'
         continue-on-error: true
         run: |
           target/release/rk ltp --build "$RUNNER_TEMP/gcc" --cc rucc --out "$RUNNER_TEMP/ltp-rucc"
