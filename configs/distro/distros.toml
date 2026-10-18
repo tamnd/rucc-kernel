@@ -12,6 +12,7 @@
 #   docker run --rm -v "$PWD:/out" debian:13 sh -c 'apt-get update && cd /out && apt-get download linux-image-6.12.111+deb13-amd64'
 #   docker run --rm --platform linux/arm64 -v "$PWD:/out" debian:13 sh -c 'apt-get update && cd /out && apt-get download linux-image-6.12.111+deb13-arm64'
 #   docker run --rm -v "$PWD:/out" fedora:44 sh -c 'cd /out && dnf download kernel-core-7.2.8-200.fc44'
+#   curl -LO https://kojipkgs.fedoraproject.org/packages/kernel/7.2.8/200.fc44/aarch64/kernel-core-7.2.8-200.fc44.aarch64.rpm
 
 [[distro]]
 name = "debian-13"
@@ -51,6 +52,21 @@ row = "X64"
 package = "kernel-core-7.2.8-200.fc44.x86_64.rpm"
 package_sha256 = "b86953a9b3311aceeadb668bfa26aa8134af0d4a55dc5bae068bda1d0acf5c1f"
 config_sha256 = "de2947fbecd9addbf0612ba44a963e082bb34a35a552184b10a00e62690756f8"
+compiler = "gcc 16.2.1"
+overrides = [
+  'CONFIG_SYSTEM_TRUSTED_KEYS=""',
+  'CONFIG_SYSTEM_REVOCATION_KEYS=""',
+  'CONFIG_MODULE_SIG_KEY="certs/signing_key.pem"',
+]
+
+[[distro]]
+name = "fedora-44-arm64"
+file = "fedora-44-aarch64.config"
+version = "7.2.8"
+row = "A64"
+package = "kernel-core-7.2.8-200.fc44.aarch64.rpm"
+package_sha256 = "d0827aff372bf203de33fb6e7cabb1083c5bd6c801987b2b6f1e0a774aceb4aa"
+config_sha256 = "93b427f81da841b88a8b83c407e743d1d3ccc4cd598050b9fca93bb7564effbb"
 compiler = "gcc 16.2.1"
 overrides = [
   'CONFIG_SYSTEM_TRUSTED_KEYS=""',
