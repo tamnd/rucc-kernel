@@ -180,6 +180,10 @@ overrides = ['CONFIG_SYSTEM_TRUSTED_KEYS=""', '# CONFIG_RUST is not set']
             Some("A64")
         );
         assert!(distros.get("fedora-44").is_some());
+        assert_eq!(
+            distros.get("fedora-44-arm64").map(|d| d.row.as_str()),
+            Some("A64")
+        );
         for d in &distros.distros {
             d.seed(&dir).unwrap();
         }
