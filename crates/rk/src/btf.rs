@@ -12,6 +12,12 @@
 //! full where it is used. Every named type then has a description, and the same name may have more
 //! than one, since two files may define different structs of one name. Both builds must give each
 //! name the same descriptions, and each function the same prototype.
+//!
+//! A function name more than one source file defines, such as a `__weak` default and the arch's
+//! own version, or two static `m_next`s, has one prototype in the BTF however many definitions
+//! there are. pahole keeps whichever it reads first, and with `-j` that is not the same from one
+//! run to the next, so such a function's prototype is listed and not failed. The names come from
+//! the DWARF in vmlinux.
 
 use object::{Object as _, ObjectSection as _};
 use serde::{Deserialize, Serialize};
@@ -33,6 +39,10 @@ pub struct Btf {
     pub types: BTreeMap<String, BTreeSet<String>>,
     /// Each function's prototypes, by name.
     pub functions: BTreeMap<String, BTreeSet<String>>,
+    /// Functions more than one source file defines, whose prototype is whichever pahole read
+    /// first.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub defined_twice: BTreeSet<String>,
 }
 
 /// One type as it is in the section, with the words that follow it.
@@ -83,7 +93,81 @@ pub fn scan(path: &Path) -> Result<Btf, String> {
         .section_by_name(".BTF")
         .ok_or_else(|| format!("{} has no .BTF section", file.display()))?;
     let bytes = section.data().map_err(|e| e.to_string())?;
-    parse(bytes).map_err(|e| format!("{}: {e}", file.display()))
+    let mut btf = parse(bytes).map_err(|e| format!("{}: {e}", file.display()))?;
+    btf.defined_twice = defined_twice(&elf).map_err(|e| format!("{}: {e}", file.display()))?;
+    Ok(btf)
+}
+
+/// The functions that more than one source file defines, going by the DWARF. An inline function
+/// from a header is defined in every unit that uses it, but always in the one file, so it is not
+/// one of them. A vmlinux without DWARF has none.
+fn defined_twice(elf: &object::File) -> Result<BTreeSet<String>, gimli::Error> {
+    let endian = if elf.is_little_endian() {
+        gimli::RunTimeEndian::Little
+    } else {
+        gimli::RunTimeEndian::Big
+    };
+    let load = |id: gimli::SectionId| -> Result<_, gimli::Error> {
+        let data = elf.section_by_name(id.name()).and_then(|s| s.data().ok());
+        Ok(gimli::EndianSlice::new(data.unwrap_or(&[]), endian))
+    };
+    let dwarf = gimli::Dwarf::load(load)?;
+    let mut files: BTreeMap<String, BTreeSet<Vec<u8>>> = BTreeMap::new();
+    let mut headers = dwarf.units();
+    while let Some(header) = headers.next()? {
+        let unit = dwarf.unit(header)?;
+        let mut entries = unit.entries();
+        while let Some(entry) = entries.next_dfs()? {
+            if entry.tag() != gimli::DW_TAG_subprogram
+                || entry.attr(gimli::DW_AT_declaration).is_some()
+            {
+                continue;
+            }
+            let Some(name) = entry.attr_value(gimli::DW_AT_name) else {
+                continue;
+            };
+            let Some(gimli::AttributeValue::FileIndex(index)) =
+                entry.attr_value(gimli::DW_AT_decl_file)
+            else {
+                continue;
+            };
+            let name = dwarf
+                .attr_string(&unit, name)?
+                .to_string_lossy()
+                .into_owned();
+            let Some(path) = file_path(&dwarf, &unit, index)? else {
+                continue;
+            };
+            files.entry(name).or_default().insert(path);
+        }
+    }
+    Ok(files
+        .into_iter()
+        .filter(|(_, paths)| paths.len() > 1)
+        .map(|(name, _)| name)
+        .collect())
+}
+
+/// The directory and name of a file in a unit's line program, as the compiler wrote them.
+fn file_path<R: gimli::Reader>(
+    dwarf: &gimli::Dwarf<R>,
+    unit: &gimli::Unit<R>,
+    index: u64,
+) -> Result<Option<Vec<u8>>, gimli::Error> {
+    let Some(program) = &unit.line_program else {
+        return Ok(None);
+    };
+    let header = program.header();
+    let Some(file) = header.file(index) else {
+        return Ok(None);
+    };
+    let mut path = Vec::new();
+    if let Some(dir) = file.directory(header) {
+        path.extend_from_slice(&dwarf.attr_string(unit, dir)?.to_slice()?);
+        path.push(b'/');
+    }
+    path.extend_from_slice(&dwarf.attr_string(unit, file.path_name())?.to_slice()?);
+    Ok(Some(path))
 }
 
 /// Whether a file is BTF alone, starting with the magic in either byte order.
@@ -355,6 +439,9 @@ pub struct Comparison {
     pub other_only: Vec<String>,
     /// Functions both builds have with different prototypes.
     pub prototypes: Vec<(String, BTreeSet<String>, BTreeSet<String>)>,
+    /// Functions with different prototypes that more than one file defines, which is not a
+    /// finding since pahole keeps whichever definition it reads first.
+    pub picked: Vec<(String, BTreeSet<String>, BTreeSet<String>)>,
     /// Functions only the reference has, which is not a finding.
     pub functions_reference_only: Vec<String>,
     /// Functions only the other build has, which is not a finding.
@@ -403,11 +490,15 @@ pub fn compare(reference: &Btf, other: &Btf) -> Comparison {
     let (differ, reference_only, other_only) = split(&reference.types, &other.types);
     let (prototypes, functions_reference_only, functions_other_only) =
         split(&reference.functions, &other.functions);
+    let twice =
+        |name: &str| reference.defined_twice.contains(name) || other.defined_twice.contains(name);
+    let (picked, prototypes) = prototypes.into_iter().partition(|(name, _, _)| twice(name));
     Comparison {
         differ,
         reference_only,
         other_only,
         prototypes,
+        picked,
         functions_reference_only,
         functions_other_only,
         counts: (
@@ -462,6 +553,11 @@ pub fn report(c: &Comparison) -> String {
     list(&mut s, "Types only the reference has", &c.reference_only);
     list(&mut s, "Types only the other build has", &c.other_only);
     pairs(&mut s, "Functions with different prototypes", &c.prototypes);
+    pairs(
+        &mut s,
+        "Functions more than one file defines, with different prototypes, not failed since pahole keeps whichever it reads first",
+        &c.picked,
+    );
     list(
         &mut s,
         "Functions only the reference has, not failed since inlining differs",
@@ -566,6 +662,25 @@ mod tests {
         let c = compare(&a, &d);
         assert!(c.clean(), "{}", report(&c));
         assert!(report(&c).contains("- `f`"));
+    }
+
+    #[test]
+    fn a_function_two_files_define_may_have_either_prototype() {
+        let a = parse(&sample(false)).unwrap();
+        let mut b = a.clone();
+        b.functions.insert(
+            "f".to_string(),
+            BTreeSet::from(["static fn(q: *struct point) -> int".to_string()]),
+        );
+        assert!(
+            !compare(&a, &b).clean(),
+            "one definition, so the prototype is a finding"
+        );
+        b.defined_twice.insert("f".to_string());
+        let c = compare(&a, &b);
+        assert!(c.clean(), "{}", report(&c));
+        assert_eq!(c.picked.len(), 1);
+        assert!(report(&c).contains("pahole keeps whichever it reads first"));
     }
 
     #[test]
