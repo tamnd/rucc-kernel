@@ -331,36 +331,56 @@ const LEFT_OUT: &[&str] = &[
 ];
 
 /// The modules of a build as files for the initramfs, under `lib/modules/rk`, and the `order`
-/// file listing them in the order kbuild built them, without the ones in [`LEFT_OUT`].
+/// file listing them in the order kbuild built them, without the ones in [`LEFT_OUT`]. Each is
+/// without its debug information, which a distribution config puts gigabytes of in, so that the
+/// initramfs stays under what QEMU reads.
 pub fn modules(build: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
-    let Ok(order) = std::fs::read_to_string(build.join("modules.order")) else {
-        return Ok(Vec::new());
-    };
     let mut files = Vec::new();
     let mut names = String::new();
-    for line in order.lines().map(str::trim).filter(|l| !l.is_empty()) {
-        let stem = line
-            .strip_suffix(".ko")
-            .or_else(|| line.strip_suffix(".o"))
-            .unwrap_or(line);
-        let name = format!("{stem}.ko");
-        if LEFT_OUT.contains(&name.as_str()) {
-            continue;
-        }
-        let path = build.join(&name);
-        let bytes = std::fs::read(&path).map_err(|e| {
-            format!(
-                "reading {}: {e}; build the modules too, with --targets \"<image> modules\"",
-                path.display()
-            )
-        })?;
-        files.push((format!("lib/modules/rk/{name}"), bytes));
+    for name in module_names(build) {
+        let bytes = read_module(build, &name)?;
+        files.push((
+            format!("lib/modules/rk/{name}"),
+            crate::modules::without_debug(&bytes),
+        ));
         let _ = writeln!(names, "{name}");
     }
     if !files.is_empty() {
         files.push(("lib/modules/rk/order".to_string(), names.into_bytes()));
     }
     Ok(files)
+}
+
+/// The modules of a build by their path in the build, in the order kbuild built them, without
+/// the ones in [`LEFT_OUT`]. None when the build has no `modules.order`.
+#[must_use]
+pub fn module_names(build: &Path) -> Vec<String> {
+    let Ok(order) = std::fs::read_to_string(build.join("modules.order")) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for line in order.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        let stem = line
+            .strip_suffix(".ko")
+            .or_else(|| line.strip_suffix(".o"))
+            .unwrap_or(line);
+        let name = format!("{stem}.ko");
+        if !LEFT_OUT.contains(&name.as_str()) {
+            out.push(name);
+        }
+    }
+    out
+}
+
+/// One module of a build, by its name from [`module_names`].
+pub fn read_module(build: &Path, name: &str) -> Result<Vec<u8>, String> {
+    let path = build.join(name);
+    std::fs::read(&path).map_err(|e| {
+        format!(
+            "reading {}: {e}; build the modules too, with --targets \"<image> modules\"",
+            path.display()
+        )
+    })
 }
 
 impl Plan {
