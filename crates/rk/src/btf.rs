@@ -101,6 +101,11 @@ pub fn scan(path: &Path) -> Result<Btf, String> {
 /// The functions that more than one source file defines, going by the DWARF. An inline function
 /// from a header is defined in every unit that uses it, but always in the one file, so it is not
 /// one of them. A vmlinux without DWARF has none.
+///
+/// gas writes a function of an assembly file with `-gdwarf-5` and gives it no file, so there the
+/// file is the unit's own. That is how an arch's `.S` that overrides a `__weak` C default, such as
+/// `arch_bpf_timed_may_goto`, counts as a second definition, which pahole may read first and
+/// describe as `static fn() -> void`.
 fn defined_twice(elf: &object::File) -> Result<BTreeSet<String>, gimli::Error> {
     let endian = if elf.is_little_endian() {
         gimli::RunTimeEndian::Little
@@ -117,7 +122,16 @@ fn defined_twice(elf: &object::File) -> Result<BTreeSet<String>, gimli::Error> {
     while let Some(header) = headers.next()? {
         let unit = dwarf.unit(header)?;
         let mut entries = unit.entries();
+        let mut assembly = false;
         while let Some(entry) = entries.next_dfs()? {
+            if entry.tag() == gimli::DW_TAG_compile_unit {
+                assembly = matches!(
+                    entry.attr_value(gimli::DW_AT_language),
+                    Some(gimli::AttributeValue::Language(
+                        gimli::DW_LANG_Mips_Assembler
+                    ))
+                );
+            }
             if entry.tag() != gimli::DW_TAG_subprogram
                 || entry.attr(gimli::DW_AT_declaration).is_some()
             {
@@ -126,18 +140,18 @@ fn defined_twice(elf: &object::File) -> Result<BTreeSet<String>, gimli::Error> {
             let Some(name) = entry.attr_value(gimli::DW_AT_name) else {
                 continue;
             };
-            let Some(gimli::AttributeValue::FileIndex(index)) =
-                entry.attr_value(gimli::DW_AT_decl_file)
-            else {
+            let path = match entry.attr_value(gimli::DW_AT_decl_file) {
+                Some(gimli::AttributeValue::FileIndex(index)) => file_path(&dwarf, &unit, index)?,
+                _ if assembly => unit_path(&unit)?,
+                _ => None,
+            };
+            let Some(path) = path else {
                 continue;
             };
             let name = dwarf
                 .attr_string(&unit, name)?
                 .to_string_lossy()
                 .into_owned();
-            let Some(path) = file_path(&dwarf, &unit, index)? else {
-                continue;
-            };
             files.entry(name).or_default().insert(path);
         }
     }
@@ -167,6 +181,20 @@ fn file_path<R: gimli::Reader>(
         path.push(b'/');
     }
     path.extend_from_slice(&dwarf.attr_string(unit, file.path_name())?.to_slice()?);
+    Ok(Some(path))
+}
+
+/// The directory and name of a unit's own file, as the compiler or assembler wrote them.
+fn unit_path<R: gimli::Reader>(unit: &gimli::Unit<R>) -> Result<Option<Vec<u8>>, gimli::Error> {
+    let Some(name) = &unit.name else {
+        return Ok(None);
+    };
+    let mut path = Vec::new();
+    if let Some(dir) = &unit.comp_dir {
+        path.extend_from_slice(&dir.to_slice()?);
+        path.push(b'/');
+    }
+    path.extend_from_slice(&name.to_slice()?);
     Ok(Some(path))
 }
 
@@ -681,6 +709,63 @@ mod tests {
         assert!(c.clean(), "{}", report(&c));
         assert_eq!(c.picked.len(), 1);
         assert!(report(&c).contains("pahole keeps whichever it reads first"));
+    }
+
+    /// An ELF holding only DWARF 4 units, each a file in a language with the functions it
+    /// defines, none given a file of its own, the way gas writes a file of assembly.
+    fn units(each: &[(&str, u16, &[&str])]) -> Vec<u8> {
+        use object::write::Object;
+        let abbrev = [
+            1, 0x11, 1, 0x03, 0x08, 0x1b, 0x08, 0x13, 0x05, 0, 0, 2, 0x2e, 0, 0x03, 0x08, 0, 0, 0,
+        ];
+        let mut info = Vec::new();
+        for (file, language, functions) in each {
+            let mut body = vec![1];
+            body.extend_from_slice(file.as_bytes());
+            body.extend_from_slice(b"\0/k\0");
+            body.extend_from_slice(&language.to_le_bytes());
+            for function in *functions {
+                body.push(2);
+                body.extend_from_slice(function.as_bytes());
+                body.push(0);
+            }
+            body.push(0);
+            let length = u32::try_from(body.len() + 7).unwrap();
+            info.extend_from_slice(&length.to_le_bytes());
+            info.extend_from_slice(&[4, 0, 0, 0, 0, 0, 8]);
+            info.extend_from_slice(&body);
+        }
+        let mut elf = Object::new(
+            object::BinaryFormat::Elf,
+            object::Architecture::Aarch64,
+            object::Endianness::Little,
+        );
+        for (name, data) in [(".debug_abbrev", abbrev.to_vec()), (".debug_info", info)] {
+            let id = elf.add_section(
+                Vec::new(),
+                name.as_bytes().to_vec(),
+                object::SectionKind::Debug,
+            );
+            elf.append_section_data(id, &data, 1);
+        }
+        elf.write().unwrap()
+    }
+
+    #[test]
+    fn a_function_an_assembly_file_defines_is_defined_in_that_file() {
+        const ASSEMBLY: u16 = 0x8001;
+        const C: u16 = 0x0c;
+        let twice = |each: &[(&str, u16, &[&str])]| {
+            let bytes = units(each);
+            defined_twice(&object::File::parse(&*bytes).unwrap()).unwrap()
+        };
+        let both = twice(&[("a.S", ASSEMBLY, &["f", "g"]), ("b.S", ASSEMBLY, &["f"])]);
+        assert_eq!(both, BTreeSet::from(["f".to_string()]));
+        let unplaced = twice(&[("a.S", ASSEMBLY, &["f"]), ("c.c", C, &["f"])]);
+        assert!(
+            unplaced.is_empty(),
+            "a C function with no file is not placed: {unplaced:?}"
+        );
     }
 
     #[test]
