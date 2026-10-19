@@ -119,18 +119,14 @@ pub fn problems(m: &Module, vermagic: &str, symvers: &BTreeMap<String, Export>) 
     out
 }
 
-/// The modules of a build by the name in `modules.order`, read.
+/// The modules of a build by the name in `modules.order`, read one at a time, so that only what
+/// is read from each is kept and not the file.
 fn read_modules(build: &Path) -> Result<BTreeMap<String, Module>, String> {
     let mut out = BTreeMap::new();
-    for (name, bytes) in testrun::modules(build)? {
-        let Some(name) = name.strip_prefix("lib/modules/rk/") else {
-            continue;
-        };
-        if name == "order" {
-            continue;
-        }
+    for name in testrun::module_names(build) {
+        let bytes = testrun::read_module(build, &name)?;
         let m = modules::read(&bytes).map_err(|e| format!("{name}: {e}"))?;
-        out.insert(name.to_string(), m);
+        out.insert(name, m);
     }
     Ok(out)
 }

@@ -216,6 +216,10 @@ pub fn runs_on(bytes: &[u8], arch: &str) -> bool {
     }
 }
 
+/// The most of an initrd QEMU reads, which is what one `read` on Linux gives. A larger one stops
+/// QEMU before the guest starts, and a boot that never started tells nothing.
+const LARGEST_INITRD: u64 = 0x7fff_f000;
+
 /// Everything `rk boot` was asked to do.
 #[derive(Debug, Clone)]
 pub struct Plan {
@@ -423,6 +427,13 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
     let image = crate::build::image_path(&plan.build, &plan.row);
     if !image.is_file() {
         return Err(format!("no image at {}; build it first", image.display()));
+    }
+    let size = std::fs::metadata(&plan.initramfs).map_or(0, |m| m.len());
+    if size > LARGEST_INITRD {
+        return Err(format!(
+            "{} is {size} bytes, more than the {LARGEST_INITRD} QEMU reads of an initrd",
+            plan.initramfs.display()
+        ));
     }
     let kvm = kvm_usable(&plan.row);
     let command = qemu_command(plan, &image, kvm);
