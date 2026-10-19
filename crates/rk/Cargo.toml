@@ -8,6 +8,7 @@ repository.workspace = true
 description = "Fetch, build, boot and test pinned Linux kernels with rucc and a reference compiler, and record the results"
 
 [dependencies]
+gimli.workspace = true
 iced-x86.workspace = true
 object.workspace = true
 rk-shim.workspace = true
