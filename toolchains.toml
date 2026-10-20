@@ -44,3 +44,9 @@ digest = ""
 name = "rk-era-trixie"
 image = "ghcr.io/tamnd/rucc-kernel/rk-era-trixie"
 digest = ""
+
+# The second reference of E11, GCC 16 from Debian forky.
+[[container]]
+name = "rk-era-forky"
+image = "ghcr.io/tamnd/rucc-kernel/rk-era-forky"
+digest = ""

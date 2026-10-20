@@ -7,7 +7,7 @@
 //! that keeps `GCC_PLUGINS` off for the reference as it is for rucc (plan 5.4). A Debian archive
 //! rebuild that moves a patch level shows up here and not as a strange diff three steps later.
 
-use crate::personas::Era;
+use crate::personas::Reference;
 use serde::Deserialize;
 use std::fmt::Write as _;
 use std::path::Path;
@@ -126,22 +126,22 @@ pub fn matches(found: &str, wanted: &str) -> bool {
             .is_some_and(|rest| rest.starts_with('.'))
 }
 
-/// What is wrong with a container for an era, empty when nothing is.
+/// What is wrong with a container for a reference of an era, empty when nothing is.
 #[must_use]
-pub fn problems(era: &Era, found: &Found) -> Vec<String> {
+pub fn problems(reference: &Reference, found: &Found) -> Vec<String> {
     let mut out = Vec::new();
-    if !matches(&found.gcc, &era.reference.gcc) {
+    if !matches(&found.gcc, &reference.gcc) {
         out.push(format!(
             "gcc is {}, not {}",
             or_nothing(&found.gcc),
-            era.reference.gcc
+            reference.gcc
         ));
     }
-    if !matches(&found.binutils, &era.reference.binutils) {
+    if !matches(&found.binutils, &reference.binutils) {
         out.push(format!(
             "binutils is {}, not {}",
             or_nothing(&found.binutils),
-            era.reference.binutils
+            reference.binutils
         ));
     }
     if found.plugin != "none" {
@@ -214,6 +214,7 @@ pub fn report(rows: &[Checked]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::personas::Era;
     use crate::personas::Personas;
 
     fn era(id: &str) -> Era {
@@ -254,7 +255,7 @@ mod tests {
         );
         assert_eq!(found.gcc, "14.2.0");
         assert_eq!(found.binutils, "2.44");
-        assert!(problems(&era("E11"), &found).is_empty());
+        assert!(problems(&era("E11").reference, &found).is_empty());
     }
 
     #[test]
@@ -263,13 +264,13 @@ mod tests {
             Found::parse("gcc 3.4.6\nas GNU assembler 2.17 Debian GNU/Linux\nplugin none\n");
         assert_eq!(found.gcc, "3.4.6");
         assert_eq!(found.binutils, "2.17");
-        assert!(problems(&era("E3"), &found).is_empty());
+        assert!(problems(&era("E3").reference, &found).is_empty());
         let older = Found {
             binutils: "2.16.1".to_string(),
             ..found
         };
         assert_eq!(
-            problems(&era("E3"), &older),
+            problems(&era("E3").reference, &older),
             vec!["binutils is 2.16.1, not 2.17".to_string()]
         );
     }
@@ -283,7 +284,7 @@ mod tests {
             binutils: "2.40".to_string(),
             plugin: "/usr/lib/gcc/x86_64-linux-gnu/12/plugin".to_string(),
         };
-        let p = problems(&era("E10"), &found);
+        let p = problems(&era("E10").reference, &found);
         assert_eq!(p.len(), 1);
         assert!(p[0].starts_with("gcc finds plugin headers"));
         assert!(
