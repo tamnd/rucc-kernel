@@ -130,7 +130,7 @@ The KUnit suites that test the compiler most directly are run first and reported
 
 From K5, on Current for X64 and A64.
 
-**kselftest** collections are pinned in `rows.toml`: `breakpoints`, `capabilities`, `clone3`, `core`, `exec`, `futex`, `kcmp`, `membarrier`, `mm`, `mqueue`, `pidfd`, `proc`, `rseq`, `seccomp`, `sigaltstack`, `size`, `timens`, `timers`, `x86` (X64 only), `arm64` (A64 only), `vDSO`, `ptrace`, `syscall_user_dispatch`, `landlock`, `splice`, `sync`, `user_events`.
+**kselftest** collections are pinned in `rows.toml`: `breakpoints`, `capabilities`, `clone3`, `core`, `exec`, `futex`, `kcmp`, `membarrier`, `mm`, `mqueue`, `pidfd`, `proc`, `rseq` (X64 only), `seccomp`, `sigaltstack`, `size`, `timens`, `timers`, `x86` (X64 only), `arm64` (A64 only), `vDSO`, `ptrace`, `syscall_user_dispatch`, `landlock`, `splice`, `sync`, `user_events`.
 
 They are built by `make -C tools/testing/selftests TARGETS=... CC=<rucc>`. The built programs are user programs, so rucc compiles both sides of the syscall boundary. For attribution, every collection also runs with GCC-built selftest binaries against the rucc kernel (11.7).
 

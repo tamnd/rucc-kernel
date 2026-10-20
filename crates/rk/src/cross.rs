@@ -45,6 +45,8 @@ pub struct Plan {
     pub runs: usize,
     /// Seconds each boot may take.
     pub timeout: u64,
+    /// How many boots run at once.
+    pub jobs: usize,
     /// The run directory.
     pub out: PathBuf,
 }
@@ -296,13 +298,17 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
     let mut own = BTreeSet::new();
     let mut crossed = BTreeSet::new();
     for run in 0..plan.runs {
-        for (i, (kernel, modules, name)) in CELLS.iter().enumerate() {
-            let (units, found) = boot_cell(
-                plan,
-                plan.dir(*kernel),
-                plan.dir(*modules),
-                &format!("{name}-{}", run + 1),
-            )?;
+        let tasks = CELLS
+            .iter()
+            .map(|&(kernel, modules, name)| -> crate::pool::Task<'_, _> {
+                Box::new(move || {
+                    let stem = format!("{name}-{}", run + 1);
+                    boot_cell(plan, plan.dir(kernel), plan.dir(modules), &stem)
+                })
+            })
+            .collect();
+        for (i, booted) in crate::pool::run(plan.jobs, tasks).into_iter().enumerate() {
+            let (units, found) = booted?;
             testrun::add_run(&mut cells[i], run, &units);
             if i == 0 {
                 own.extend(found);
