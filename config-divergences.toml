@@ -17,8 +17,40 @@ symbol = "CC_HAS_KASAN_*"
 reason = "rucc has no -fsanitize=kernel-address or kernel-hwaddress, and plan section 8.10 keeps the sanitizers out of the grade, with KASAN off in both builds"
 
 [[divergence]]
-symbol = "KASAN"
-reason = "only visible when the compiler can build it, see CC_HAS_KASAN_*"
+symbol = "KASAN*"
+reason = "KASAN itself and its generic and software tag modes are only visible when the compiler can build them, see CC_HAS_KASAN_*. On arm64 allmodconfig still turns KASAN on in the rucc build, since the hardware tag mode needs no compiler support, so the gcc build has KASAN_GENERIC with KASAN_INLINE, KASAN_STACK and the shadow offset, and the rucc build has KASAN_HW_TAGS"
+
+[[divergence]]
+symbol = "CC_HAS_UBSAN_*"
+reason = "rucc has no -fsanitize=bounds-strict or any other UBSAN check, and plan section 8.10 keeps the sanitizers out of the grade. allmodconfig turns UBSAN on in both builds, and in the rucc build it has no checks under it"
+
+[[divergence]]
+symbol = "UBSAN_*"
+reason = "the UBSAN checks allmodconfig asks for, each of which Kconfig only offers when the compiler takes its -fsanitize= flag, see CC_HAS_UBSAN_*"
+
+[[divergence]]
+symbol = "CC_HAVE_SHADOW_CALL_STACK"
+reason = "rucc has no -fsanitize=shadow-call-stack, and plan section 8.10 keeps the shadow call stack out of the grade with the sanitizers. Only allmodconfig on arm64 asks for it"
+
+[[divergence]]
+symbol = "ARCH_SUPPORTS_SHADOW_CALL_STACK"
+reason = "arm64 selects it only when the compiler has the shadow call stack, see CC_HAVE_SHADOW_CALL_STACK"
+
+[[divergence]]
+symbol = "SHADOW_CALL_STACK"
+reason = "only visible when the architecture supports it, see CC_HAVE_SHADOW_CALL_STACK"
+
+[[divergence]]
+symbol = "AS_HAS_LSUI"
+reason = "7.2 asks the assembler for .arch_extension lsui, which binutils has since 2.45. Ubuntu 24.04's binutils 2.42 says no and rucc's assembler says yes. The kernel uses ldtadd, ldtset, ldtclr and swpt with acquire and release in the futex code and cast and casalt in KVM, and rucc encodes the 13 forms of those tried the same as llvm-mc 23. The code only runs on a CPU with FEAT_LSUI, behind an alternative"
+
+[[divergence]]
+symbol = "ARM64_LSUI"
+reason = "default y once the assembler has LSUI, see AS_HAS_LSUI"
+
+[[divergence]]
+symbol = "RUSTC_VERSION"
+reason = "the runner's rustc, not the C compiler. The census builds each compiler in its own job, and when the runner image moves on between them the two get different patch releases, as with 1.99.0 and 1.99.1 for the 7.2.8 and 6.12.111 A64 allmodconfig builds. Rust is off in both builds"
 
 [[divergence]]
 symbol = "HAVE_KCSAN_COMPILER"
