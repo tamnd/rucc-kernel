@@ -247,6 +247,15 @@ jobs:
           mkdir -p record/gcc record/rucc record/test record/cross record/selftests record/ltp
           for side in gcc rucc; do
             cp "$RUNNER_TEMP/$side"/{build.json,summary.md,build.log,.config} "record/$side/" 2>/dev/null || true
+            # A link that stopped at the kallsyms check leaves no vmlinux, and the maps of each pass
+            # are what says which symbols moved.
+            if [ ! -f "$RUNNER_TEMP/$side/vmlinux" ]; then
+              for map in System.map .tmp_vmlinux1.syms .tmp_vmlinux2.syms .tmp_vmlinux3.syms; do
+                if [ -f "$RUNNER_TEMP/$side/$map" ]; then
+                  gzip -c "$RUNNER_TEMP/$side/$map" > "record/$side/$map.gz"
+                fi
+              done
+            fi
           done
           cp -r "$RUNNER_TEMP/test/." record/test/ 2>/dev/null || true
           cp -r "$RUNNER_TEMP/cross/." record/cross/ 2>/dev/null || true
