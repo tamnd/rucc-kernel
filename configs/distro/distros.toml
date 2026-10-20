@@ -15,6 +15,10 @@
 #   docker run --rm --platform linux/arm64 -v "$PWD:/out" debian:13 sh -c 'apt-get update && cd /out && apt-get download linux-image-6.12.111+deb13-arm64'
 #   docker run --rm -v "$PWD:/out" fedora:44 sh -c 'cd /out && dnf download kernel-core-7.2.8-200.fc44'
 #   curl -LO https://kojipkgs.fedoraproject.org/packages/kernel/7.2.8/200.fc44/aarch64/kernel-core-7.2.8-200.fc44.aarch64.rpm
+#   curl -LO https://kojipkgs.fedoraproject.org/packages/kernel/7.3.0/65.fc46/x86_64/kernel-core-7.3.0-65.fc46.x86_64.rpm
+#   curl -LO https://kojipkgs.fedoraproject.org/packages/kernel/7.3.0/65.fc46/aarch64/kernel-core-7.3.0-65.fc46.aarch64.rpm
+#
+# Take the config out of an RPM with: rpm2cpio <rpm> | cpio -i --to-stdout ./lib/modules/<release>/config
 
 [[distro]]
 name = "debian-13"
@@ -70,6 +74,39 @@ row = "A64"
 package = "kernel-core-7.2.8-200.fc44.aarch64.rpm"
 package_sha256 = "d0827aff372bf203de33fb6e7cabb1083c5bd6c801987b2b6f1e0a774aceb4aa"
 config_sha256 = "93b427f81da841b88a8b83c407e743d1d3ccc4cd598050b9fca93bb7564effbb"
+compiler = "gcc 16.2.1"
+overrides = [
+  'CONFIG_SYSTEM_TRUSTED_KEYS=""',
+  'CONFIG_SYSTEM_REVOCATION_KEYS=""',
+  'CONFIG_MODULE_SIG_KEY="certs/signing_key.pem"',
+  '# CONFIG_UBSAN is not set',
+]
+
+# Fedora rawhide, which is Fedora 46, ships 7.3 built with GCC 16. These are the configs for the 7.3 graded set.
+[[distro]]
+name = "fedora-46"
+file = "fedora-46-x86_64.config"
+version = "7.3"
+row = "X64"
+package = "kernel-core-7.3.0-65.fc46.x86_64.rpm"
+package_sha256 = "8f5559bbc6b6c469c85738bcf255d3c3b39799089a309df67b97bef7b67316b4"
+config_sha256 = "e7b7b37657c723efc94afa7576ef44885b7ed5c54a589782cfd97c61ba7c3f5b"
+compiler = "gcc 16.2.1"
+overrides = [
+  'CONFIG_SYSTEM_TRUSTED_KEYS=""',
+  'CONFIG_SYSTEM_REVOCATION_KEYS=""',
+  'CONFIG_MODULE_SIG_KEY="certs/signing_key.pem"',
+  '# CONFIG_UBSAN is not set',
+]
+
+[[distro]]
+name = "fedora-46-arm64"
+file = "fedora-46-aarch64.config"
+version = "7.3"
+row = "A64"
+package = "kernel-core-7.3.0-65.fc46.aarch64.rpm"
+package_sha256 = "8668a6875a93206ae5d0d23adf78fa9e55a5832f556b4fb2f4e756dd03689d20"
+config_sha256 = "51a446b64f8717988adc9b094e4ead8f1e755046218ba7ce925f108e26f2305f"
 compiler = "gcc 16.2.1"
 overrides = [
   'CONFIG_SYSTEM_TRUSTED_KEYS=""',
