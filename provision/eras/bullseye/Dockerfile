@@ -9,9 +9,11 @@ FROM debian/eol:bullseye
 ARG DEBIAN_FRONTEND=noninteractive
 ARG TARGETARCH
 
-# Bullseye's security pool is being moved to the archive and its index names files that are
-# already gone, so the image takes the last point release from the archive and nothing else.
-RUN echo "deb http://archive.debian.org/debian bullseye main" > /etc/apt/sources.list \
+# Bullseye is in the archive now. The base image has the LTS updates of libc6, libssl1.1 and
+# perl-base, so the image takes the security pool from the archive too, or the -dev packages of the
+# last point release do not install on top of them.
+RUN printf '%s\n' "deb http://archive.debian.org/debian bullseye main" \
+    "deb http://archive.debian.org/debian-security bullseye-security main" > /etc/apt/sources.list \
  && rm -f /etc/apt/sources.list.d/*
 
 RUN apt-get -o Acquire::Check-Valid-Until=false update \
