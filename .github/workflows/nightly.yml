@@ -241,22 +241,10 @@ jobs:
           case $rc in 0) verdict=clean ;; 1) verdict=findings ;; *) verdict="not run" ;; esac
           echo "$verdict" > "$RUNNER_TEMP/checks/btf.status"
           cat "$RUNNER_TEMP/checks/btf.md"
-      - name: rk mixed on the first failed unit
-        if: failure() && steps.test.outcome == 'failure'
-        timeout-minutes: 180
-        run: |
-          unit=$(python3 -c 'import json, sys; t = json.load(open(sys.argv[1])); print(next((u["name"] for u in t["units"] if u["graded"] and not u["passed"] and u.get("attribution", "kernel") == "kernel"), ""))' "$RUNNER_TEMP/test/test.json")
-          if [ -z "$unit" ]; then echo "no kernel failure to bisect"; exit 0; fi
-          boot=()
-          if [ -n "$CPU" ]; then boot+=(--cpu "$CPU"); fi
-          if [ -d "$RUNNER_TEMP/selftests-gcc" ]; then boot+=(--selftests "$RUNNER_TEMP/selftests-gcc"); fi
-          if [ -d "$RUNNER_TEMP/ltp-gcc" ]; then boot+=(--ltp "$RUNNER_TEMP/ltp-gcc"); fi
-          target/release/rk mixed "${boot[@]}" --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
-            --unit "$unit" --out "$RUNNER_TEMP/mixed"
       - name: keep the record
         if: always()
         run: |
-          mkdir -p record/gcc record/rucc record/test record/mixed record/cross record/selftests record/ltp
+          mkdir -p record/gcc record/rucc record/test record/cross record/selftests record/ltp
           for side in gcc rucc; do
             cp "$RUNNER_TEMP/$side"/{build.json,summary.md,build.log,.config} "record/$side/" 2>/dev/null || true
           done
@@ -269,9 +257,6 @@ jobs:
             mkdir -p "record/ltp/$side"
             cp -r "$RUNNER_TEMP/ltp-$side"/{ltp.json,logs} "record/ltp/$side/" 2>/dev/null || true
           done
-          cp "$RUNNER_TEMP"/mixed/{mixed.json,summary.md,relink.jsonl} "$RUNNER_TEMP"/mixed/*.log record/mixed/ 2>/dev/null || true
-          cp -r "$RUNNER_TEMP/mixed/fuel" record/mixed/ 2>/dev/null || true
-          find record/mixed/fuel -name '*.o' -delete 2>/dev/null || true
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
@@ -279,6 +264,35 @@ jobs:
           path: record
           include-hidden-files: true
           retention-days: 30
+          overwrite: true
+      - name: rk mixed on the first failed unit
+        id: mixed
+        if: failure() && steps.test.outcome == 'failure'
+        timeout-minutes: 180
+        run: |
+          unit=$(python3 -c 'import json, sys; t = json.load(open(sys.argv[1])); print(next((u["name"] for u in t["units"] if u["graded"] and not u["passed"] and u.get("attribution", "kernel") == "kernel"), ""))' "$RUNNER_TEMP/test/test.json")
+          if [ -z "$unit" ]; then echo "no kernel failure to bisect"; exit 0; fi
+          boot=()
+          if [ -n "$CPU" ]; then boot+=(--cpu "$CPU"); fi
+          if [ -d "$RUNNER_TEMP/selftests-gcc" ]; then boot+=(--selftests "$RUNNER_TEMP/selftests-gcc"); fi
+          if [ -d "$RUNNER_TEMP/ltp-gcc" ]; then boot+=(--ltp "$RUNNER_TEMP/ltp-gcc"); fi
+          target/release/rk mixed "${boot[@]}" --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
+            --unit "$unit" --out "$RUNNER_TEMP/mixed"
+      - name: add rk mixed to the record
+        if: always() && steps.mixed.outcome != 'skipped'
+        run: |
+          mkdir -p record/mixed
+          cp "$RUNNER_TEMP"/mixed/{mixed.json,summary.md,relink.jsonl} "$RUNNER_TEMP"/mixed/*.log record/mixed/ 2>/dev/null || true
+          cp -r "$RUNNER_TEMP/mixed/fuel" record/mixed/ 2>/dev/null || true
+          find record/mixed/fuel -name '*.o' -delete 2>/dev/null || true
+      - uses: actions/upload-artifact@v7.0.1
+        if: always() && steps.mixed.outcome != 'skipped'
+        with:
+          name: nightly-${{ matrix.version }}-${{ inputs.row || 'X64' }}
+          path: record
+          include-hidden-files: true
+          retention-days: 30
+          overwrite: true
 
   report:
     name: the report
