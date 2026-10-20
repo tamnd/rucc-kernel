@@ -1,16 +1,22 @@
-# The demand census: a kernel built with gcc-14 and with rucc for each row and configuration asked
-# for, on the row's own architecture, every unit tried whatever else fails.
+# The demand census: a kernel built with the GCC of the version's era and with rucc for each row
+# and configuration asked for, on the row's own architecture, every unit tried whatever else fails.
+# The era's GCC is the one personas.toml names, gcc-14 for 7.2 and gcc-12 for 6.12 and 6.1, as in
+# kernel.yml, so that the differentials do not count what the kernel decides by GCC version.
 #
 # The rucc build ends in rk demands, which counts the units that did not compile by the error that
-# stopped them. The gcc-14 build ends in rk asm-inventory, which counts every instruction the kernel
+# stopped them. The gcc build ends in rk asm-inventory, which counts every instruction the kernel
 # hands the assembler itself, and in rk syntax, which runs rucc over every unit with the command
-# lines gcc-14 was given. The X64 defconfig one also runs the kernel-pp corpus from rucc-compat,
-# which preprocesses a sample of the units with rucc and with gcc-14 and compares the text. It is
-# given gcc-14 by name, since the runner's cc is gcc-13 and cannot take gcc-14's command lines. The
+# lines gcc was given. The X64 defconfig one also runs the kernel-pp corpus from rucc-compat,
+# which preprocesses a sample of the units with rucc and with gcc and compares the text. It is
+# given gcc by name, since the runner's cc is gcc-13 and cannot take gcc-14's command lines. The
 # tables go to the step summary and the artifacts, and the ones worth keeping go into results/census/ in a
 # pull request. allmodconfig is built with the census fragment, which turns DWARF off so the tree
 # fits on the runner, and defconfig with the test fragment, as everywhere else. Any other config
 # that built its image is then booted with rk boot, and boot.json and boot.log go into the artifact.
+#
+# Each build also saves its sections, symbols and unit command lines, and the compare job runs the
+# config, probe, flags, sections, symvers and objtool differentials of rucc against gcc. They do
+# not fail the run.
 
 name: census
 
@@ -46,8 +52,22 @@ env:
   RK_CACHE: ${{ github.workspace }}/../rk-cache
 
 jobs:
+  era:
+    name: the reference for the version
+    runs-on: ubuntu-24.04
+    outputs:
+      gcc: ${{ steps.era.outputs.gcc }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: Swatinem/rust-cache@v2.9.2
+      - id: era
+        run: cargo run -q --release -p rk -- personas --for "$VERSION" | tee -a "$GITHUB_OUTPUT"
+        env:
+          VERSION: ${{ inputs.version }}
+
   census:
     name: ${{ inputs.version }} ${{ matrix.row }} ${{ matrix.config }} with ${{ matrix.cc }}
+    needs: era
     runs-on: ${{ matrix.row == 'A64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 355
     strategy:
@@ -55,7 +75,7 @@ jobs:
       matrix:
         row: ${{ fromJSON(inputs.rows) }}
         config: ${{ fromJSON(inputs.configs) }}
-        cc: [gcc-14, rucc]
+        cc: ["${{ needs.era.outputs.gcc }}", rucc]
     env:
       OUT: ${{ github.workspace }}/../${{ matrix.row }}-${{ matrix.config }}-${{ matrix.cc }}
     steps:
@@ -68,7 +88,9 @@ jobs:
       - name: kernel build dependencies
         run: |
           sudo apt-get update -q
-          sudo apt-get install -qy --no-install-recommends gcc-14 flex bison bc libelf-dev libssl-dev
+          sudo apt-get install -qy --no-install-recommends "$GCC" flex bison bc libelf-dev libssl-dev
+        env:
+          GCC: ${{ needs.era.outputs.gcc }}
       - name: rucc ${{ inputs.rucc }} from source
         run: |
           git clone -q https://github.com/tamnd/rucc "$RUNNER_TEMP/rucc-src"
@@ -102,25 +124,27 @@ jobs:
           target/release/rk demands --builds "$OUT" > "$OUT/demands.md"
           cat "$OUT/demands.md" >> "$GITHUB_STEP_SUMMARY"
       - name: rk asm-inventory
-        if: matrix.cc == 'gcc-14'
+        if: matrix.cc != 'rucc'
         run: |
           target/release/rk asm-inventory --build "$OUT"
           head -1 "$OUT/asm-inventory.md" >> "$GITHUB_STEP_SUMMARY"
       - name: rk syntax
-        if: matrix.cc == 'gcc-14'
+        if: matrix.cc != 'rucc'
         run: |
           target/release/rk syntax --build "$OUT" --cc rucc > "$OUT/syntax.md" || true
           cat "$OUT/syntax.md" >> "$GITHUB_STEP_SUMMARY"
       - name: the kernel-pp corpus
-        if: matrix.cc == 'gcc-14' && matrix.row == 'X64' && matrix.config == 'defconfig'
+        if: matrix.cc != 'rucc' && matrix.row == 'X64' && matrix.config == 'defconfig'
         run: |
           git clone -q https://github.com/tamnd/rucc-compat "$RUNNER_TEMP/rucc-compat"
           cd "$RUNNER_TEMP/rucc-compat"
           cargo build --release -p rucc-compat
           RUCC_COMPAT_KERNEL="$OUT" target/release/rucc-compat run kernel-pp --rucc "$(command -v rucc)" \
-            --cc "$(command -v gcc-14)" --report || true
+            --cc "$(command -v "$CC")" --report || true
           cp results/kernel-pp.md "$OUT/kernel-pp.md" || true
           cat "$OUT/kernel-pp.md" >> "$GITHUB_STEP_SUMMARY" || true
+        env:
+          CC: ${{ matrix.cc }}
       # A defconfig or distribution config that linked is booted under QEMU with the smoke checks of rk-init, so a row
       # whose kernel builds is also seen to run. The arm64 runner has no KVM, so its boot is TCG
       # and is given longer.
@@ -142,18 +166,22 @@ jobs:
           target/release/rk boot --build "$OUT" --row "$ROW" --timeout 1500 "${busybox[@]}"
         env:
           ROW: ${{ matrix.row }}
+      - name: rk sections-diff
+        if: always()
+        run: target/release/rk sections-diff --reference "$OUT" --save "$OUT/sections.json" > /dev/null || true
       - name: keep the record
         if: always()
         run: |
           mkdir -p record
           cd "$OUT"
           cp build.json summary.md config.log fragment.log build.log demands.md asm-inventory.md syntax.md kernel-pp.md \
-            boot.json boot.log .config \
+            boot.json boot.log .config sections.json Module.symvers System.map \
             "$GITHUB_WORKSPACE/record/" 2>/dev/null || true
           if [ -f compile.jsonl ]; then gzip -c compile.jsonl > "$GITHUB_WORKSPACE/record/compile.jsonl.gz"; fi
-          # The image and its symbols, so a boot that fails here can be tried again elsewhere.
+          find . -path ./rk-bin -prune -o -name '.*.o.cmd' -print | tar -czf "$GITHUB_WORKSPACE/record/cmd.tar.gz" -T -
+          # The image, so a boot that fails here can be tried again elsewhere.
           if [ "$CONFIG" != allmodconfig ]; then
-            cp arch/*/boot/Image arch/*/boot/bzImage System.map "$GITHUB_WORKSPACE/record/" 2>/dev/null || true
+            cp arch/*/boot/Image arch/*/boot/bzImage "$GITHUB_WORKSPACE/record/" 2>/dev/null || true
           fi
         env:
           CONFIG: ${{ matrix.config }}
@@ -164,3 +192,51 @@ jobs:
           path: record
           include-hidden-files: true
           retention-days: 30
+
+  compare:
+    name: ${{ inputs.version }} ${{ matrix.row }} ${{ matrix.config }}, rucc against ${{ needs.era.outputs.gcc }}
+    needs: [era, census]
+    if: always()
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        row: ${{ fromJSON(inputs.rows) }}
+        config: ${{ fromJSON(inputs.configs) }}
+    env:
+      REF: records/census-${{ inputs.version }}-${{ matrix.row }}-${{ matrix.config }}-${{ needs.era.outputs.gcc }}
+      OTHER: records/census-${{ inputs.version }}-${{ matrix.row }}-${{ matrix.config }}-rucc
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: census-${{ inputs.version }}-${{ matrix.row }}-${{ matrix.config }}-*
+          path: records
+      - name: build rk
+        run: |
+          cargo build --release -p rk
+          for r in records/*; do
+            if [ -f "$r/compile.jsonl.gz" ]; then gunzip -f "$r/compile.jsonl.gz"; fi
+            if [ -f "$r/cmd.tar.gz" ]; then tar -xzf "$r/cmd.tar.gz" -C "$r"; fi
+          done
+      - name: rk config-diff
+        run: target/release/rk config-diff --reference "$REF" --other "$OTHER" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: rk probes
+        if: always()
+        run: target/release/rk probes --reference "$REF" --other "$OTHER" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: rk flags-diff
+        if: always()
+        run: target/release/rk flags-diff --reference "$REF" --other "$OTHER" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: rk sections-diff
+        if: always()
+        run: |
+          target/release/rk sections-diff --reference "$REF"/sections.json \
+            --other "$OTHER"/sections.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: rk symvers-diff
+        if: always()
+        run: target/release/rk symvers-diff --reference "$REF" --other "$OTHER" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: rk objtool-report
+        if: always()
+        run: target/release/rk objtool-report --reference "$REF" --other "$OTHER" | tee -a "$GITHUB_STEP_SUMMARY"
