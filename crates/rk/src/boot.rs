@@ -7,6 +7,10 @@
 //! The run is read from the serial console. `RK-BOOTED` is the boot marker, each `RK-CHECK` line
 //! is one smoke check, and `RK-DONE` means init got to the end. A panic, a timeout or a missing
 //! marker is a failed boot. The console goes to `boot.log` and the outcome to `boot.json`.
+//!
+//! The kernel can print on the console while init writes a line. Then the line init wrote is cut
+//! in two, with kernel lines between the parts. `Mender` puts each such line together again before
+//! anything reads it, and `boot.log` keeps the mended lines.
 
 use crate::personas::Row;
 use serde::{Deserialize, Serialize};
@@ -293,6 +297,82 @@ impl Outcome {
     }
 }
 
+/// Where a printk time such as `[    1.234567]` starts in a line, if the line has one.
+fn printk_time(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut from = 0;
+    while let Some(open) = line[from..].find('[').map(|i| i + from) {
+        let mut i = open + 1;
+        while bytes.get(i) == Some(&b' ') {
+            i += 1;
+        }
+        let digits = |mut i: usize| {
+            let start = i;
+            while bytes.get(i).is_some_and(u8::is_ascii_digit) {
+                i += 1;
+            }
+            (i > start).then_some(i)
+        };
+        if let Some(dot) = digits(i).filter(|&d| bytes.get(d) == Some(&b'.'))
+            && let Some(end) = digits(dot + 1)
+            && bytes.get(end) == Some(&b']')
+        {
+            return Some(open);
+        }
+        from = open + 1;
+    }
+    None
+}
+
+/// Puts a console line together again when kernel lines cut it.
+///
+/// A cut line ends in a printk time, as in `RK-CHECK exec pa[    1.238583]  <TASK>`. The kernel
+/// line goes on from the time, and the rest of the line init wrote comes at the start of a later
+/// line that does not start with a time, as in `ss[    1.238585]  dump_stack_lvl+0x8b/0xf0`. The
+/// line is whole when a part of it ends at a newline and not at a time, so the rest can be cut
+/// again, and the newline can come alone as an empty line.
+#[derive(Debug, Default)]
+pub struct Mender {
+    pending: Option<String>,
+}
+
+impl Mender {
+    /// Take one line as the console printed it, and return the whole lines it completes.
+    pub fn push(&mut self, line: &str) -> Vec<String> {
+        let line = line.trim_end_matches('\r');
+        let mut out = Vec::new();
+        // init starts every line of its own on a new line. A part waiting when one comes is not
+        // init's, as the last line of the firmware before the kernel prints is not.
+        if line.starts_with("RK-")
+            && let Some(start) = self.pending.take()
+        {
+            out.push(start);
+        }
+        match printk_time(line) {
+            Some(0) => out.push(line.to_string()),
+            Some(cut) => {
+                self.pending
+                    .get_or_insert_with(String::new)
+                    .push_str(&line[..cut]);
+                out.push(line[cut..].to_string());
+            }
+            None => match self.pending.take() {
+                Some(mut start) => {
+                    start.push_str(line);
+                    out.push(start);
+                }
+                None => out.push(line.to_string()),
+            },
+        }
+        out
+    }
+
+    /// The part of a line still waiting for its rest when the console ends.
+    pub fn finish(&mut self) -> Option<String> {
+        self.pending.take()
+    }
+}
+
 /// A console line without the `[    1.234567] ` printk time in front.
 #[must_use]
 pub fn strip_timestamp(line: &str) -> &str {
@@ -487,15 +567,18 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
     });
     let deadline = clock + Duration::from_secs(plan.timeout);
     let mut unpacked = None;
+    let mut mender = Mender::default();
     loop {
         let left = deadline.saturating_duration_since(Instant::now());
         match lines.recv_timeout(left.min(Duration::from_millis(500))) {
             Ok(line) => {
-                let _ = writeln!(log, "{line}");
-                if unpacked.is_none() && line.contains("Initramfs unpacking failed") {
-                    unpacked = Some(strip_timestamp(&line).to_string());
+                for line in mender.push(&line) {
+                    let _ = writeln!(log, "{line}");
+                    if unpacked.is_none() && line.contains("Initramfs unpacking failed") {
+                        unpacked = Some(strip_timestamp(&line).to_string());
+                    }
+                    outcome.read_line(&line);
                 }
-                outcome.read_line(&line);
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
             Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -506,6 +589,10 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
                 }
             }
         }
+    }
+    if let Some(line) = mender.finish() {
+        let _ = writeln!(log, "{line}");
+        outcome.read_line(&line);
     }
     let _ = child.wait();
     outcome.seconds = clock.elapsed().as_secs_f64();
@@ -644,6 +731,71 @@ mod tests {
         );
         assert!(o.done);
         assert!(!o.passed());
+    }
+
+    #[test]
+    fn a_line_the_kernel_cut_is_put_together_again() {
+        // From the console of a 7.3 defconfig boot, where KUnit printed stack dumps while init
+        // ran the smoke checks.
+        let console = [
+            "Booting from ROM..[    0.000000] Linux version 7.3.0",
+            "RK-BOOTED 7.3.0 [    1.238260]  </TASK>",
+            "1.10[    1.238262] kobject: kobject_add_internal failed",
+            "",
+            "[    1.238582] Call Trace:",
+            "RK-CHECK exec pa[    1.238583]  <TASK>",
+            "ss[    1.238585]  dump_stack_lvl+0x8b/0xf0",
+            "[    1.238590]  sysfs_warn_dup.cold+0x19/0x26",
+            "",
+            "RK-CHECK pipe pa[    1.238703]  ret_from_fork_asm+0x1a/0x30",
+            "[    1.238708]  </TASK>",
+            "ss",
+            "RK-CHECK signal [    1.239048] Call Trace:",
+            "pass",
+            "RK-CHECK cpus pass",
+            "RK-DONE",
+        ];
+        let mut mender = Mender::default();
+        let lines: Vec<String> = console.iter().flat_map(|l| mender.push(l)).collect();
+        assert_eq!(mender.finish(), None);
+        assert_eq!(
+            lines,
+            [
+                "[    0.000000] Linux version 7.3.0",
+                "Booting from ROM..",
+                "[    1.238260]  </TASK>",
+                "[    1.238262] kobject: kobject_add_internal failed",
+                "RK-BOOTED 7.3.0 1.10",
+                "[    1.238582] Call Trace:",
+                "[    1.238583]  <TASK>",
+                "[    1.238585]  dump_stack_lvl+0x8b/0xf0",
+                "[    1.238590]  sysfs_warn_dup.cold+0x19/0x26",
+                "RK-CHECK exec pass",
+                "[    1.238703]  ret_from_fork_asm+0x1a/0x30",
+                "[    1.238708]  </TASK>",
+                "RK-CHECK pipe pass",
+                "[    1.239048] Call Trace:",
+                "RK-CHECK signal pass",
+                "RK-CHECK cpus pass",
+                "RK-DONE",
+            ]
+        );
+        let mut o = Outcome::default();
+        for line in &lines {
+            o.read_line(line);
+        }
+        assert_eq!(o.booted.as_deref(), Some("7.3.0"));
+        assert_eq!(o.checks.len(), 4);
+        assert!(o.passed());
+    }
+
+    #[test]
+    fn a_printk_time_is_found_only_where_it_is() {
+        assert_eq!(printk_time("[    1.238583]  <TASK>"), Some(0));
+        assert_eq!(printk_time("ss[ 12.5] x"), Some(2));
+        assert_eq!(printk_time("RK-CHECK [x] pass"), None);
+        assert_eq!(printk_time("a[1] b[ 2.] c"), None);
+        assert_eq!(printk_time("RK-CHECK fork pass"), None);
     }
 
     #[test]
