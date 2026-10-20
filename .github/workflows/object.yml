@@ -14,7 +14,7 @@ on:
       version:
         description: The kernel version
         required: false
-        default: 7.2.8
+        default: 7.3
       object:
         description: The object, without its suffix
         required: true
