@@ -325,13 +325,19 @@ fn kvm_usable(row: &Row) -> bool {
             .is_ok()
 }
 
-/// The guest's memory in MiB: 1 GiB, and more when the initramfs is big, since the kernel holds
-/// the archive and its unpacked files at the same time while it boots. An LTP runtest file can
-/// bring a few hundred megabytes of programs.
+/// The guest's memory in MiB: 1 GiB, and more when the initramfs is big. An LTP runtest file can
+/// bring a few hundred megabytes of programs, and the modules of a kunit boot most of a gigabyte.
+///
+/// The kernel unpacks the archive into a tmpfs, and a tmpfs holds at most half of the memory the
+/// kernel counts as its own. While it unpacks, the archive is still reserved and not counted, so
+/// half of what is left after the archive and the kernel has to hold the files. With twice the
+/// archive and 512 MiB on top, the 509 MB archive of the 7.2.8 kunit boot had about 470 MB of
+/// room, and the kernel printed "Initramfs unpacking failed: write error" and ran init with no
+/// modules. Three times the archive and 768 MiB leaves a few hundred megabytes over.
 #[must_use]
 pub fn memory_mib(initramfs: u64) -> u64 {
     let archive = initramfs.div_ceil(1 << 20);
-    (512 + 2 * archive).max(1024).next_multiple_of(256)
+    (768 + 3 * archive).max(1024).next_multiple_of(256)
 }
 
 /// The QEMU command line.
@@ -406,6 +412,17 @@ pub fn qemu_command(plan: &Plan, image: &Path, kvm: bool) -> Vec<String> {
     } else {
         ""
     };
+    // A config can build KUnit in and leave it off until `kunit.enable=1`, as Fedora's does with
+    // KUNIT_DEFAULT_ENABLED unset. The modules load and say "kunit: disabled", and no suite runs.
+    let kunit = if plan
+        .append
+        .split_whitespace()
+        .any(|w| w == "rk.suite=kunit")
+    {
+        "kunit.enable=1 "
+    } else {
+        ""
+    };
     words.extend([
         "-kernel".to_string(),
         image.display().to_string(),
@@ -413,7 +430,7 @@ pub fn qemu_command(plan: &Plan, image: &Path, kvm: bool) -> Vec<String> {
         plan.initramfs.display().to_string(),
         "-append".to_string(),
         format!(
-            "console={} {early}{tsc}panic=-1 oops=panic rdinit=/init {}",
+            "console={} {early}{tsc}{kunit}panic=-1 oops=panic rdinit=/init {}",
             plan.row.console, plan.append
         )
         .trim_end()
@@ -469,11 +486,15 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
         }
     });
     let deadline = clock + Duration::from_secs(plan.timeout);
+    let mut unpacked = None;
     loop {
         let left = deadline.saturating_duration_since(Instant::now());
         match lines.recv_timeout(left.min(Duration::from_millis(500))) {
             Ok(line) => {
                 let _ = writeln!(log, "{line}");
+                if unpacked.is_none() && line.contains("Initramfs unpacking failed") {
+                    unpacked = Some(strip_timestamp(&line).to_string());
+                }
                 outcome.read_line(&line);
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -492,6 +513,15 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
     let json_path = stem.with_extension("json");
     std::fs::write(&json_path, json + "\n")
         .map_err(|e| format!("writing {}: {e}", json_path.display()))?;
+    // The kernel goes on to run init from what it did unpack, so the boot looks like one that had
+    // nothing to do. A kunit boot whose modules were cut off loaded none and reported none.
+    if let Some(line) = unpacked {
+        return Err(format!(
+            "{} did not unpack in the guest, \"{line}\"; see {}",
+            plan.initramfs.display(),
+            log_path.display()
+        ));
+    }
     Ok(outcome)
 }
 
@@ -619,9 +649,10 @@ mod tests {
     #[test]
     fn a_big_initramfs_gets_more_memory() {
         assert_eq!(memory_mib(0), 1024);
-        assert_eq!(memory_mib(200 << 20), 1024);
-        assert_eq!(memory_mib(400 << 20), 1536);
-        assert_eq!(memory_mib((400 << 20) + 1), 1536);
+        assert_eq!(memory_mib(80 << 20), 1024);
+        assert_eq!(memory_mib(400 << 20), 2048);
+        assert_eq!(memory_mib((400 << 20) + 1), 2048);
+        assert_eq!(memory_mib(975 << 20), 3840);
     }
 
     #[test]
@@ -649,6 +680,27 @@ mod tests {
             line("X64"),
             "console=ttyS0 tsc=nowatchdog no_timer_check panic=-1 oops=panic rdinit=/init"
         );
+    }
+
+    #[test]
+    fn a_kunit_boot_turns_kunit_on() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rows.toml");
+        let rows = crate::personas::Rows::load(&path).unwrap();
+        let line = |append: &str| {
+            let plan = Plan {
+                build: PathBuf::from("b"),
+                row: rows.get("A64").unwrap().clone(),
+                initramfs: PathBuf::from("i"),
+                timeout: 1,
+                append: append.to_string(),
+                stem: None,
+            };
+            qemu_command(&plan, Path::new("Image"), false)
+                .pop()
+                .unwrap()
+        };
+        assert!(line("rk.suite=kunit").contains(" kunit.enable=1 "));
+        assert!(!line("rk.suite=smoke").contains("kunit.enable"));
     }
 
     #[test]
