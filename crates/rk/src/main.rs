@@ -203,7 +203,10 @@ fn personas_for(repo: &Repo, version: &str) -> Result<ExitCode, String> {
     print!("{}", era.outputs());
     if let Some(second) = &era.second {
         let toolchains = toolchains::Toolchains::load(&repo.file("toolchains.toml"))?;
-        println!("second-image={}", toolchains.get(&second.container)?.reference());
+        println!(
+            "second-image={}",
+            toolchains.get(&second.container)?.reference()
+        );
     }
     Ok(ExitCode::SUCCESS)
 }
