@@ -7,6 +7,7 @@
 
 use serde::Deserialize;
 use std::cmp::Ordering;
+use std::fmt::Write as _;
 use std::path::Path;
 
 /// `personas.toml`.
@@ -34,6 +35,10 @@ pub struct Era {
     pub gnu_as: String,
     /// The reference toolchain.
     pub reference: Reference,
+    /// A second reference, a newer GCC that every build of the era is also compared with on
+    /// everything but `.config`, as GCC 16 is for the current set (plan 4.2 rule 2).
+    #[serde(default)]
+    pub second: Option<Reference>,
     /// The C dialect the era's kbuild asks for, or assumes.
     pub std: String,
     /// Anything worth knowing.
@@ -100,14 +105,22 @@ impl Era {
 
     /// The era as `key=value` lines for a workflow to append to `GITHUB_OUTPUT`. `gcc` is the
     /// reference's GCC as an Ubuntu package names it, `gcc-12` for 12.2.0, so that a hosted runner
-    /// can build the reference with the major release the era was built with.
+    /// can build the reference with the major release the era was built with. `second-gcc` is the
+    /// second reference's, when the era has one.
     #[must_use]
     pub fn outputs(&self) -> String {
-        let major = self.reference.gcc.split('.').next().unwrap_or_default();
-        format!(
-            "era={}\ngnuc={}\ngnu-as={}\ngcc=gcc-{major}\n",
-            self.id, self.gnuc, self.gnu_as
-        )
+        let major = |r: &Reference| r.gcc.split('.').next().unwrap_or_default().to_string();
+        let mut out = format!(
+            "era={}\ngnuc={}\ngnu-as={}\ngcc=gcc-{}\n",
+            self.id,
+            self.gnuc,
+            self.gnu_as,
+            major(&self.reference)
+        );
+        if let Some(second) = &self.second {
+            let _ = writeln!(out, "second-gcc=gcc-{}", major(second));
+        }
+        out
     }
 }
 
@@ -245,8 +258,18 @@ mod tests {
             p.era_for("7.2.8")
                 .unwrap()
                 .outputs()
-                .ends_with("gcc=gcc-14\n")
+                .ends_with("gcc=gcc-14\nsecond-gcc=gcc-16\n")
         );
+    }
+
+    #[test]
+    fn the_current_era_has_gcc_16_as_its_second_reference() {
+        let p = committed();
+        let e11 = p.era_for("7.3").unwrap();
+        let second = e11.second.as_ref().unwrap();
+        assert_eq!(second.gcc, "16.2.0");
+        assert_eq!(second.container, "rk-era-forky");
+        assert!(p.era_for("6.12.111").unwrap().second.is_none());
     }
 
     #[test]

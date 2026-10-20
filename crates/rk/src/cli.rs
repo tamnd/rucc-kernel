@@ -150,7 +150,7 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
                 "no-upstream-check",
             ],
         ),
-        "personas" => (true, &["era", "engine", "for"]),
+        "personas" => (true, &["era", "engine", "for", "container"]),
         "help" | "version" => (false, &[]),
         _ => return None,
     })
