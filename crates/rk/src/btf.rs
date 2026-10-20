@@ -13,6 +13,13 @@
 //! than one, since two files may define different structs of one name. Both builds must give each
 //! name the same descriptions, and each function the same prototype.
 //!
+//! pahole merges the copies of a type that every file's DWARF gives it into one, and a type it could
+//! not merge stays twice, with two IDs, even when both copies read the same here. The kernel looks
+//! a type up by its name and gets one copy, so a struct whose member has the other copy's ID no
+//! longer matches it. That is the warning the rucc kernel printed at boot for `tcp_congestion_ops`,
+//! `Qdisc_ops` and `hid_bpf_ops`, that the second member of the `bpf_struct_ops_` value type should
+//! be the type itself. So both builds must also have each name as many times.
+//!
 //! A function name more than one source file defines, such as a `__weak` default and the arch's
 //! own version, or two static `m_next`s, has one prototype in the BTF however many definitions
 //! there are. pahole keeps whichever it reads first, and with `-j` that is not the same from one
@@ -43,6 +50,10 @@ pub struct Btf {
     /// first.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub defined_twice: BTreeSet<String>,
+    /// How many times each named type is in the section, for the names that are there more than
+    /// once.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub copies: BTreeMap<String, usize>,
 }
 
 /// One type as it is in the section, with the words that follow it.
@@ -450,8 +461,10 @@ impl Table<'_> {
                 }
                 _ => continue,
             };
+            *btf.copies.entry(key.clone()).or_default() += 1;
             btf.types.entry(key).or_default().insert(description);
         }
+        btf.copies.retain(|_, n| *n > 1);
         btf
     }
 }
@@ -465,6 +478,8 @@ pub struct Comparison {
     pub reference_only: Vec<String>,
     /// Named types only the other build has.
     pub other_only: Vec<String>,
+    /// Named types both builds have, but not as many times, with how many times each has it.
+    pub copies: Vec<(String, usize, usize)>,
     /// Functions both builds have with different prototypes.
     pub prototypes: Vec<(String, BTreeSet<String>, BTreeSet<String>)>,
     /// Functions with different prototypes that more than one file defines, which is not a
@@ -485,6 +500,7 @@ impl Comparison {
         self.differ.is_empty()
             && self.reference_only.is_empty()
             && self.other_only.is_empty()
+            && self.copies.is_empty()
             && self.prototypes.is_empty()
     }
 }
@@ -521,10 +537,22 @@ pub fn compare(reference: &Btf, other: &Btf) -> Comparison {
     let twice =
         |name: &str| reference.defined_twice.contains(name) || other.defined_twice.contains(name);
     let (picked, prototypes) = prototypes.into_iter().partition(|(name, _, _)| twice(name));
+    let times = |btf: &Btf, name: &str| btf.copies.get(name).copied().unwrap_or(1);
+    let copies = reference
+        .copies
+        .keys()
+        .chain(other.copies.keys())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter(|name| reference.types.contains_key(*name) && other.types.contains_key(*name))
+        .map(|name| (name.clone(), times(reference, name), times(other, name)))
+        .filter(|(_, r, o)| r != o)
+        .collect();
     Comparison {
         differ,
         reference_only,
         other_only,
+        copies,
         prototypes,
         picked,
         functions_reference_only,
@@ -580,6 +608,22 @@ pub fn report(c: &Comparison) -> String {
     pairs(&mut s, "Types described differently", &c.differ);
     list(&mut s, "Types only the reference has", &c.reference_only);
     list(&mut s, "Types only the other build has", &c.other_only);
+    if !c.copies.is_empty() {
+        let _ = writeln!(
+            s,
+            "\nTypes the builds have a different number of times ({}):\n",
+            c.copies.len()
+        );
+        for (name, r, o) in c.copies.iter().take(SHOWN) {
+            let _ = writeln!(
+                s,
+                "- `{name}`: {r} in the reference, {o} in the other build"
+            );
+        }
+        if c.copies.len() > SHOWN {
+            let _ = writeln!(s, "- and {} more", c.copies.len() - SHOWN);
+        }
+    }
     pairs(&mut s, "Functions with different prototypes", &c.prototypes);
     pairs(
         &mut s,
@@ -709,6 +753,29 @@ mod tests {
         assert!(c.clean(), "{}", report(&c));
         assert_eq!(c.picked.len(), 1);
         assert!(report(&c).contains("pahole keeps whichever it reads first"));
+    }
+
+    #[test]
+    fn a_type_pahole_could_not_merge_is_a_finding() {
+        let mut words = sample(false);
+        let a = parse(&words).unwrap();
+        assert!(a.copies.is_empty());
+        let header = 24;
+        let type_len = u32::from_le_bytes(words[12..16].try_into().unwrap()) as usize;
+        let point = [5, info(STRUCT, 2), 8, 11, 1, 0, 13, 1, 32];
+        let extra: Vec<u8> = point.iter().flat_map(|w: &u32| w.to_le_bytes()).collect();
+        words.splice(header + type_len..header + type_len, extra.iter().copied());
+        let grown = u32::try_from(type_len + extra.len()).unwrap();
+        words[12..16].copy_from_slice(&grown.to_le_bytes());
+        words[16..20].copy_from_slice(&grown.to_le_bytes());
+        let b = parse(&words).unwrap();
+        assert_eq!(a.types, b.types, "both copies read the same");
+        assert_eq!(b.copies["struct point"], 2);
+        let c = compare(&a, &b);
+        assert!(!c.clean());
+        assert_eq!(c.copies, [("struct point".to_string(), 1, 2)]);
+        assert!(report(&c).contains("- `struct point`: 1 in the reference, 2 in the other build"));
+        assert!(compare(&b, &b).clean());
     }
 
     /// An ELF holding only DWARF 4 units, each a file in a language with the functions it
