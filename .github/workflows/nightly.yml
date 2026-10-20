@@ -256,6 +256,24 @@ jobs:
                 fi
               done
             fi
+            # The BTF of each vmlinux, so that a type rk btf lists can be looked up in the artifact.
+            if [ -f "$RUNNER_TEMP/$side/vmlinux" ]; then
+              python3 - "$RUNNER_TEMP/$side/vmlinux" "record/$side/vmlinux.btf" <<'EOF' || true
+          import mmap, struct, sys
+          with open(sys.argv[1], 'rb') as f:
+              d = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+          shoff, = struct.unpack_from('<Q', d, 0x28)
+          size, count, names = struct.unpack_from('<HHH', d, 0x3a)
+          def section(i):
+              return struct.unpack_from('<IIQQQQIIQQ', d, shoff + i * size)
+          base = section(names)[4]
+          for i in range(count):
+              s = section(i)
+              if d[base + s[0]:d.find(b'\0', base + s[0])] == b'.BTF':
+                  open(sys.argv[2], 'wb').write(d[s[4]:s[4] + s[5]])
+          EOF
+              gzip -f "record/$side/vmlinux.btf" 2>/dev/null || true
+            fi
           done
           cp -r "$RUNNER_TEMP/test/." record/test/ 2>/dev/null || true
           cp -r "$RUNNER_TEMP/cross/." record/cross/ 2>/dev/null || true
