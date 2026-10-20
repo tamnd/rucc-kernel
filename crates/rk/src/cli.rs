@@ -59,7 +59,7 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
         "sets" => (false, &["releases", "write"]),
         "build" => (true, BUILD),
         "config-diff" => (false, &["reference", "other", "why", "source"]),
-        "probes" | "flags-diff" | "symvers-diff" | "objtool-report" => {
+        "probes" | "flags-diff" | "symvers-diff" | "objtool-report" | "speed" => {
             (false, &["reference", "other"])
         }
         "sections-diff" => (false, &["reference", "other", "save", "all"]),
@@ -174,6 +174,7 @@ usage:
   rk modules-audit --build DIR
   rk objtool-report --reference DIR|LOG --other DIR|LOG
   rk frames --reference DIR|FILE [--other DIR|FILE] [--save FILE]
+  rk speed --reference DIR --other DIR
   rk btf --reference DIR|VMLINUX|FILE [--other DIR|VMLINUX|FILE] [--save FILE]
   rk syntax --build DIR [--cc rucc] [--allow FILE] [--jobs N]
   rk boot --build DIR [--row X64] [--cpu NAME] [--initramfs FILE | --busybox PATH]

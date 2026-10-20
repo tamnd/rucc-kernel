@@ -28,6 +28,7 @@ mod repo;
 mod sections;
 mod selftests;
 mod sets;
+mod speed;
 mod symvers;
 mod syntax;
 mod tap;
@@ -73,6 +74,7 @@ fn main() -> ExitCode {
             "modules-audit" => modules_audit(&args),
             "objtool-report" => objtool_report(&args),
             "frames" => frames_command(&args),
+            "speed" => speed_command(&args),
             "btf" => btf_command(&args),
             "demands" => demands_command(&args),
             "boot" => boot_command(&repo, &args),
@@ -616,6 +618,34 @@ fn frames_command(args: &Args) -> Result<ExitCode, String> {
     let comparison = frames::compare(&reference, &other);
     print!("{}", frames::report(&comparison));
     Ok(verdict(comparison.clean()))
+}
+
+/// Compare the compile time and memory of two builds of the same kernel.
+fn speed_command(args: &Args) -> Result<ExitCode, String> {
+    let side = |name: &str| -> Result<(String, speed::Units), String> {
+        let dir = args
+            .get(name)
+            .ok_or_else(|| format!("rk speed needs --{name}"))?;
+        let path = std::path::Path::new(dir);
+        let label = outcome_of(path)
+            .ok()
+            .and_then(|o| {
+                o.compiler
+                    .path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+            })
+            .unwrap_or_else(|| dir.to_string());
+        Ok((label, speed::load(path)?))
+    };
+    let (reference_name, reference) = side("reference")?;
+    let (other_name, other) = side("other")?;
+    let comparison = speed::compare(&reference, &other);
+    print!(
+        "{}",
+        speed::report(&comparison, &reference_name, &other_name, 10)
+    );
+    Ok(ExitCode::SUCCESS)
 }
 
 /// Compare the BTF of two builds' vmlinux.
