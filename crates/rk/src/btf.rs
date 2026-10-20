@@ -20,6 +20,10 @@
 //! `Qdisc_ops` and `hid_bpf_ops`, that the second member of the `bpf_struct_ops_` value type should
 //! be the type itself. So both builds must also have each name as many times.
 //!
+//! An int or float type that no other type refers to cannot be reached from any struct, function
+//! or variable, so no BPF program can depend on it. Which of those a compiler writes into the
+//! DWARF is up to the compiler, so one only one build has is listed and not failed.
+//!
 //! A function name more than one source file defines, such as a `__weak` default and the arch's
 //! own version, or two static `m_next`s, has one prototype in the BTF however many definitions
 //! there are. pahole keeps whichever it reads first, and with `-j` that is not the same from one
@@ -54,6 +58,9 @@ pub struct Btf {
     /// once.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub copies: BTreeMap<String, usize>,
+    /// The int and float types no other type refers to.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub loose: BTreeSet<String>,
 }
 
 /// One type as it is in the section, with the words that follow it.
@@ -409,10 +416,28 @@ impl Table<'_> {
         )
     }
 
+    /// The IDs of the types a type refers to.
+    fn refers(t: &Raw) -> Vec<u32> {
+        match t.kind {
+            PTR | TYPEDEF | VOLATILE | CONST | RESTRICT | FUNC | VAR | DECL_TAG | TYPE_TAG => {
+                vec![t.size_or_type]
+            }
+            ARRAY => t.extra[..2].to_vec(),
+            STRUCT | UNION => t.extra.chunks(3).map(|m| m[1]).collect(),
+            FUNC_PROTO => std::iter::once(t.size_or_type)
+                .chain(t.extra.chunks(2).map(|p| p[1]))
+                .collect(),
+            DATASEC => t.extra.chunks(3).map(|v| v[0]).collect(),
+            _ => Vec::new(),
+        }
+    }
+
     /// Every named type and function, described.
     fn describe(&self) -> Btf {
         let mut btf = Btf::default();
-        for t in &self.types {
+        let referred: BTreeSet<u32> = self.types.iter().flat_map(Self::refers).collect();
+        let mut held = BTreeSet::new();
+        for (t, id) in self.types.iter().zip(1..) {
             if t.name.is_empty() {
                 continue;
             }
@@ -461,10 +486,18 @@ impl Table<'_> {
                 }
                 _ => continue,
             };
+            if matches!(t.kind, INT | FLOAT) {
+                if referred.contains(&id) {
+                    held.insert(key.clone());
+                } else {
+                    btf.loose.insert(key.clone());
+                }
+            }
             *btf.copies.entry(key.clone()).or_default() += 1;
             btf.types.entry(key).or_default().insert(description);
         }
         btf.copies.retain(|_, n| *n > 1);
+        btf.loose.retain(|key| !held.contains(key));
         btf
     }
 }
@@ -478,6 +511,9 @@ pub struct Comparison {
     pub reference_only: Vec<String>,
     /// Named types only the other build has.
     pub other_only: Vec<String>,
+    /// Int and float types only one build has and no type refers to, which is not a finding, with
+    /// whether the reference is the build that has it.
+    pub loose: Vec<(String, bool)>,
     /// Named types both builds have, but not as many times, with how many times each has it.
     pub copies: Vec<(String, usize, usize)>,
     /// Functions both builds have with different prototypes.
@@ -532,6 +568,17 @@ fn split(
 #[must_use]
 pub fn compare(reference: &Btf, other: &Btf) -> Comparison {
     let (differ, reference_only, other_only) = split(&reference.types, &other.types);
+    let (loose_reference, reference_only): (Vec<_>, Vec<_>) = reference_only
+        .into_iter()
+        .partition(|name| reference.loose.contains(name));
+    let (loose_other, other_only): (Vec<_>, Vec<_>) = other_only
+        .into_iter()
+        .partition(|name| other.loose.contains(name));
+    let loose = loose_reference
+        .into_iter()
+        .map(|name| (name, true))
+        .chain(loose_other.into_iter().map(|name| (name, false)))
+        .collect();
     let (prototypes, functions_reference_only, functions_other_only) =
         split(&reference.functions, &other.functions);
     let twice =
@@ -552,6 +599,7 @@ pub fn compare(reference: &Btf, other: &Btf) -> Comparison {
         differ,
         reference_only,
         other_only,
+        loose,
         copies,
         prototypes,
         picked,
@@ -625,6 +673,24 @@ pub fn report(c: &Comparison) -> String {
         }
     }
     pairs(&mut s, "Functions with different prototypes", &c.prototypes);
+    if !c.loose.is_empty() {
+        let _ = writeln!(
+            s,
+            "\nInt and float types only one build has, not failed since no type refers to them ({}):\n",
+            c.loose.len()
+        );
+        for (name, in_reference) in c.loose.iter().take(SHOWN) {
+            let side = if *in_reference {
+                "the reference"
+            } else {
+                "the other build"
+            };
+            let _ = writeln!(s, "- `{name}`, in {side}");
+        }
+        if c.loose.len() > SHOWN {
+            let _ = writeln!(s, "- and {} more", c.loose.len() - SHOWN);
+        }
+    }
     pairs(
         &mut s,
         "Functions more than one file defines, with different prototypes, not failed since pahole keeps whichever it reads first",
@@ -753,6 +819,39 @@ mod tests {
         assert!(c.clean(), "{}", report(&c));
         assert_eq!(c.picked.len(), 1);
         assert!(report(&c).contains("pahole keeps whichever it reads first"));
+    }
+
+    #[test]
+    fn an_int_nothing_refers_to_is_listed_and_not_failed() {
+        let mut words = sample(false);
+        let a = parse(&words).unwrap();
+        assert!(a.loose.is_empty(), "the int is a member of the point");
+        // A float named `x`, which nothing refers to, after the last type.
+        let header = 24;
+        let type_len = u32::from_le_bytes(words[12..16].try_into().unwrap()) as usize;
+        let extra: Vec<u8> = [11, info(FLOAT, 0), 2]
+            .iter()
+            .flat_map(|w: &u32| w.to_le_bytes())
+            .collect();
+        words.splice(header + type_len..header + type_len, extra.iter().copied());
+        let grown = u32::try_from(type_len + extra.len()).unwrap();
+        words[12..16].copy_from_slice(&grown.to_le_bytes());
+        words[16..20].copy_from_slice(&grown.to_le_bytes());
+        let b = parse(&words).unwrap();
+        assert_eq!(b.loose, BTreeSet::from(["float x".to_string()]));
+        let c = compare(&b, &a);
+        assert!(c.clean(), "{}", report(&c));
+        assert_eq!(c.loose, [("float x".to_string(), true)]);
+        assert!(report(&c).contains("- `float x`, in the reference"));
+        let mut d = a.clone();
+        d.types.insert(
+            "float x".to_string(),
+            BTreeSet::from(["size 2".to_string()]),
+        );
+        assert!(
+            !compare(&d, &a).clean(),
+            "one a type refers to is still a finding"
+        );
     }
 
     #[test]
