@@ -15,4 +15,4 @@ monikers = ["mainline", "stable", "longterm"]
 # The versions a pinned distribution config in configs/distro/distros.toml belongs to. They stay pinned after their line moves on, so the distribution builds can still be repeated.
 [[set]]
 name = "distro"
-versions = ["7.2.8", "6.12.111"]
+versions = ["7.3", "7.2.8", "6.12.111"]
