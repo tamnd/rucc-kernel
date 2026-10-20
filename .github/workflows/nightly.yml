@@ -102,6 +102,13 @@ jobs:
       matrix:
         version: ${{ fromJSON(needs.set.outputs.versions) }}
     steps:
+      # The job is cancelled at its limit with nothing kept, so rk test and rk cross-modules stop
+      # on their own before it. rk test gets until 45 minutes before the end, rk cross-modules
+      # until 15 minutes before, and the checks and the record after them still run.
+      - name: the deadline
+        run: echo "DEADLINE=$(( $(date +%s) + (LIMIT - 15) * 60 ))" >> "$GITHUB_ENV"
+        env:
+          LIMIT: ${{ inputs.row == 'A64' && 355 || 300 }}
       - uses: actions/checkout@v7.0.1
       - uses: Swatinem/rust-cache@v2.9.2
       - name: kernel build dependencies
@@ -201,7 +208,9 @@ jobs:
           if [ -f "$RUNNER_TEMP/ltp-rucc/ltp.json" ]; then
             rucc_userland+=(--rucc-ltp "$RUNNER_TEMP/ltp-rucc")
           fi
-          target/release/rk test --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
+          left=$(( DEADLINE - 30 * 60 - $(date +%s) ))
+          timeout "$(( left > 60 ? left : 60 ))" \
+            target/release/rk test --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
             --kinds "$kinds" "${userland[@]}" "${rucc_userland[@]}" "${boot[@]}" --out "$RUNNER_TEMP/test"
         env:
           TIMEOUT: ${{ inputs.row == 'A64' && 2400 || 600 }}
@@ -211,7 +220,9 @@ jobs:
         run: |
           boot=(--timeout "$TIMEOUT")
           if [ -n "$CPU" ]; then boot+=(--cpu "$CPU"); fi
-          target/release/rk cross-modules --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
+          left=$(( DEADLINE - $(date +%s) ))
+          timeout "$(( left > 60 ? left : 60 ))" \
+            target/release/rk cross-modules --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
             "${boot[@]}" --out "$RUNNER_TEMP/cross"
         env:
           TIMEOUT: ${{ inputs.row == 'A64' && 2400 || 600 }}
