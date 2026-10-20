@@ -308,6 +308,8 @@ pub struct Plan {
     pub runs: usize,
     /// Seconds each boot may take.
     pub timeout: u64,
+    /// How many boots run at once.
+    pub jobs: usize,
     /// The run directory.
     pub out: PathBuf,
 }
@@ -439,15 +441,29 @@ struct Userland<'a> {
     ltp: Option<&'a Path>,
 }
 
+/// What one boot reported and the splats in its log.
+type Booted = Result<(Units, BTreeSet<String>), String>;
+
+/// Every boot of `boots`, as kernel, userland, suite and stem, `plan.jobs` at a time, with what
+/// each found in the same order.
+fn boot_all<'a>(
+    plan: &'a Plan,
+    boots: Vec<(&'a Path, Userland<'a>, &'a str, String)>,
+) -> Vec<Booted> {
+    let tasks = boots
+        .into_iter()
+        .map(
+            |(build, userland, suite, stem)| -> crate::pool::Task<'a, Booted> {
+                Box::new(move || boot_suite(plan, build, userland, suite, &stem))
+            },
+        )
+        .collect();
+    crate::pool::run(plan.jobs, tasks)
+}
+
 /// One boot of one kernel with one userland running one suite, named by `stem` in the run
 /// directory. The initramfs is removed after the boot, and the console is kept.
-fn boot_suite(
-    plan: &Plan,
-    build: &Path,
-    userland: Userland,
-    suite: &str,
-    stem: &str,
-) -> Result<(Units, BTreeSet<String>), String> {
+fn boot_suite(plan: &Plan, build: &Path, userland: Userland, suite: &str, stem: &str) -> Booted {
     let files = if suite == "kunit" {
         modules(build)?
     } else if let Some(collection) = suite.strip_prefix("kselftest:") {
@@ -552,25 +568,32 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
     let mut other = Results::new();
     let mut splats = Splats::default();
     for run in 0..plan.runs {
-        let (mut r_units, mut o_units) = (Units::new(), Units::new());
+        let n = run + 1;
+        // The two kernels boot each suite at the same time, so that whatever else the host is
+        // doing slows both of them alike.
+        let mut boots = Vec::new();
         for suite in &suites {
-            let n = run + 1;
-            let (units, found) = boot_suite(
-                plan,
-                &plan.reference,
+            let name = stem(suite);
+            boots.push((
+                plan.reference.as_path(),
                 gcc,
-                suite,
-                &format!("reference-{}-{n}", stem(suite)),
-            )?;
+                suite.as_str(),
+                format!("reference-{name}-{n}"),
+            ));
+            boots.push((
+                plan.other.as_path(),
+                rucc,
+                suite.as_str(),
+                format!("other-{name}-{n}"),
+            ));
+        }
+        let mut booted = boot_all(plan, boots).into_iter();
+        let (mut r_units, mut o_units) = (Units::new(), Units::new());
+        while let (Some(reference_boot), Some(other_boot)) = (booted.next(), booted.next()) {
+            let (units, found) = reference_boot?;
             merge(&mut r_units, units);
             splats.reference.extend(found);
-            let (units, found) = boot_suite(
-                plan,
-                &plan.other,
-                rucc,
-                suite,
-                &format!("other-{}-{n}", stem(suite)),
-            )?;
+            let (units, found) = other_boot?;
             merge(&mut o_units, units);
             splats.other.extend(found);
         }
@@ -591,26 +614,29 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
         .collect();
     let (mut swapped_kernel, mut swapped_userland) = (Units::new(), Units::new());
     if two_userlands && !failed_kinds.is_empty() {
+        let mut boots = Vec::new();
         for suite in &suites {
             if !failed_kinds.contains(&Kind::Boot) && !failed_kinds.contains(&suite_kind(suite)) {
                 continue;
             }
-            let (found, _) = boot_suite(
-                plan,
-                &plan.other,
+            let name = stem(suite);
+            boots.push((
+                plan.other.as_path(),
                 gcc,
-                suite,
-                &format!("other-gcc-userland-{}", stem(suite)),
-            )?;
-            merge(&mut swapped_kernel, found);
-            let (found, _) = boot_suite(
-                plan,
-                &plan.reference,
+                suite.as_str(),
+                format!("other-gcc-userland-{name}"),
+            ));
+            boots.push((
+                plan.reference.as_path(),
                 rucc,
-                suite,
-                &format!("reference-rucc-userland-{}", stem(suite)),
-            )?;
-            merge(&mut swapped_userland, found);
+                suite.as_str(),
+                format!("reference-rucc-userland-{name}"),
+            ));
+        }
+        let mut booted = boot_all(plan, boots).into_iter();
+        while let (Some(kernel_boot), Some(userland_boot)) = (booted.next(), booted.next()) {
+            merge(&mut swapped_kernel, kernel_boot?.0);
+            merge(&mut swapped_userland, userland_boot?.0);
         }
     }
     for unit in units.iter_mut().filter(|u| u.graded && !u.passed) {

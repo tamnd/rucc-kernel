@@ -32,10 +32,12 @@ qemu = "qemu-system-aarch64"
 machine = "virt"
 cpu = "max"
 console = "ttyAMA0"
+# Without rseq, whose settings give its programs no timeout. Under TCG basic_percpu_ops_mm_cid_test
+# never finishes on either kernel, so the boot only ever ends at rk's own limit and tells nothing.
 selftests = [
     "breakpoints", "capabilities", "clone3", "core", "exec", "futex", "kcmp", "membarrier", "mm",
-    "mqueue", "pidfd", "proc", "rseq", "seccomp", "sigaltstack", "size", "timens", "timers",
-    "vDSO", "ptrace", "syscall_user_dispatch", "landlock", "splice", "sync", "user_events", "arm64",
+    "mqueue", "pidfd", "proc", "seccomp", "sigaltstack", "size", "timens", "timers", "vDSO",
+    "ptrace", "syscall_user_dispatch", "landlock", "splice", "sync", "user_events", "arm64",
 ]
 ltp = ["syscalls", "syscalls-ipc", "mm", "fs", "pty", "sched", "math", "cve", "containers"]
 

@@ -22,6 +22,7 @@ mod objects;
 mod objtool;
 mod personas;
 mod pins;
+mod pool;
 mod probes;
 mod repo;
 mod sections;
@@ -909,6 +910,7 @@ fn test_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         kinds,
         runs,
         timeout: number("timeout", 600)?,
+        jobs: boot_jobs(args)?,
         out,
     };
     let outcome = testrun::run(&plan)?;
@@ -917,6 +919,17 @@ fn test_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     step_summary(&summary);
     println!("wrote {}", plan.out.join("test.json").display());
     Ok(verdict(outcome.passed()))
+}
+
+/// `--jobs`, the boots to run at once, or one for every two host CPUs.
+fn boot_jobs(args: &Args) -> Result<usize, String> {
+    match args.get("jobs") {
+        Some(n) => match n.parse() {
+            Ok(0) | Err(_) => Err(format!("--jobs {n} is not a number of boots")),
+            Ok(n) => Ok(n),
+        },
+        None => Ok(pool::default_jobs()),
+    }
 }
 
 /// Build the selftests of a build's tree with a compiler, for the initramfs.
@@ -1096,6 +1109,7 @@ fn cross_modules(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         busybox: read_busybox(args.get("busybox"))?,
         runs,
         timeout: number("timeout", 600)?,
+        jobs: boot_jobs(args)?,
         out,
     };
     let outcome = cross::run(&plan)?;

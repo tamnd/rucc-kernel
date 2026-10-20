@@ -204,7 +204,7 @@ jobs:
           target/release/rk test --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
             --kinds "$kinds" "${userland[@]}" "${rucc_userland[@]}" "${boot[@]}" --out "$RUNNER_TEMP/test"
         env:
-          TIMEOUT: ${{ inputs.row == 'A64' && 1500 || 600 }}
+          TIMEOUT: ${{ inputs.row == 'A64' && 2400 || 600 }}
       - name: rk cross-modules
         if: always() && steps.test.outcome != 'skipped'
         continue-on-error: true
@@ -214,7 +214,7 @@ jobs:
           target/release/rk cross-modules --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
             "${boot[@]}" --out "$RUNNER_TEMP/cross"
         env:
-          TIMEOUT: ${{ inputs.row == 'A64' && 1500 || 600 }}
+          TIMEOUT: ${{ inputs.row == 'A64' && 2400 || 600 }}
       - name: rk objtool-report
         if: always() && steps.test.outcome != 'skipped'
         run: |
