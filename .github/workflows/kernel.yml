@@ -21,8 +21,9 @@
 # the kernel decides by GCC version, and none of that is rucc's to fix.
 #
 # When the era has a second reference, GCC 16 for E11, it is built too. No hosted runner has GCC 16,
-# so rk build runs in the era container that personas.toml names for it, and the boot and the
-# audits run on the runner as for the others. The compare job still compares rucc with the first
+# so rk build runs in the era container that personas.toml names for it, after rk fetch on the
+# runner has checked the tarball against kernel.org, because the container has no curl. The boot and
+# the audits run on the runner as for the others. The compare job still compares rucc with the first
 # reference only.
 
 name: kernel
@@ -159,7 +160,8 @@ jobs:
           docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e RK_CACHE \
             -v "$work:$work" -w "$GITHUB_WORKSPACE" "$IMAGE" \
             target/release/rk build ${{ inputs.version }} --row X64 --config ${{ matrix.config }} \
-            --fragment test --cc ${{ matrix.cc }} --out "$RUNNER_TEMP/out" --keep-going --stack-usage
+            --fragment test --cc ${{ matrix.cc }} --out "$RUNNER_TEMP/out" --keep-going --stack-usage \
+            --no-upstream-check
         env:
           IMAGE: ${{ needs.era.outputs.second-image }}
       - name: rk boot
