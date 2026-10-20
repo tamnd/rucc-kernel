@@ -461,8 +461,15 @@ pub fn qemu_command(plan: &Plan, image: &Path, kvm: bool) -> Vec<String> {
     .iter()
     .map(|s| (*s).to_string())
     .collect();
+    // The arm64 `max` CPU signs return addresses with QARMA5, which TCG computes in software on
+    // every `paciasp` and `autiasp`. A Debian or Fedora kernel signs in most of its functions, and
+    // both kernels ran their KUnit boot into rk's 40 minute limit. QEMU's own docs point at
+    // `pauth-impdef=on` for TCG, a cheap hash in place of QARMA5. The kernel finds address
+    // authentication either way and still signs and checks every return.
     words.push(if kvm && plan.row.arch != "i386" {
         "host".to_string()
+    } else if plan.row.arch == "arm64" && plan.row.cpu == "max" {
+        "max,pauth-impdef=on".to_string()
     } else {
         plan.row.cpu.clone()
     });
