@@ -28,7 +28,7 @@ pub struct Pins {
 pub struct Pin {
     /// The release, as in `7.2.8`.
     pub version: String,
-    /// What kernel.org called its line when the pin was taken: `stable` or `longterm`.
+    /// What kernel.org called its line when the pin was taken: `mainline`, `stable` or `longterm`, or `kept` for a version a set keeps by name.
     pub moniker: String,
     /// The sets the pin belongs to.
     pub sets: Vec<String>,

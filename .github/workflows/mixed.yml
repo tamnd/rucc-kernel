@@ -17,7 +17,7 @@ on:
       version:
         description: The kernel version
         required: false
-        default: 7.2.8
+        default: 7.3
       function:
         description: The function to inject the fault into, or none
         required: false

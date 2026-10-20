@@ -4,11 +4,15 @@
 # `rk sets --write` writes it. The later sets (releases, last points, museum) arrive with the
 # milestones that grade them.
 
-# The default pin, used when a command is not told which tree, is the newest stable release.
-default-moniker = "stable"
+# The default pin, used when a command is not told which tree, is the newest final mainline release, or the newest stable release when kernel.org lists an rc as mainline.
+default-monikers = ["mainline", "stable"]
 
-# Every line kernel.org still maintains: the stable line and each longterm line, at its latest
-# point release. This is the set the nightly run grades.
+# Every line kernel.org still maintains: the mainline release, the stable line and each longterm line, at its latest point release. A mainline rc is not kept, because its tarball is not on the CDN. This is the set the nightly run grades.
 [[set]]
 name = "current"
-monikers = ["stable", "longterm"]
+monikers = ["mainline", "stable", "longterm"]
+
+# The versions a pinned distribution config in configs/distro/distros.toml belongs to. They stay pinned after their line moves on, so the distribution builds can still be repeated.
+[[set]]
+name = "distro"
+versions = ["7.2.8", "6.12.111"]
