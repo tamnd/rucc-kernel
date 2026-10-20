@@ -5,6 +5,8 @@
 # for the era that is still open. `gnuc` is passed to rucc as -fgnuc-version, and `gnu-as` will be
 # passed as -fgnu-as-version once rucc has it (K1). The reference is the GCC and binutils the
 # kernel of that era was built with, and the container is where they live.
+#
+# `second` is a newer reference that the builds of the era are also compared with on everything but `.config`.
 
 [[era]]
 id = "E0"
@@ -118,5 +120,6 @@ from = "6.15"
 gnuc = "14.2.0"
 gnu-as = "2.44"
 reference = { gcc = "14.2.0", binutils = "2.44", container = "rk-era-trixie" }
+second = { gcc = "16.2.0", binutils = "2.47", container = "rk-era-forky" }
 std = "gnu11"
-notes = "GCC 16 is a second reference on the current set"
+notes = "7.3 asks for GCC 8.1, binutils 2.30 and -std=gnu11, as 6.15 does"

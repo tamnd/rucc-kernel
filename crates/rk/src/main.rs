@@ -170,6 +170,12 @@ fn personas_command(repo: &Repo) -> Result<ExitCode, String> {
             era.reference.binutils,
             era.reference.container
         );
+        if let Some(second) = &era.second {
+            println!(
+                "{:<15} second reference gcc {} binutils {} in {}",
+                "", second.gcc, second.binutils, second.container
+            );
+        }
         if !era.notes.is_empty() {
             println!("{:<15} {}", "", era.notes);
         }
@@ -196,7 +202,8 @@ fn personas_for(repo: &Repo, version: &str) -> Result<ExitCode, String> {
 }
 
 /// `rk personas check`: run every era's reference container and compare what it holds with
-/// `personas.toml`. Eras sharing a container are checked with one run.
+/// `personas.toml`. Eras sharing a container are checked with one run. An era's second reference
+/// is checked too, and `--container` checks only the references that live in one container.
 fn personas_check(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     let personas = personas::Personas::load(&repo.file("personas.toml"))?;
     let toolchains = toolchains::Toolchains::load(&repo.file("toolchains.toml"))?;
@@ -204,6 +211,7 @@ fn personas_check(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     let wanted: Option<Vec<&str>> = args
         .get("era")
         .map(|e| e.split(',').map(str::trim).collect());
+    let only = args.get("container");
     let mut runs: std::collections::BTreeMap<String, Result<toolchains::Found, String>> =
         std::collections::BTreeMap::new();
     let mut rows = Vec::new();
@@ -214,28 +222,34 @@ fn personas_check(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         {
             continue;
         }
-        let container = toolchains.get(&era.reference.container)?;
-        let found = runs
-            .entry(container.name.clone())
-            .or_insert_with(|| {
-                let image = container.reference();
-                eprintln!("checking {} in {image}", era.id);
-                toolchains::probe(engine, &image)
-            })
-            .clone();
-        let problems = match &found {
-            Ok(f) => toolchains::problems(era, f),
-            Err(e) => vec![e.clone()],
-        };
-        rows.push(toolchains::Checked {
-            era: era.id.clone(),
-            container: container.name.clone(),
-            found,
-            problems,
-        });
+        let second = era.second.iter().map(|r| (format!("{} second", era.id), r));
+        for (label, reference) in std::iter::once((era.id.clone(), &era.reference)).chain(second) {
+            if only.is_some_and(|c| c != reference.container) {
+                continue;
+            }
+            let container = toolchains.get(&reference.container)?;
+            let found = runs
+                .entry(container.name.clone())
+                .or_insert_with(|| {
+                    let image = container.reference();
+                    eprintln!("checking {label} in {image}");
+                    toolchains::probe(engine, &image)
+                })
+                .clone();
+            let problems = match &found {
+                Ok(f) => toolchains::problems(reference, f),
+                Err(e) => vec![e.clone()],
+            };
+            rows.push(toolchains::Checked {
+                era: label,
+                container: container.name.clone(),
+                found,
+                problems,
+            });
+        }
     }
     if rows.is_empty() {
-        return Err("no era matches --era".to_string());
+        return Err("no era matches --era and --container".to_string());
     }
     let report = toolchains::report(&rows);
     print!("{report}");
