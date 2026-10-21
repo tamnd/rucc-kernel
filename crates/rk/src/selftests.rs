@@ -127,6 +127,23 @@ fn logged(mut command: Command, log: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Programs no boot runs, as `collection:program`.
+///
+/// `landlock:fs_bench` is a benchmark rather than a test. It walks a path ten thousand directories
+/// deep a hundred thousand times, which on A64 under TCG took the reference kernel 26 minutes of
+/// its boot, and it passes whenever it finishes.
+pub const LEFT_OUT: &[&str] = &["landlock:fs_bench"];
+
+/// `kselftest-list.txt` without the programs in [`LEFT_OUT`].
+fn without_left_out(list: &[u8]) -> Vec<u8> {
+    String::from_utf8_lossy(list)
+        .lines()
+        .filter(|line| !LEFT_OUT.contains(&line.trim()))
+        .flat_map(|line| [line, "\n"])
+        .collect::<String>()
+        .into_bytes()
+}
+
 /// Read `kselftest-list.txt`, `collection:program` per line, into the programs of each.
 #[must_use]
 pub fn parse_list(text: &str) -> BTreeMap<String, Vec<String>> {
@@ -367,6 +384,11 @@ pub fn files(out: &Path, collection: &str) -> Result<Vec<(String, Vec<u8>)>, Str
     for name in ["run_kselftest.sh", "kselftest-list.txt"] {
         let path = install.join(name);
         let data = std::fs::read(&path).map_err(|e| format!("reading {}: {e}", path.display()))?;
+        let data = if name == "kselftest-list.txt" {
+            without_left_out(&data)
+        } else {
+            data
+        };
         files.push((format!("{ROOT}/{name}"), data));
     }
     let mut inside = Vec::new();
@@ -412,6 +434,15 @@ pub fn units(console: &str) -> BTreeMap<String, crate::tap::Status> {
 mod tests {
     use super::*;
     use crate::tap::Status;
+
+    #[test]
+    fn a_left_out_program_is_not_in_the_list_a_boot_runs() {
+        let list = b"landlock:fs_test\nlandlock:fs_bench\nlandlock:net_test\n";
+        assert_eq!(
+            without_left_out(list),
+            b"landlock:fs_test\nlandlock:net_test\n"
+        );
+    }
 
     #[test]
     fn the_list_gives_each_collection_its_programs() {

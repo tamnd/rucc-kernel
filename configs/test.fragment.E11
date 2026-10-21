@@ -42,6 +42,10 @@ CONFIG_KUNIT=y
 CONFIG_KUNIT_ALL_TESTS=m
 # kunit_fault oopses on purpose, and with oops=panic that stops the run before the later suites
 # CONFIG_KUNIT_FAULT_TEST is not set
+# A module's BTF is split BTF on top of its own vmlinux's, so it never validates in the other
+# build's kernel, and rk cross-modules loads each build's modules into the other kernel. With this
+# the kernel drops the module's BTF with a warning and loads it, and still checks the CRCs
+CONFIG_MODULE_ALLOW_BTF_MISMATCH=y
 CONFIG_DEBUG_STACK_USAGE=y
 CONFIG_PRINTK_TIME=y
 CONFIG_PANIC_ON_OOPS=y

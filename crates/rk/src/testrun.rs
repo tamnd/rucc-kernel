@@ -374,6 +374,18 @@ pub fn module_names(build: &Path) -> Vec<String> {
     out
 }
 
+/// Seconds a kunit boot may take: `base`, and one more for each module it loads, since a distro
+/// config has thousands. With Fedora's arm64 config the reference kernel of 7.2.8 had loaded 4216
+/// of its 5834 modules when the 2400 seconds A64 gives a boot under TCG ran out.
+#[must_use]
+pub fn kunit_timeout(base: u64, files: &[(String, Vec<u8>)]) -> u64 {
+    let modules = files
+        .iter()
+        .filter(|(name, _)| Path::new(name).extension().is_some_and(|e| e == "ko"))
+        .count();
+    base + u64::try_from(modules).unwrap_or(u64::MAX / 4)
+}
+
 /// One module of a build, by its name from [`module_names`].
 pub fn read_module(build: &Path, name: &str) -> Result<Vec<u8>, String> {
     let path = build.join(name);
@@ -481,6 +493,8 @@ fn boot_suite(plan: &Plan, build: &Path, userland: Userland, suite: &str, stem: 
     };
     let timeout = if suite.starts_with("ltp:") {
         crate::ltp::timeout(plan.timeout, &files)
+    } else if suite == "kunit" {
+        kunit_timeout(plan.timeout, &files)
     } else {
         plan.timeout
     };
@@ -760,6 +774,17 @@ mod tests {
         assert_eq!(kind_of("kselftest:timers:posix_timers"), Kind::Kselftest);
         assert_eq!(suite_kind("kselftest:timers"), Kind::Kselftest);
         assert_eq!(suite_kind("kunit"), Kind::Kunit);
+    }
+
+    #[test]
+    fn a_kunit_boot_gets_a_second_more_for_each_module() {
+        let files = vec![
+            ("lib/modules/rk/a.ko".to_string(), Vec::new()),
+            ("lib/modules/rk/b.ko".to_string(), Vec::new()),
+            ("lib/modules/rk/order".to_string(), Vec::new()),
+        ];
+        assert_eq!(kunit_timeout(600, &files), 602);
+        assert_eq!(kunit_timeout(600, &[]), 600);
     }
 
     #[test]

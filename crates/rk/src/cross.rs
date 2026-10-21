@@ -263,7 +263,7 @@ fn boot_cell(
         build: kernel.to_path_buf(),
         row: plan.row.clone(),
         initramfs: initramfs.clone(),
-        timeout: plan.timeout,
+        timeout: testrun::kunit_timeout(plan.timeout, &files),
         append: "rk.suite=kunit".to_string(),
         stem: Some(plan.out.join(stem)),
     });

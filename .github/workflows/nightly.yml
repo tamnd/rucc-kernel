@@ -17,6 +17,12 @@
 # the x86_64 one. X32 pins no selftests or LTP in rows.toml, so its nights build neither and are
 # graded on boot, smoke and KUnit, which is what the K4 exit criterion asks for. A manual run with
 # userland set to no builds neither on any row, which keeps an A64 night on TCG inside the job's time.
+#
+# On A64 rk test and rk cross-modules run four boots at once rather than one per two CPUs, since
+# most suites keep one of a guest's two CPUs busy and TCG leaves an idle one asleep. A distro config
+# still has more to boot than one job has time for, so a manual run can name the kinds rk test
+# grades and split a night in two, one run with kunit, which rk cross-modules needs as well, and one
+# with the selftests and LTP.
 
 name: nightly
 
@@ -49,6 +55,10 @@ on:
         description: Whether to build and run the selftests and LTP, yes or no
         required: false
         default: "yes"
+      kinds:
+        description: The kinds rk test grades, as boot,smoke,kunit,kselftest,ltp, or empty for every one there is
+        required: false
+        default: ""
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
@@ -65,6 +75,8 @@ env:
   CONFIG: ${{ inputs.config || 'tinyconfig' }}
   ROW: ${{ inputs.row || 'X64' }}
   CPU: ${{ inputs.cpu }}
+  KINDS: ${{ inputs.kinds }}
+  JOBS: ${{ inputs.row == 'A64' && '4' || '' }}
   TARGETS: ${{ inputs.row == 'A64' && 'Image modules' || 'bzImage modules' }}
 
 jobs:
@@ -191,6 +203,7 @@ jobs:
         run: |
           boot=(--timeout "$TIMEOUT")
           if [ -n "$CPU" ]; then boot+=(--cpu "$CPU"); fi
+          if [ -n "$JOBS" ]; then boot+=(--jobs "$JOBS"); fi
           kinds=boot,smoke,kunit
           userland=()
           if [ -f "$RUNNER_TEMP/selftests-gcc/selftests.json" ]; then
@@ -208,6 +221,7 @@ jobs:
           if [ -f "$RUNNER_TEMP/ltp-rucc/ltp.json" ]; then
             rucc_userland+=(--rucc-ltp "$RUNNER_TEMP/ltp-rucc")
           fi
+          if [ -n "$KINDS" ]; then kinds=$KINDS; fi
           left=$(( DEADLINE - 30 * 60 - $(date +%s) ))
           timeout "$(( left > 60 ? left : 60 ))" \
             target/release/rk test --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
@@ -215,11 +229,12 @@ jobs:
         env:
           TIMEOUT: ${{ inputs.row == 'A64' && 2400 || 600 }}
       - name: rk cross-modules
-        if: always() && steps.test.outcome != 'skipped'
+        if: always() && steps.test.outcome != 'skipped' && (inputs.kinds == '' || contains(inputs.kinds, 'kunit'))
         continue-on-error: true
         run: |
           boot=(--timeout "$TIMEOUT")
           if [ -n "$CPU" ]; then boot+=(--cpu "$CPU"); fi
+          if [ -n "$JOBS" ]; then boot+=(--jobs "$JOBS"); fi
           left=$(( DEADLINE - $(date +%s) ))
           timeout "$(( left > 60 ? left : 60 ))" \
             target/release/rk cross-modules --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
