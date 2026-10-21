@@ -105,7 +105,7 @@ jobs:
           touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
         env:
           DIGEST: ${{ steps.push.outputs.digest }}
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         if: github.event_name != 'pull_request'
         with:
           name: digest-${{ matrix.release }}-${{ matrix.platform }}
@@ -126,7 +126,7 @@ jobs:
       matrix:
         release: [etch, lenny, wheezy, jessie, stretch, bullseye, bookworm, trixie, forky]
     steps:
-      - uses: actions/download-artifact@v8.0.1
+      - uses: actions/download-artifact@v8.0.2
         with:
           pattern: digest-${{ matrix.release }}-*
           path: ${{ runner.temp }}/digests

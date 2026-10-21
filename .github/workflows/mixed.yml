@@ -155,7 +155,7 @@ jobs:
           cp "$RUNNER_TEMP"/mixed/{mixed.json,summary.md,relink.jsonl} "$RUNNER_TEMP"/mixed/*.log record/mixed/ 2>/dev/null || true
           cp -r "$RUNNER_TEMP/mixed/fuel" record/mixed/ 2>/dev/null || true
           find record/mixed/fuel -name '*.o' -delete 2>/dev/null || true
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: mixed-${{ inputs.version }}-${{ inputs.row }}-${{ inputs.config }}
