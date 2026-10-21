@@ -252,3 +252,57 @@ object = "kernel/signal.o"
 only = "reference"
 item = '4="include/linux/thread_info.h" e9000309'
 reason = "WARN_ON_ONCE(bytes > INT_MAX) in check_copy_size, with the same bounded copies as on 6.12"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/base/power/wakeup.o"
+only = "reference"
+item = '4="" 8="drivers/base/power/wakeup.c" bd000109'
+reason = "WARN_ON(!ws) in wakeup_source_remove on 7.3, whose only caller wakeup_source_unregister calls it inside if (ws)"
+
+# Sections that come from the reference compiler's defaults and not from the kernel's flags.
+
+[[divergence]]
+what = "sections"
+object = "arch/x86/boot/compressed/*"
+only = "reference"
+item = ".note.gnu.property"
+reason = "Ubuntu's gcc turns on -fcf-protection when no -fcf-protection is given, and writes the IBT and SHSTK property note. The decompressor sets its own flags with no -fcf-protection. Debian's gcc and rucc write no note then"
+
+[[divergence]]
+what = "sections"
+object = "drivers/firmware/efi/libstub/*"
+only = "reference"
+item = ".note.gnu.property"
+reason = "the same Ubuntu gcc default as in the decompressor. The EFI stub Makefile removes the note from each stub object with --remove-section=.note.gnu.property"
+
+[[divergence]]
+what = "sections"
+only = "reference"
+item = ".text.startup"
+reason = "gcc puts a function named main in .text.startup when it optimizes. The kernel has main in arch/x86/boot/main.c and in the realmode wakemain.c, and setup.ld and realmode.lds.S both collect .text.*"
+
+# An asm rucc deletes and gcc keeps, tamnd/rucc#3764. With CONFIG_BUG off, WARN_ON_ONCE computes
+# its condition and does not use it. The popcnt alternative in __arch_hweight32 then has no reader
+# of its result, and only its ASM_CALL_CONSTRAINT output on the stack pointer makes gcc keep it.
+
+[[divergence]]
+what = "sections"
+object = "fs/super.o"
+only = "reference"
+item = ".altinstr*"
+reason = "the 8 hweight32 checks in WARN_ON_ONCE in fs/super.c on 7.3 with CONFIG_BUG off, whose popcnt asm rucc deletes because no one reads its result, tamnd/rucc#3764"
+
+[[divergence]]
+what = "sections"
+object = "fs/super.o"
+only = "reference"
+item = ".discard.annotate_data"
+reason = "the objtool annotations of the same 8 popcnt alternatives, tamnd/rucc#3764"
+
+[[divergence]]
+what = ".altinstructions"
+object = "fs/super.o"
+only = "reference"
+item = "97000000"
+reason = "the X86_FEATURE_POPCNT entries of the same 8 alternatives, tamnd/rucc#3764"
