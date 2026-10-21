@@ -107,3 +107,7 @@ reason = "6.12 only asks the compiler about asm goto with outputs when GCC_ASM_G
 [[divergence]]
 symbol = "CC_HAS_ASM_GOTO_TIED_OUTPUT"
 reason = "the tied form of the same question, asked under the same condition, see CC_HAS_ASM_GOTO_OUTPUT"
+
+[[flags]]
+flag = "-fprofile-update=prefer-atomic"
+reason = "7.2 adds this to its gcov flags only when it brings in no new undefined symbol. On arm64 gcc defaults to -moutline-atomics, so the atomic counter add calls libgcc's __aarch64_ldadd8_relax and the kernel drops the flag. rucc inlines its atomics, finds nothing new and keeps the flag, and since tamnd/rucc#3772 its counters are atomic adds. On x86 both builds keep it"
