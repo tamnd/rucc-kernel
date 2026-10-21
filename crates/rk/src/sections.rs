@@ -234,7 +234,7 @@ impl Named {
             let (Some(section), Ok(name)) = (symbol.section_index(), symbol.name()) else {
                 continue;
             };
-            if name.is_empty() || name.starts_with(".L") {
+            if name.is_empty() || name.starts_with(".L") || mapping(name) {
                 continue;
             }
             let name = if symbol.is_local() {
@@ -261,6 +261,16 @@ impl Named {
         let (start, size, name) = list.get(i.checked_sub(1)?)?;
         (offset < start + (*size).max(1)).then(|| (name.as_str(), offset - start))
     }
+}
+
+/// Whether a name is one of the mapping symbols the Arm ELF ABI has the assembler put where code
+/// and data start, `$x` and `$d` on arm64 and `$a` and `$t` on 32-bit Arm, with or without a `.`
+/// and more after it. GNU as writes them and an assembler need not, so they name nothing.
+fn mapping(name: &str) -> bool {
+    matches!(
+        name.as_bytes(),
+        [b'$', b'x' | b'd' | b'a' | b't'] | [b'$', b'x' | b'd' | b'a' | b't', b'.', ..]
+    )
 }
 
 /// A local name without the number a compiler puts after it to tell apart the function-local
@@ -315,7 +325,7 @@ fn pointee(file: &object::File<'_>, reloc: &object::Relocation, named: &Named) -
 
 /// The distinct sites of one of the [`INLINED`] tables. A site is everything in an entry that is
 /// not the address of code: the static key and branch bit of a jump label, the strings, line and
-/// flags of a bug, the type and immediate of an exception entry with the register it names left
+/// flags of a bug, the type and immediate of an exception entry with the registers it names left
 /// out, and the CPU feature and flags of an alternative. The lengths of an alternative's
 /// instructions are left out with the register, since both follow register allocation.
 fn distinct(
@@ -370,6 +380,17 @@ fn distinct(
         }
     }
     let size = usize::try_from(size).unwrap_or(usize::MAX);
+    // An x86 entry's data is an `int` with the register in bits 8 to 11 and flags and an
+    // immediate above them. An AArch64 entry has a `short` type and a `short` of data, which is
+    // two registers of five bits each for every type that has any. The one type whose data is not
+    // registers, the `UACCESS_CPY` of 7.x with its write flag, is only written by the copy
+    // routines in assembly, so leaving its flag out with the registers loses nothing a compiler
+    // chose.
+    let registers: u32 = if file.architecture() == object::Architecture::Aarch64 {
+        0x03ff_0000
+    } else {
+        0x0f00
+    };
     for (i, entry) in data.chunks(size).enumerate() {
         let start = i * size;
         let mut parts = fields.remove(&(i as u64)).unwrap_or_default();
@@ -377,7 +398,7 @@ fn distinct(
             "__ex_table" => entry
                 .get(8..12)
                 .map(|d| {
-                    let v = u32::from_le_bytes([d[0], d[1], d[2], d[3]]) & !0x0f00;
+                    let v = u32::from_le_bytes([d[0], d[1], d[2], d[3]]) & !registers;
                     v.to_le_bytes().to_vec()
                 })
                 .unwrap_or_default(),
@@ -998,6 +1019,74 @@ mod tests {
             let other: Inventory = [("a.o".to_string(), read([0x0204, 0x0115]))].into();
             assert!(compare(&reference, &other).clean(), "wide {wide}");
         }
+    }
+
+    /// An arm64 exception table of one entry with the type and data given, and an
+    /// alternative whose replacement is found through a mapping symbol when `mapped`.
+    fn arm64(kind: u16, data: u16, mapped: bool) -> Vec<u8> {
+        use object::elf::R_AARCH64_PREL32;
+        use object::write::{Symbol, SymbolSection};
+        let mut b = Builder::aarch64();
+        let f = b.function("f", &[0; 8]);
+        let mut entry = vec![0; 8];
+        entry.extend_from_slice(&kind.to_le_bytes());
+        entry.extend_from_slice(&data.to_le_bytes());
+        let table = b.section("__ex_table", &entry);
+        b.reloc(table, 0, f, R_AARCH64_PREL32);
+        b.reloc(table, 4, f, R_AARCH64_PREL32);
+        let code = b.section(".idmap.text", &[0; 8]);
+        let at = if mapped {
+            b.obj.add_symbol(Symbol {
+                name: b"$x".to_vec(),
+                value: 4,
+                size: 0,
+                kind: object::SymbolKind::Label,
+                scope: object::SymbolScope::Compilation,
+                weak: false,
+                section: SymbolSection::Section(code),
+                flags: object::SymbolFlags::None,
+            })
+        } else {
+            b.obj.section_symbol(code)
+        };
+        let alt = b.section(".altinstructions", &[0, 0, 0, 0, 0, 0, 0, 0, 0x3e, 0, 4, 4]);
+        b.reloc(alt, 0, f, R_AARCH64_PREL32);
+        b.obj
+            .add_relocation(
+                alt,
+                object::write::Relocation {
+                    offset: 4,
+                    symbol: at,
+                    addend: if mapped { 0 } else { 4 },
+                    flags: object::RelocationFlags::Elf {
+                        r_type: R_AARCH64_PREL32,
+                    },
+                },
+            )
+            .unwrap();
+        b.bytes()
+    }
+
+    #[test]
+    fn an_arm64_table_entry_leaves_out_its_registers_and_mapping_symbols() {
+        // x20 against x22 for the error, both with xzr for the zero.
+        let reference = read(&arm64(2, 0x03f4, true)).unwrap();
+        let other = read(&arm64(2, 0x03f6, false)).unwrap();
+        assert_eq!(
+            reference.distinct["__ex_table"],
+            ["02000000".to_string()].into()
+        );
+        assert_eq!(
+            reference.distinct[".altinstructions"],
+            other.distinct[".altinstructions"]
+        );
+        let reference: Inventory = [("a.o".to_string(), reference)].into();
+        let other: Inventory = [("a.o".to_string(), other)].into();
+        assert!(compare(&reference, &other).clean());
+        let kaccess: Inventory =
+            [("a.o".to_string(), read(&arm64(3, 0x03f4, true)).unwrap())].into();
+        assert!(!compare(&reference, &kaccess).clean());
+        assert!(mapping("$x") && mapping("$d.12") && !mapping("$xyz") && !mapping("x"));
     }
 
     #[test]
