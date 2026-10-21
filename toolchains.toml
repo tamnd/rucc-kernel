@@ -8,45 +8,45 @@
 [[container]]
 name = "rk-era-etch"
 image = "ghcr.io/tamnd/rucc-kernel/rk-era-etch"
-digest = ""
+digest = "sha256:f861459d790c0dce1e93c523dca7aaff7082ab564e587840f7c0b18202d7fae8"
 
 [[container]]
 name = "rk-era-lenny"
 image = "ghcr.io/tamnd/rucc-kernel/rk-era-lenny"
-digest = ""
+digest = "sha256:84e53d0d465a9fbf61af29d513f929c6e92d997258b4902d0242dafbb27453b8"
 
 [[container]]
 name = "rk-era-wheezy"
 image = "ghcr.io/tamnd/rucc-kernel/rk-era-wheezy"
-digest = ""
+digest = "sha256:c490448185659ed1f4ead3ad7f5910d2077d2e596c80b62f7cc09a2dd871bf9a"
 
 [[container]]
 name = "rk-era-jessie"
 image = "ghcr.io/tamnd/rucc-kernel/rk-era-jessie"
-digest = ""
+digest = "sha256:506ce1a8db0103d44faa50bddbec084d19ddfd5609a63bb04973f17ecd7bdd70"
 
 [[container]]
 name = "rk-era-stretch"
 image = "ghcr.io/tamnd/rucc-kernel/rk-era-stretch"
-digest = ""
+digest = "sha256:4f91c58312eaddaf1707956473008f3935ce8a64b9f6b66bd8851772a88335a8"
 
 [[container]]
 name = "rk-era-bullseye"
 image = "ghcr.io/tamnd/rucc-kernel/rk-era-bullseye"
-digest = ""
+digest = "sha256:40f5abe4819e691e738b5b99cb99d5c77bf3340ab811bb391b6249fa3d63dbea"
 
 [[container]]
 name = "rk-era-bookworm"
 image = "ghcr.io/tamnd/rucc-kernel/rk-era-bookworm"
-digest = ""
+digest = "sha256:92a68dc69b352608a37dce0808878e29489d22b0ec46c02718c0fb9d210ee417"
 
 [[container]]
 name = "rk-era-trixie"
 image = "ghcr.io/tamnd/rucc-kernel/rk-era-trixie"
-digest = ""
+digest = "sha256:6229a57a9f4d9463cd311830e73a71e5faf83dcded81436be41b819ff31cb8ba"
 
 # The second reference of E11, GCC 16 from Debian forky.
 [[container]]
 name = "rk-era-forky"
 image = "ghcr.io/tamnd/rucc-kernel/rk-era-forky"
-digest = ""
+digest = "sha256:d3e41491cfa101def2b1d548d1168e8f4e8ccafc58d2cf1f5cbd9de1e3d0a871"
