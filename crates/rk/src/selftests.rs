@@ -308,6 +308,11 @@ const LIBRARY_DIRS: &[&str] = &[
     "/usr/lib",
 ];
 
+/// Libraries a library loads with `dlopen` rather than naming in `DT_NEEDED`, and so has to bring
+/// along itself. glibc loads `libgcc_s.so.1` the first time a thread is cancelled or exits, to
+/// unwind it, and without it landlock's `tsync_test` aborts in `pthread_cancel`.
+const DLOPENED: &[(&str, &str)] = &[("libc.so.6", "libgcc_s.so.1")];
+
 /// A file read by its path inside the initramfs, which is its path on this machine.
 fn host_file(path: &str) -> Option<(String, Vec<u8>)> {
     let data = std::fs::read(path).ok()?;
@@ -329,7 +334,12 @@ pub fn libraries<'a>(programs: impl IntoIterator<Item = &'a [u8]>) -> Vec<(Strin
         {
             out.push(file);
         }
-        for lib in libs {
+        let opened: Vec<String> = DLOPENED
+            .iter()
+            .filter(|(by, _)| libs.iter().any(|lib| lib == by))
+            .map(|(_, opened)| (*opened).to_string())
+            .collect();
+        for lib in libs.into_iter().chain(opened) {
             if seen.insert(lib.clone()) {
                 queue.push(lib);
             }
@@ -510,5 +520,11 @@ mod tests {
         let names: Vec<&str> = libs.iter().map(|(n, _)| n.as_str()).collect();
         assert!(names.iter().any(|n| n.contains("ld-linux")), "{names:?}");
         assert!(names.iter().any(|n| n.contains("libc.so")), "{names:?}");
+        let unwinder = LIBRARY_DIRS
+            .iter()
+            .any(|dir| Path::new(&format!("{dir}/libgcc_s.so.1")).is_file());
+        if unwinder {
+            assert!(names.iter().any(|n| n.ends_with("libgcc_s.so.1")), "{names:?}");
+        }
     }
 }
