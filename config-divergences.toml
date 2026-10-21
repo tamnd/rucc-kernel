@@ -6,7 +6,7 @@
 # prefix. Every entry must say why, and name the rucc issue that removes it when there is one.
 #
 # rk flags-diff reads the [[flags]] entries the same way, with flag = "..." instead of symbol, for
-# flags one build passes to its units and the other does not. The list starts empty.
+# flags one build passes to its units and the other does not.
 
 [[divergence]]
 symbol = "CC_VERSION_TEXT"
@@ -70,7 +70,7 @@ reason = "only visible when the compiler can build it, see CC_HAS_SANCOV_TRACE_P
 
 [[divergence]]
 symbol = "GCC_VERSION"
-reason = "rucc claims the GCC of the era in personas.toml, 12.2.0 for 6.12 and 6.1, while the reference on the CI runner is Ubuntu 24.04's gcc-12, which is 12.3.0. The two differ only in the patch level, and both are before the 12.4 fix for asm goto outputs, so GCC_ASM_GOTO_OUTPUT_BROKEN agrees"
+reason = "rucc claims the GCC of the era in personas.toml, 12.2.0 for 6.12 and 6.1, while the reference on the CI runner is Ubuntu 24.04's gcc-12, which was 12.3.0 and is 12.4.0 since Ubuntu updated it. The two differ only in the patch level, but 12.4 has the fix for asm goto with outputs, see GCC_ASM_GOTO_OUTPUT_BROKEN"
 
 [[divergence]]
 symbol = "AS_VERSION"
@@ -86,4 +86,24 @@ reason = "The same as CC_CAN_LINK, one level stricter. On X32 in 6.1 Kconfig ask
 
 [[divergence]]
 symbol = "GCC_ASM_GOTO_OUTPUT_WORKAROUND"
-reason = "This follows GCC_VERSION. In 6.1 it is y for gcc 12.0 to 12.3, which have bug 113921 in asm goto with outputs, and it adds an empty asm volatile after each asm goto. rucc claims 12.2.0 for 6.1 and gets it, and so does the CI reference gcc-12 at 12.3.0. A reference gcc-13 at 13.3, as on server2, has the fix and does not. The extra empty asm emits no code"
+reason = "This follows GCC_VERSION. In 6.1 it is y for gcc 12.0 to 12.3, which have bug 113921 in asm goto with outputs, and it adds an empty asm volatile after each asm goto. rucc claims 12.2.0 for 6.1 and gets it. The CI reference gcc-12 got it at 12.3.0 and does not at 12.4.0, and a reference gcc-13 at 13.3, as on server2, has the fix and does not either. The extra empty asm emits no code"
+
+[[flags]]
+flag = "/home/runner/.cache/rucc/include/*"
+reason = "the -isystem the kernel takes from $(CC) -print-file-name=include for the units that use the NEON intrinsics, which is where each compiler keeps its own arm_neon.h"
+
+[[flags]]
+flag = "/usr/lib/gcc/*"
+reason = "the same -isystem as above on the gcc side"
+
+[[divergence]]
+symbol = "GCC_ASM_GOTO_OUTPUT_BROKEN"
+reason = "6.12 calls asm goto with outputs broken in gcc 12.0 to 12.3, which have bug 113921, and in gcc 13.0 to 13.2. rucc claims 12.2.0 for 6.12 in personas.toml and gets it, while the CI reference gcc-12 is 12.4.0 and has the fix. For 7.2 rucc claims 14.2.0 and the two agree"
+
+[[divergence]]
+symbol = "CC_HAS_ASM_GOTO_OUTPUT"
+reason = "6.12 only asks the compiler about asm goto with outputs when GCC_ASM_GOTO_OUTPUT_BROKEN is off, so the rucc build of 6.12 uses asm goto without outputs, as a kernel built with gcc 12.2 does. rucc compiles asm goto with outputs, and the 7.2 builds, where it claims 14.2.0, agree on it"
+
+[[divergence]]
+symbol = "CC_HAS_ASM_GOTO_TIED_OUTPUT"
+reason = "the tied form of the same question, asked under the same condition, see CC_HAS_ASM_GOTO_OUTPUT"

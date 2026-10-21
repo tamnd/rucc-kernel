@@ -11,3 +11,14 @@ CONFIG_DEBUG_INFO_NONE=y
 # other demand behind it. Plan section 8.10 keeps KCOV out of the grade, so the census leaves it out.
 
 # CONFIG_KCOV is not set
+
+# arm64 allmodconfig builds gcc's kernel with generic KASAN, UBSAN and the shadow call stack, and
+# rucc's without them, since rucc takes no -fsanitize flag. That puts the instrumentation in every
+# unit of one build only, and the sections, symvers and flags differentials then compare that and
+# nothing else. Plan section 8.10 keeps the sanitizers out of the grade, so the census turns them
+# off in both builds. KCSAN goes too, since allmodconfig turns it on once KASAN is off.
+
+# CONFIG_KASAN is not set
+# CONFIG_UBSAN is not set
+# CONFIG_SHADOW_CALL_STACK is not set
+# CONFIG_KCSAN is not set
