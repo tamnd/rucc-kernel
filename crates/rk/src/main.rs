@@ -192,12 +192,22 @@ fn personas_command(repo: &Repo) -> Result<ExitCode, String> {
 }
 
 /// `rk personas --for VERSION`: the era of one pin as `key=value` lines, for a workflow that
-/// builds the reference with the era's GCC. An empty version is the default pin.
+/// builds the reference with the era's GCC. An empty version is the default pin. When the era has
+/// a second reference, `second-image` is its container from `toolchains.toml`, for the workflow
+/// to build in, because no hosted runner has that GCC.
 fn personas_for(repo: &Repo, version: &str) -> Result<ExitCode, String> {
     let personas = personas::Personas::load(&repo.file("personas.toml"))?;
     let pins = pins::Pins::load(&repo.file("pins.toml"))?;
     let pin = pins.get(Some(version).filter(|v| !v.is_empty()))?;
-    print!("{}", personas.era_for(&pin.version)?.outputs());
+    let era = personas.era_for(&pin.version)?;
+    print!("{}", era.outputs());
+    if let Some(second) = &era.second {
+        let toolchains = toolchains::Toolchains::load(&repo.file("toolchains.toml"))?;
+        println!(
+            "second-image={}",
+            toolchains.get(&second.container)?.reference()
+        );
+    }
     Ok(ExitCode::SUCCESS)
 }
 
