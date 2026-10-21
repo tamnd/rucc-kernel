@@ -329,7 +329,9 @@ jobs:
           if [ -n "$CPU" ]; then boot+=(--cpu "$CPU"); fi
           if [ -d "$RUNNER_TEMP/selftests-gcc" ]; then boot+=(--selftests "$RUNNER_TEMP/selftests-gcc"); fi
           if [ -d "$RUNNER_TEMP/ltp-gcc" ]; then boot+=(--ltp "$RUNNER_TEMP/ltp-gcc"); fi
-          target/release/rk mixed "${boot[@]}" --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
+          left=$(( DEADLINE - $(date +%s) ))
+          if [ "$left" -lt 600 ]; then echo "no time left to bisect $unit"; exit 0; fi
+          timeout "$left" target/release/rk mixed "${boot[@]}" --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
             --unit "$unit" --out "$RUNNER_TEMP/mixed"
       - name: add rk mixed to the record
         if: always() && steps.mixed.outcome != 'skipped'

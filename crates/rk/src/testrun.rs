@@ -7,7 +7,7 @@
 //! `rk.suite=` on the kernel command line, and the kunit boot carries the build's modules in its
 //! initramfs. The units the reference passes in every run are the graded set, and the rucc kernel
 //! must pass every one of them in every run. A unit the reference does not always pass is
-//! reported and not graded, and so is a unit of a suite in [`RACY`].
+//! reported and not graded, and so is a unit of a suite in [`RACY`] and a selftest in [`TIMING`].
 //!
 //! Both kernels' consoles are their dmesg. The splats in them are normalized (see `dmesg`), and a
 //! splat that only the rucc kernel prints is a failure even when every unit passed.
@@ -236,11 +236,27 @@ pub struct Unit {
 /// userland.
 const RACY: &[&str] = &["_iommu_test"];
 
-/// Whether a unit is in a suite of [`RACY`].
+/// Selftests whose result is a measurement of time, which are reported and not graded, because
+/// under emulation the host decides how long anything takes.
+///
+/// `seccomp_benchmark` checks that the cost of one more filter worked out two ways comes out
+/// about the same, and on the 6.12.111 arm64 nightly the rucc kernel measured 469 ns one way and
+/// 385 ns the other, where the test itself says to try again with more samples. `rtcpie` checks
+/// that the periodic RTC interrupts come on time, and the rucc kernel with the rucc userland
+/// measured 0.0173 s between two of them at 64 Hz, where 0.0156 s is expected. It passed with the
+/// GCC userland.
+const TIMING: &[&str] = &[
+    "kselftest:seccomp:seccomp_benchmark",
+    "kselftest:timers:rtcpie",
+];
+
+/// Whether a unit is in a suite of [`RACY`] or is one of [`TIMING`].
 fn racy(name: &str) -> bool {
-    name.strip_prefix("kunit:")
-        .and_then(|rest| rest.split('.').next())
-        .is_some_and(|suite| RACY.iter().any(|end| suite.ends_with(end)))
+    TIMING.contains(&name)
+        || name
+            .strip_prefix("kunit:")
+            .and_then(|rest| rest.split('.').next())
+            .is_some_and(|suite| RACY.iter().any(|end| suite.ends_with(end)))
 }
 
 /// Grade the rucc kernel's results against the reference's over `runs` runs.
@@ -896,6 +912,28 @@ mod tests {
             .map(|u| u.name)
             .collect();
         assert_eq!(graded, ["kunit:amdv1_fmt_test.test_attr_from_entry"]);
+    }
+
+    #[test]
+    fn a_selftest_that_measures_time_is_not_graded() {
+        let mut reference = Results::new();
+        let mut other = Results::new();
+        let units: Units = [
+            "kselftest:seccomp:seccomp_benchmark",
+            "kselftest:seccomp:seccomp_bpf",
+            "kselftest:timers:rtcpie",
+        ]
+        .into_iter()
+        .map(|u| (u.to_string(), Status::Pass))
+        .collect();
+        add_run(&mut reference, 0, &units);
+        add_run(&mut other, 0, &units);
+        let graded: Vec<String> = grade(&reference, &other, 1)
+            .into_iter()
+            .filter(|u| u.graded)
+            .map(|u| u.name)
+            .collect();
+        assert_eq!(graded, ["kselftest:seccomp:seccomp_bpf"]);
     }
 
     #[test]
