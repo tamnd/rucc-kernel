@@ -91,6 +91,12 @@ only = "reference"
 item = '4="include/net/netmem.h" 50000309'
 reason = "the netmem_to_page WARN on 6.12, with the same skb_frag_page guard. Checked in can_map_frag, tcp_sendmsg_locked, bpf_xdp_adjust_tail, the virtio_net frag paths and the xdp_return_frame family"
 
+[[divergence]]
+what = "__bug_table"
+only = "reference"
+item = '4="include/net/netmem.h" a5000309'
+reason = "the same netmem_to_page WARN on 7.2 arm64, where a bug entry has no 4 byte pad before the file. The 82 objects that have it are the frag paths the x86 rule covers"
+
 # Sites only the reference has. Each one was read against the source and the callers in that
 # object, and in each rucc proved the check false after inlining while gcc kept an out of line
 # copy or did not carry the range that far.
