@@ -160,7 +160,7 @@ pub mod fixture {
         SymbolKind, SymbolScope,
     };
 
-    /// An x86-64 relocatable object being built.
+    /// A relocatable object being built, for x86-64 unless made with [`Builder::aarch64`].
     pub struct Builder {
         /// The object.
         pub obj: Object<'static>,
@@ -171,6 +171,13 @@ pub mod fixture {
         pub fn new() -> Self {
             Self {
                 obj: Object::new(BinaryFormat::Elf, Architecture::X86_64, Endianness::Little),
+            }
+        }
+
+        /// An empty arm64 object.
+        pub fn aarch64() -> Self {
+            Self {
+                obj: Object::new(BinaryFormat::Elf, Architecture::Aarch64, Endianness::Little),
             }
         }
 
