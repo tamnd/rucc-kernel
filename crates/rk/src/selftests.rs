@@ -524,7 +524,10 @@ mod tests {
             .iter()
             .any(|dir| Path::new(&format!("{dir}/libgcc_s.so.1")).is_file());
         if unwinder {
-            assert!(names.iter().any(|n| n.ends_with("libgcc_s.so.1")), "{names:?}");
+            assert!(
+                names.iter().any(|n| n.ends_with("libgcc_s.so.1")),
+                "{names:?}"
+            );
         }
     }
 }
