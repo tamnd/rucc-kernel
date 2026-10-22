@@ -345,9 +345,13 @@ pub struct Plan {
 /// kernel hangs the same way.
 ///
 /// A speakup synth built as a module starts on load and talks to its synthesizer over `ttyS0`.
-/// Debian's arm64 config builds ten of them. On 6.12.111, once the first one, `speakup_acntsa`, has
+/// Debian's and Fedora's arm64 configs both build them. Once the first one, `speakup_acntsa`, has
 /// started, `speakup_apollo` waits for speakup's lock in `synth_add` until the boot times out, and
-/// both kernels hang there. `speakup_soft` needs no port and stays.
+/// both kernels hang there on 6.12.111 and on 7.2.8. `speakup_soft` needs no port and stays.
+///
+/// `locktorture` starts its writer threads on load and runs them until it is unloaded. With
+/// Fedora's arm64 config on 7.2.8 the kunit boot had loaded 3600 modules in 1890 seconds when it
+/// came to `locktorture`, and the next 616 took as long again.
 const LEFT_OUT: &[&str] = &[
     "lib/tests/test_ratelimit.ko",
     "drivers/gpu/drm/scheduler/tests/drm-sched-tests.ko",
@@ -361,6 +365,7 @@ const LEFT_OUT: &[&str] = &[
     "drivers/accessibility/speakup/speakup_ltlk.ko",
     "drivers/accessibility/speakup/speakup_spkout.ko",
     "drivers/accessibility/speakup/speakup_txprt.ko",
+    "kernel/locking/locktorture.ko",
 ];
 
 /// The modules of a build as files for the initramfs, under `lib/modules/rk`, and the `order`
