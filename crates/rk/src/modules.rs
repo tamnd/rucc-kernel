@@ -11,8 +11,9 @@
 //!
 //! The accepted list is x86-64's, which has been the same since 2.6 apart from `PLT32` in 4.16
 //! and `PC64` in 4.x. The GOTPCREL family is not on it: kernels before 5.x reject it outright and
-//! the ones after reject it for modules built without PIE. Modules of other machines are listed
-//! as not audited until their rows arrive.
+//! the ones after reject it for modules built without PIE. The relocations of other machines'
+//! modules are listed as not audited until their rows arrive, and their `vermagic` and CRCs are
+//! checked all the same.
 
 use crate::objects;
 use crate::symvers::Export;
@@ -60,7 +61,8 @@ pub fn type_name(r_type: RelocationType) -> String {
 /// What one module holds.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Module {
-    /// Whether it is x86-64, the only machine audited so far.
+    /// Whether its relocations are audited, which is when it is x86-64, the only machine whose
+    /// loader's list is here so far.
     pub audited: bool,
     /// Relocations in allocated sections by type.
     pub relocs: BTreeMap<RelocationType, u64>,
@@ -70,16 +72,21 @@ pub struct Module {
     pub versions: BTreeMap<String, u64>,
 }
 
-/// Read the `__versions` table: a CRC as an `unsigned long` and the name in the rest of a
-/// 64-byte entry.
-fn versions(data: &[u8]) -> BTreeMap<String, u64> {
+/// Read the `__versions` table: a CRC as an `unsigned long`, eight bytes when `wide` and four
+/// when not, and the name in the rest of a 64-byte entry.
+fn versions(data: &[u8], wide: bool) -> BTreeMap<String, u64> {
+    let width = if wide { 8 } else { 4 };
     data.as_chunks::<64>()
         .0
         .iter()
         .map(|entry| {
-            let crc = u64::from_le_bytes(entry[..8].try_into().unwrap_or_default());
-            let name = entry[8..].split(|b| *b == 0).next().unwrap_or_default();
-            (String::from_utf8_lossy(name).into_owned(), crc)
+            let mut crc = [0; 8];
+            crc[..width].copy_from_slice(&entry[..width]);
+            let name = entry[width..].split(|b| *b == 0).next().unwrap_or_default();
+            (
+                String::from_utf8_lossy(name).into_owned(),
+                u64::from_le_bytes(crc),
+            )
         })
         .collect()
 }
@@ -110,7 +117,7 @@ pub fn read(data: &[u8]) -> Result<Module, String> {
                 }
             }
         } else if name == "__versions" {
-            m.versions = versions(data);
+            m.versions = versions(data, file.is_64());
         }
     }
     Ok(m)
@@ -318,10 +325,7 @@ fn stripped(data: &[u8]) -> Option<Vec<u8>> {
 #[must_use]
 pub fn problems(m: &Module, release: &str, symvers: &BTreeMap<String, Export>) -> Vec<String> {
     let mut out = Vec::new();
-    if !m.audited {
-        return out;
-    }
-    for (r_type, n) in &m.relocs {
+    for (r_type, n) in m.relocs.iter().filter(|_| m.audited) {
         if !X86_64_ACCEPTED.contains(r_type) {
             out.push(format!("{n} {} relocations", type_name(*r_type)));
         }
@@ -384,7 +388,7 @@ pub fn report(audited: &BTreeMap<String, (Module, Vec<String>)>) -> String {
     let bad = audited.values().filter(|(_, p)| !p.is_empty()).count();
     let _ = writeln!(
         s,
-        "{} modules, {bad} with problems, {skipped} of a machine not audited yet.\n",
+        "{} modules, {bad} with problems, {skipped} of a machine whose relocations are not audited yet.\n",
         audited.len()
     );
     s.push_str("| relocation | count | loader |\n|---|---|---|\n");
@@ -536,5 +540,44 @@ mod tests {
         assert!(p[2].contains("printk"));
         let text = report(&[("a.ko".to_string(), (m, p))].into());
         assert!(text.contains("| R_X86_64_REX_GOTPCRELX | 1 | rejected |"));
+    }
+
+    /// A module of `arch` that imports `printk` with `crc`, with the `unsigned long` of its
+    /// `__versions` entry as wide as the machine's.
+    fn imports(arch: object::Architecture, crc: u32) -> Vec<u8> {
+        use object::SectionKind;
+        use object::write::{Object, StandardSection};
+        let mut obj = Object::new(object::BinaryFormat::Elf, arch, object::Endianness::Little);
+        let text = obj.section_id(StandardSection::Text);
+        obj.append_section_data(text, &[0; 4], 4);
+        let info = obj.add_section(Vec::new(), b".modinfo".to_vec(), SectionKind::Data);
+        obj.append_section_data(info, b"license=GPL\0vermagic=6.12.111 SMP\0", 1);
+        let mut entry = if arch.address_size() == Some(object::AddressSize::U64) {
+            u64::from(crc).to_le_bytes().to_vec()
+        } else {
+            crc.to_le_bytes().to_vec()
+        };
+        entry.extend(b"printk");
+        entry.resize(64, 0);
+        let versions = obj.add_section(Vec::new(), b"__versions".to_vec(), SectionKind::Data);
+        obj.append_section_data(versions, &entry, 8);
+        obj.write().unwrap()
+    }
+
+    #[test]
+    fn the_crcs_of_a_machine_whose_relocations_are_not_audited_are_checked() {
+        for arch in [object::Architecture::Aarch64, object::Architecture::I386] {
+            let m = read(&imports(arch, 0x1234_5678)).unwrap();
+            assert!(!m.audited, "{arch:?}");
+            assert_eq!(m.versions["printk"], 0x1234_5678, "{arch:?}");
+            assert!(problems(&m, "6.12.111", &symvers()).is_empty(), "{arch:?}");
+            let m = read(&imports(arch, 0x0bad_c0de)).unwrap();
+            let p = problems(&m, "6.12.111", &symvers());
+            assert_eq!(p.len(), 1, "{arch:?}: {p:?}");
+            assert!(
+                p[0].contains("printk imported with CRC 0x0badc0de"),
+                "{arch:?}: {p:?}"
+            );
+        }
     }
 }
