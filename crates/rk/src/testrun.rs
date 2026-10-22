@@ -244,10 +244,13 @@ const RACY: &[&str] = &["_iommu_test"];
 /// 385 ns the other, where the test itself says to try again with more samples. `rtcpie` checks
 /// that the periodic RTC interrupts come on time, and the rucc kernel with the rucc userland
 /// measured 0.0173 s between two of them at 64 Hz, where 0.0156 s is expected. It passed with the
-/// GCC userland.
+/// GCC userland. `getrusage04` checks that the user time goes up by no more than 5000 us between
+/// two calls a timer tick apart, and on the same nightly the rucc kernel saw it go up by 5140 us
+/// once in twenty. It passed both ways when it ran again with the other userland.
 const TIMING: &[&str] = &[
     "kselftest:seccomp:seccomp_benchmark",
     "kselftest:timers:rtcpie",
+    "ltp:syscalls:getrusage04",
 ];
 
 /// Whether a unit is in a suite of [`RACY`] or is one of [`TIMING`].
