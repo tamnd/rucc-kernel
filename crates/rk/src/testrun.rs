@@ -366,7 +366,15 @@ pub struct Plan {
 /// `locktorture` starts its writer threads on load and runs them until it is unloaded. With
 /// Fedora's arm64 config on 7.2.8 the kunit boot had loaded 3600 modules in 1890 seconds when it
 /// came to `locktorture`, and the next 616 took as long again.
+///
+/// `snd-mts64` and `snd-portman2x4` are MIDI interfaces on the parallel port, and Fedora's x86-64
+/// config builds both. Under QEMU, `snd-mts64` either fails its probe or spins in it until the soft
+/// lockup detector reports it, and `snd-portman2x4` registers its interrupt handler before it sets
+/// the card's `private_data`. The parallel port interrupt then comes first, and the handler takes a
+/// lock through a null pointer. On 7.3 the kunit boot of both kernels stopped there.
 const LEFT_OUT: &[&str] = &[
+    "sound/drivers/snd-mts64.ko",
+    "sound/drivers/snd-portman2x4.ko",
     "lib/tests/test_ratelimit.ko",
     "drivers/gpu/drm/scheduler/tests/drm-sched-tests.ko",
     "drivers/accessibility/speakup/speakup_acntsa.ko",
