@@ -323,6 +323,29 @@ fn pointee(file: &object::File<'_>, reloc: &object::Relocation, named: &Named) -
     ))
 }
 
+/// The text a pointer in a bug entry points at, read up to its NUL. Every pointer in a bug entry
+/// that is not code is a string, the file and in the x86 entries of 7.2 the format, but not every
+/// string is in a string section. The nVHE hypervisor of arm64 links its `.rodata.str*` into
+/// `.hyp.rodata` with the rest of its read only data, and the labels its entries point through
+/// are numbered in the order the assembler met them, so without the text the same WARN reads as
+/// `.hyp.rodata+1027` in one build and `.hyp.rodata+1008` in the other.
+fn text(file: &object::File<'_>, reloc: &object::Relocation) -> Option<String> {
+    let RelocationTarget::Symbol(index) = reloc.target() else {
+        return None;
+    };
+    let symbol = file.symbol_by_index(index).ok()?;
+    let section = file.section_by_index(symbol.section_index()?).ok()?;
+    if section.kind() == object::SectionKind::Text {
+        return None;
+    }
+    let data = section.data().ok()?;
+    let offset = usize::try_from(symbol.address().wrapping_add_signed(reloc.addend())).ok()?;
+    let rest = data.get(offset..)?;
+    let end = rest.iter().position(|b| *b == 0)?;
+    let text = std::str::from_utf8(&rest[..end]).ok()?;
+    Some(format!("{text:?}"))
+}
+
 /// The distinct sites of one of the [`INLINED`] tables. A site is everything in an entry that is
 /// not the address of code: the static key and branch bit of a jump label, the strings, line and
 /// flags of a bug, the type and immediate of an exception entry with the registers it names left
@@ -372,7 +395,11 @@ fn distinct(
                 *b = true;
             }
         }
-        if let Some(to) = pointee(file, reloc, named) {
+        let to = match table {
+            "__bug_table" => text(file, reloc).or_else(|| pointee(file, reloc, named)),
+            _ => pointee(file, reloc, named),
+        };
+        if let Some(to) = to {
             fields
                 .entry(offset / size)
                 .or_default()
@@ -1160,6 +1187,45 @@ reason = "another object"
         let rules = Divergences::parse(include_str!("../../../sections-divergences.toml")).unwrap();
         assert!(!rules.divergences.is_empty());
         assert!(Divergences::parse("[[divergence]]\nwhat = \"sections\"\nonly = \"either\"\nitem = \".x\"\nreason = \" \"\n").is_err());
+    }
+
+    /// An arm64 object with one bug entry whose file string sits at `at` in `.hyp.rodata`,
+    /// reached through a local label as the nVHE objects reach it.
+    fn hyp(at: usize) -> Vec<u8> {
+        use object::write::{Symbol, SymbolSection};
+        let mut b = Builder::aarch64();
+        let f = b.function("f", &[0; 8]);
+        let mut rodata = vec![7; at];
+        rodata.extend_from_slice(b"arch/arm64/kvm/hyp/nvhe/mem_protect.c\0");
+        let rodata = b.section(".hyp.rodata", &rodata);
+        let label = b.obj.add_symbol(Symbol {
+            name: b"__kvm_nvhe_.L14472\x021".to_vec(),
+            value: at as u64,
+            size: 0,
+            kind: object::SymbolKind::Label,
+            scope: object::SymbolScope::Compilation,
+            weak: false,
+            section: SymbolSection::Section(rodata),
+            flags: object::SymbolFlags::None,
+        });
+        let bug = b.section(
+            "__bug_table",
+            &[0, 0, 0, 0, 0, 0, 0, 0, 0x99, 0x01, 0x01, 0x09],
+        );
+        b.reloc(bug, 0, f, object::elf::R_AARCH64_PREL32);
+        b.reloc(bug, 4, label, object::elf::R_AARCH64_PREL32);
+        b.bytes()
+    }
+
+    #[test]
+    fn a_bug_entry_names_its_file_wherever_the_string_was_linked() {
+        let one = read(&hyp(1027)).unwrap();
+        let other = read(&hyp(1008)).unwrap();
+        assert_eq!(
+            one.distinct["__bug_table"],
+            [r#"4="arch/arm64/kvm/hyp/nvhe/mem_protect.c" 99010109"#.to_string()].into()
+        );
+        assert_eq!(one.distinct, other.distinct);
     }
 
     #[test]
