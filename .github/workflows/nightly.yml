@@ -1,6 +1,13 @@
-# The nightly: every pin in the current set on X64, built with gcc-14 and with rucc from tinyconfig
-# and the test fragment, and graded by rk test on boot, smoke, KUnit, the selftests and LTP, which
-# are built with gcc-14 and with rucc.
+# The nightly: every pin in the current set on X64, built with the GCC of its era and with rucc from
+# tinyconfig and the test fragment, and graded by rk test on boot, smoke, KUnit, the selftests and
+# LTP, which are built with gcc-14 and with rucc.
+#
+# The era's GCC is the one personas.toml names, gcc-14 for 7.2 and gcc-12 for 6.12 and 6.1, as in
+# kernel.yml and the census, since that is the release rucc claims to be for the version. With
+# gcc-14 as the reference for 6.12 the two .config files differ in every probe that asks for a GCC
+# 13 or 14 feature, and one of those, CC_HAS_SANE_FUNCTION_ALIGNMENT, decides whether `__cold` is
+# an attribute. genksyms sees it in the declaration of `_printk`, `_dev_err` and the rest, so their
+# CRCs differ and no module of one build loads into the other kernel.
 #
 # Both builds of a version run in one job, because rk test and rk mixed need both build directories
 # and the objects are too big to move between jobs. When the rucc kernel fails a unit the reference
@@ -123,12 +130,16 @@ jobs:
           LIMIT: ${{ inputs.row == 'A64' && 355 || 300 }}
       - uses: actions/checkout@v7.0.1
       - uses: Swatinem/rust-cache@v2.9.2
+      - name: the reference for the version
+        run: cargo run -q --release -p rk -- personas --for "$VERSION" | grep '^gcc=' | sed 's/^gcc=/GCC=/' >> "$GITHUB_ENV"
+        env:
+          VERSION: ${{ matrix.version }}
       - name: kernel build dependencies
         run: |
           sudo apt-get update -q
-          sudo apt-get install -qy --no-install-recommends gcc-14 flex bison bc libelf-dev libssl-dev \
-            cpio "$QEMU" busybox-static libcap-dev libnuma-dev rsync libaio-dev libacl1-dev \
-            libkeyutils-dev dwarves
+          sudo apt-get install -qy --no-install-recommends "$GCC" gcc-14 flex bison bc libelf-dev \
+            libssl-dev cpio "$QEMU" busybox-static libcap-dev libnuma-dev rsync libaio-dev \
+            libacl1-dev libkeyutils-dev dwarves
         env:
           QEMU: ${{ inputs.row == 'A64' && 'qemu-system-arm' || 'qemu-system-x86' }}
       - name: let the runner user open /dev/kvm
@@ -165,10 +176,10 @@ jobs:
           path: ${{ env.RK_CACHE }}/archives
           key: kernel-archives-${{ matrix.version }}-${{ hashFiles('pins.toml') }}
           restore-keys: kernel-archives-${{ matrix.version }}-
-      - name: rk build with gcc-14
+      - name: rk build with the era's GCC
         run: |
           target/release/rk build ${{ matrix.version }} --row "$ROW" --config "$CONFIG" --fragment test \
-            --cc gcc-14 --targets "$TARGETS" --out "$RUNNER_TEMP/gcc" --stack-usage
+            --cc "$GCC" --targets "$TARGETS" --out "$RUNNER_TEMP/gcc" --stack-usage
       - name: rk build with rucc
         continue-on-error: true
         run: |
