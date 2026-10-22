@@ -330,9 +330,9 @@ pub struct Plan {
     pub out: PathBuf,
 }
 
-/// KUnit modules that rk test leaves out for both kernels, because the test races with itself and
-/// a splat or a hang it causes tells nothing about the compiler. `KUNIT_ALL_TESTS=m` hides their
-/// prompts, so the fragment cannot turn them off.
+/// Modules that rk test leaves out for both kernels, because a splat or a hang they cause tells
+/// nothing about the compiler. The KUnit ones race with themselves, and `KUNIT_ALL_TESTS=m` hides
+/// their prompts, so the fragment cannot turn them off.
 ///
 /// `test_ratelimit_stress` sets a flag that its threads stop on and then calls `kthread_stop` on
 /// them. A thread that sees the flag and exits first frees its task, and `kthread_stop` then
@@ -343,9 +343,24 @@ pub struct Plan {
 /// calls `hrtimer_cancel` on the timer that is running, which waits for itself, and the other CPU
 /// then waits for the lock. The guest prints nothing more, and every suite after it fails. A GCC
 /// kernel hangs the same way.
+///
+/// A speakup synth built as a module starts on load and talks to its synthesizer over `ttyS0`.
+/// Debian's arm64 config builds ten of them. On 6.12.111, once the first one, `speakup_acntsa`, has
+/// started, `speakup_apollo` waits for speakup's lock in `synth_add` until the boot times out, and
+/// both kernels hang there. `speakup_soft` needs no port and stays.
 const LEFT_OUT: &[&str] = &[
     "lib/tests/test_ratelimit.ko",
     "drivers/gpu/drm/scheduler/tests/drm-sched-tests.ko",
+    "drivers/accessibility/speakup/speakup_acntsa.ko",
+    "drivers/accessibility/speakup/speakup_apollo.ko",
+    "drivers/accessibility/speakup/speakup_audptr.ko",
+    "drivers/accessibility/speakup/speakup_bns.ko",
+    "drivers/accessibility/speakup/speakup_decext.ko",
+    "drivers/accessibility/speakup/speakup_dectlk.ko",
+    "drivers/accessibility/speakup/speakup_dummy.ko",
+    "drivers/accessibility/speakup/speakup_ltlk.ko",
+    "drivers/accessibility/speakup/speakup_spkout.ko",
+    "drivers/accessibility/speakup/speakup_txprt.ko",
 ];
 
 /// The modules of a build as files for the initramfs, under `lib/modules/rk`, and the `order`
@@ -828,6 +843,29 @@ mod tests {
             ]
         );
         assert_eq!(files[1].1, b"lib/tests/list-test.ko\n");
+    }
+
+    #[test]
+    fn a_speakup_synth_that_needs_a_port_is_left_out() {
+        let dir = std::env::temp_dir().join(format!("rk-testrun-speakup-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let speakup = "drivers/accessibility/speakup";
+        std::fs::write(
+            dir.join("modules.order"),
+            format!(
+                "{speakup}/speakup.o\n{speakup}/speakup_acntsa.o\n{speakup}/speakup_apollo.o\n{speakup}/speakup_soft.o\n"
+            ),
+        )
+        .unwrap();
+        let names = module_names(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            names,
+            [
+                format!("{speakup}/speakup.ko"),
+                format!("{speakup}/speakup_soft.ko")
+            ]
+        );
     }
 
     fn booted() -> boot::Outcome {
