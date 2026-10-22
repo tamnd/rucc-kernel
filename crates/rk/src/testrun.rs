@@ -677,18 +677,25 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
         .difference(&splats.reference)
         .cloned()
         .collect();
-    let mut units = grade(&reference, &other, plan.runs);
+    let mut outcome = Outcome {
+        reference: plan.reference.clone(),
+        other: plan.other.clone(),
+        kinds: plan.kinds.clone(),
+        runs: plan.runs,
+        two_userlands,
+        units: grade(&reference, &other, plan.runs),
+        splats,
+    };
+    // Written once before the boots that attribute the failures, so that a job that runs out of
+    // time in them still has the grades.
+    write(plan, &outcome)?;
 
-    let failed_kinds: BTreeSet<Kind> = units
-        .iter()
-        .filter(|u| u.graded && !u.passed)
-        .map(|u| kind_of(&u.name))
-        .collect();
+    let failed: Vec<&str> = outcome.failed().iter().map(|u| u.name.as_str()).collect();
     let (mut swapped_kernel, mut swapped_userland) = (Units::new(), Units::new());
-    if two_userlands && !failed_kinds.is_empty() {
+    if two_userlands && !failed.is_empty() {
         let mut boots = Vec::new();
         for suite in &suites {
-            if !failed_kinds.contains(&Kind::Boot) && !failed_kinds.contains(&suite_kind(suite)) {
+            if !rerun(suite, &failed) {
                 continue;
             }
             let name = stem(suite);
@@ -711,7 +718,7 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
             merge(&mut swapped_userland, userland_boot?.0);
         }
     }
-    for unit in units.iter_mut().filter(|u| u.graded && !u.passed) {
+    for unit in outcome.units.iter_mut().filter(|u| u.graded && !u.passed) {
         unit.attribution = Some(if two_userlands {
             let cell = |units: &Units| units.get(&unit.name).copied().unwrap_or(Status::Missing);
             attribute(cell(&swapped_kernel), cell(&swapped_userland)).to_string()
@@ -720,21 +727,35 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
         });
     }
 
-    let outcome = Outcome {
-        reference: plan.reference.clone(),
-        other: plan.other.clone(),
-        kinds: plan.kinds.clone(),
-        runs: plan.runs,
-        two_userlands,
-        units,
-        splats,
-    };
-    let json = serde_json::to_string_pretty(&outcome).unwrap_or_default();
+    write(plan, &outcome)?;
+    Ok(outcome)
+}
+
+/// Write `test.json` and `summary.md` for the outcome.
+fn write(plan: &Plan, outcome: &Outcome) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(outcome).unwrap_or_default();
     std::fs::write(plan.out.join("test.json"), json + "\n")
         .map_err(|e| format!("writing test.json: {e}"))?;
-    std::fs::write(plan.out.join("summary.md"), summary(&outcome))
-        .map_err(|e| format!("writing summary.md: {e}"))?;
-    Ok(outcome)
+    std::fs::write(plan.out.join("summary.md"), summary(outcome))
+        .map_err(|e| format!("writing summary.md: {e}"))
+}
+
+/// Whether a suite boots again with the userlands swapped, to attribute these failed units. A
+/// failed boot could have been any suite's, so then every suite does. Otherwise only a suite that
+/// reports one of the units does: an LTP test that failed in `syscalls` says nothing about `mm`,
+/// and booting every runtest file again took the A64 job for 7.2.8 past its limit.
+#[must_use]
+pub fn rerun(suite: &str, failed: &[&str]) -> bool {
+    failed.iter().any(|unit| {
+        let kind = kind_of(unit);
+        kind == Kind::Boot
+            || match kind {
+                Kind::Kselftest | Kind::Ltp => unit
+                    .strip_prefix(suite)
+                    .is_some_and(|rest| rest.starts_with(':')),
+                kind => suite_kind(suite) == kind,
+            }
+    })
 }
 
 /// A suite as part of a file name, without the colon of `kselftest:<collection>`.
@@ -832,6 +853,27 @@ mod tests {
         assert_eq!(kind_of("kselftest:timers:posix_timers"), Kind::Kselftest);
         assert_eq!(suite_kind("kselftest:timers"), Kind::Kselftest);
         assert_eq!(suite_kind("kunit"), Kind::Kunit);
+    }
+
+    #[test]
+    fn only_a_suite_with_a_failed_unit_boots_again() {
+        let failed = ["ltp:syscalls:fcntl14", "kunit-module:crypto/xor.ko"];
+        assert!(rerun("ltp:syscalls", &failed));
+        assert!(!rerun("ltp:syscalls-ipc", &failed));
+        assert!(!rerun("ltp:mm", &failed));
+        assert!(rerun("kunit", &failed));
+        assert!(!rerun("smoke", &failed));
+        assert!(!rerun("kselftest:timers", &failed));
+        assert!(rerun(
+            "kselftest:timers",
+            &["kselftest:timers:posix_timers"]
+        ));
+        assert!(!rerun(
+            "kselftest:timers",
+            &["kselftest:timens:clock_nanosleep"]
+        ));
+        assert!(rerun("smoke", &["smoke:mount"]));
+        assert!(rerun("ltp:mm", &["boot"]));
     }
 
     #[test]
