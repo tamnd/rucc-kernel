@@ -90,9 +90,6 @@ impl Plan {
 pub fn problems(m: &Module, vermagic: &str, symvers: &BTreeMap<String, Export>) -> Vec<String> {
     let release = vermagic.split(' ').next().unwrap_or_default();
     let mut out = modules::problems(m, release, symvers);
-    if !m.audited {
-        return out;
-    }
     if !m.vermagic.is_empty()
         && !vermagic.is_empty()
         && m.vermagic.split(' ').next() == Some(release)
