@@ -56,6 +56,18 @@ item = "*"
 reason = "a WARN or BUG check rucc keeps where gcc proved the condition never holds and removed it"
 
 [[divergence]]
+what = "__jump_table"
+only = "other"
+item = "*"
+reason = "a static branch, such as the one in a pr_debug or a tracepoint, rucc keeps where gcc proved the code around it dead and removed it"
+
+[[divergence]]
+what = "sections"
+only = "other"
+item = "__dyndbg"
+reason = "the descriptor of a pr_debug in an object where only rucc keeps one, which comes and goes with its static branch, and the branches are compared in __jump_table"
+
+[[divergence]]
 what = "sections"
 only = "either"
 item = ".discard.instr_*"
@@ -402,3 +414,24 @@ object = "fs/super.o"
 only = "reference"
 item = "97000000"
 reason = "the X86_FEATURE_POPCNT entries of the same 8 alternatives, tamnd/rucc#3764"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/char/random.o"
+only = "reference"
+item = '4="drivers/char/random.c" 37010000'
+reason = "the BUG_ON(random_data_len > 32) in crng_make_state on 7.2. Its callers pass min_t(size_t, 32, len) and CHACHA_KEY_SIZE, rucc carries that range into the static function and drops the check, and gcc keeps it"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/char/random.o"
+only = "reference"
+item = '4="drivers/char/random.c" 4e010000'
+reason = "the same BUG_ON in crng_fast_key_erasure, which only crng_make_state calls, with at most 32"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/super.o"
+only = "reference"
+item = '4="fs/super.c" 9c000309'
+reason = "the WARN_ON_ONCE(hweight32(flag & SUPER_WAKE_FLAGS) > 1) in super_wake on 7.2. rucc inlines super_wake into its three callers, which pass SB_DEAD, SB_DYING and SB_BORN, so the count folds to 1, and gcc keeps super_wake out of line"
