@@ -236,8 +236,8 @@ pub struct Unit {
 /// userland.
 const RACY: &[&str] = &["_iommu_test"];
 
-/// Selftests whose result is a measurement of time, which are reported and not graded, because
-/// under emulation the host decides how long anything takes.
+/// Tests whose result is a measurement of time, which are reported and not graded, because under
+/// emulation the host decides how long anything takes.
 ///
 /// `seccomp_benchmark` checks that the cost of one more filter worked out two ways comes out
 /// about the same, and on the 6.12.111 arm64 nightly the rucc kernel measured 469 ns one way and
@@ -247,9 +247,20 @@ const RACY: &[&str] = &["_iommu_test"];
 /// GCC userland. `getrusage04` checks that the user time goes up by no more than 5000 us between
 /// two calls a timer tick apart, and on the same nightly the rucc kernel saw it go up by 5140 us
 /// once in twenty. It passed both ways when it ran again with the other userland.
+///
+/// Some LTP tests have to get a fixed amount of work done in a fixed time. `fcntl14` and
+/// `fcntl14_64` fork a child for each of 5000 locks and have 38 seconds for it. On the 6.12.111
+/// arm64 nightly with `-cpu cortex-a57` they ran out of time on the rucc kernel with either
+/// userland, and also on the reference kernel with the rucc userland. `futex_cmp_requeue01` forks
+/// 1000 waiters that each give up after five seconds. On the same night, with the rucc kernel and
+/// the rucc userland, every waiter gave up before the last was forked, and it passed in both
+/// crossed runs.
 const TIMING: &[&str] = &[
     "kselftest:seccomp:seccomp_benchmark",
     "kselftest:timers:rtcpie",
+    "ltp:syscalls:fcntl14",
+    "ltp:syscalls:fcntl14_64",
+    "ltp:syscalls:futex_cmp_requeue01",
     "ltp:syscalls:getrusage04",
 ];
 
