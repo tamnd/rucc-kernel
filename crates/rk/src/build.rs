@@ -416,6 +416,12 @@ pub fn make_in(
         .arg(format!("ARCH={}", row.arch))
         .arg(format!("CC={cc}"))
         .arg(format!("-j{jobs}"))
+        // The first kallsyms pass of 7.2 reads a vmlinux without its BTF, so `__start_BTF` is
+        // data there and read only data after, and the names it packs can come out a few bytes
+        // longer in the second pass. link-vmlinux.sh only runs a third pass when the object
+        // file grew, which padding can hide, and the check at the end then fails. The extra
+        // pass makes the last two passes see the same symbols on either compiler.
+        .arg("KALLSYMS_EXTRA_PASS=1")
         .envs(REPRODUCIBLE);
     if !row.cross.is_empty() && !host_is(&row.arch) {
         command.arg(format!("CROSS_COMPILE={}", row.cross));
