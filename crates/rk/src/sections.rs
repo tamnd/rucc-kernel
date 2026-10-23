@@ -601,6 +601,32 @@ fn matches(pattern: &str, s: &str) -> bool {
     }
 }
 
+/// Whether a rule for `object` follows `item` into the module `object` is linked into.
+///
+/// A bug entry names the file of its WARN or BUG. One that names `fs/btrfs/volumes.c` was compiled
+/// into `fs/btrfs/volumes.o`, so in `fs/btrfs/btrfs.o` it is the same site, linked in with `ld -r`,
+/// and the rule written for the member holds for the module. An entry that names a header could
+/// have come from any member, so it gets no such help and needs a rule of its own.
+fn linked(object: &str, item: &str) -> bool {
+    let Some(stem) = object.strip_suffix(".o") else {
+        return false;
+    };
+    let Some(file) = item.split('"').skip(1).step_by(2).find(|s| !s.is_empty()) else {
+        return false;
+    };
+    let mut parts: Vec<&str> = Vec::new();
+    for part in file.split('/') {
+        match part {
+            ".." => {
+                parts.pop();
+            }
+            "." => {}
+            _ => parts.push(part),
+        }
+    }
+    parts.join("/").strip_suffix(".c") == Some(stem)
+}
+
 impl Divergences {
     /// Read `sections-divergences.toml`.
     pub fn load(path: &Path) -> Result<Self, String> {
@@ -625,7 +651,9 @@ impl Divergences {
         self.divergences.iter().find(|r| {
             r.what == d.what
                 && (r.only == only || r.only == Only::Either)
-                && r.object.as_deref().is_none_or(|o| matches(o, &d.object))
+                && r.object
+                    .as_deref()
+                    .is_none_or(|o| matches(o, &d.object) || linked(o, item))
                 && matches(&r.item, item)
         })
     }
@@ -1180,6 +1208,68 @@ reason = "another object"
         assert!(text.contains("| `sections` | 1 | 1 |"), "{text}");
         c.differences.retain(|d| d.reason.is_some());
         assert!(c.clean());
+    }
+
+    /// A module linked from its members has every site they have. A rule for a member explains a
+    /// site that names the member's own file in the module too, and one that names a header only
+    /// in the member it was written for.
+    #[test]
+    fn a_rule_for_a_member_follows_its_own_sites_into_the_module() {
+        let site = r#"4="drivers/gpu/drm/amd/amdgpu/../amdkfd/kfd_events.c" 53020909"#;
+        let header = r#"4="include/linux/highmem.h" 4b020909"#;
+        let names =
+            |n: &[&str]| -> BTreeSet<String> { n.iter().map(ToString::to_string).collect() };
+        let mut c = Comparison {
+            differences: vec![
+                between(
+                    "drivers/gpu/drm/amd/amdkfd/kfd_events.o",
+                    "__bug_table",
+                    &names(&[site]),
+                    &names(&[]),
+                ),
+                between(
+                    "drivers/gpu/drm/amd/amdgpu/amdgpu.o",
+                    "__bug_table",
+                    &names(&[site]),
+                    &names(&[]),
+                ),
+                between(
+                    "drivers/gpu/drm/amd/amdgpu/amdgpu.o",
+                    "__bug_table",
+                    &names(&[header]),
+                    &names(&[]),
+                ),
+                between(
+                    "drivers/gpu/drm/amd/amdkfd/kfd_svm.o",
+                    "__bug_table",
+                    &names(&[site.replace("kfd_events", "kfd_svm").as_str()]),
+                    &names(&[]),
+                ),
+            ],
+            ..Comparison::default()
+        };
+        let rules = Divergences::parse(&format!(
+            r#"
+[[divergence]]
+what = "__bug_table"
+object = "drivers/gpu/drm/amd/amdkfd/kfd_events.o"
+only = "reference"
+item = '{site}'
+reason = "checked"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/gpu/drm/amd/amdkfd/kfd_events.o"
+only = "reference"
+item = '{header}'
+reason = "checked in the member"
+"#
+        ))
+        .unwrap();
+        rules.explain(&mut c);
+        let reasons: Vec<Option<&str>> =
+            c.differences.iter().map(|d| d.reason.as_deref()).collect();
+        assert_eq!(reasons, [Some("checked"), Some("checked"), None, None]);
     }
 
     #[test]
