@@ -435,3 +435,609 @@ object = "fs/super.o"
 only = "reference"
 item = '4="fs/super.c" 9c000309'
 reason = "the WARN_ON_ONCE(hweight32(flag & SUPER_WAKE_FLAGS) > 1) in super_wake on 7.2. rucc inlines super_wake into its three callers, which pass SB_DEAD, SB_DYING and SB_BORN, so the count folds to 1, and gcc keeps super_wake out of line"
+
+[[divergence]]
+what = "sections"
+only = "either"
+item = ".altinstructions"
+reason = "an object where one build keeps no alternative at all, and the entries are compared in .altinstructions"
+
+[[divergence]]
+what = "sections"
+only = "either"
+item = "__jump_table"
+reason = "an object where one build keeps no static branch at all, and the branches are compared in __jump_table"
+
+[[divergence]]
+what = ".altinstructions"
+only = "either"
+item = "2d00"
+reason = "ARM64_HAS_LSUI, which the futex and uaccess code patch in when CONFIG_ARM64_LSUI is on. That needs CONFIG_AS_HAS_LSUI, so it comes with the binutils of the build: 2.44 takes .arch_extension lsui and 2.42 does not"
+
+[[divergence]]
+what = ".altinstructions"
+object = "drivers/infiniband/core/umem.o"
+only = "reference"
+item = "*"
+reason = "the same out of line __uaccess_ttbr0_enable: HAS_PAN from system_uses_ttbr0_pan, HAS_GIC_PRIO_MASKING from local_irq_save, and the alt_cb_patch_nops entry of pmr_sync for HAS_GIC_PRIO_RELAXED_SYNC in local_irq_restore"
+
+[[divergence]]
+what = ".altinstructions"
+object = "drivers/infiniband/hw/bnxt_re/uapi.o"
+only = "reference"
+item = "*"
+reason = "the same out of line __uaccess_ttbr0_enable: HAS_PAN from system_uses_ttbr0_pan, HAS_GIC_PRIO_MASKING from local_irq_save, and the alt_cb_patch_nops entry of pmr_sync for HAS_GIC_PRIO_RELAXED_SYNC in local_irq_restore"
+
+[[divergence]]
+what = ".altinstructions"
+object = "drivers/infiniband/hw/mlx5/cq.o"
+only = "reference"
+item = "*"
+reason = "the same out of line __uaccess_ttbr0_enable: HAS_PAN from system_uses_ttbr0_pan, HAS_GIC_PRIO_MASKING from local_irq_save, and the alt_cb_patch_nops entry of pmr_sync for HAS_GIC_PRIO_RELAXED_SYNC in local_irq_restore"
+
+[[divergence]]
+what = ".altinstructions"
+object = "drivers/mtd/nand/raw/lpc32xx_mlc.o"
+only = "reference"
+item = "4=alt_cb_patch_nops+0 2a80"
+reason = "the LSE atomics entry of the set_bit in dma_cap_set in lpc32xx_dma_setup. The file scope use_dma is never written, so every DMA path is dead, rucc removes them and gcc keeps this one"
+
+[[divergence]]
+what = ".altinstructions"
+object = "drivers/nfc/nfcmrvl/i2c.o"
+only = "other"
+item = "4=alt_cb_patch_nops+0 2a80"
+reason = "the LSE atomics entry of the set_bit(NFCMRVL_PHY_ERROR) under case -EREMOTEIO in nfcmrvl_i2c_int_irq_thread_fn. nfcmrvl_i2c_read only returns 0, -ENOMEM or -EBADMSG, so gcc removes the case and rucc keeps it"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/nfc/nfcmrvl/i2c.o"
+only = "other"
+item = '4="include/linux/instrumented.h" 43000309'
+reason = "the DEBUG_ATOMIC alignment WARN of the same set_bit, which rucc keeps and gcc removes with the dead case"
+
+[[divergence]]
+what = "__bug_table"
+object = "arch/arm64/mm/pageattr.o"
+only = "reference"
+item = '4="arch/arm64/include/asm/pgtable.h" *'
+reason = "the VM_BUG_ON(memstart_addr & 1) in __va inside p4d_offset_lockless and pud_offset_lockless. gcc keeps them out of line and loads memstart_addr again after the call, and rucc inlines them and reuses the value page_address has already checked with the same BUG"
+
+[[divergence]]
+what = "__jump_table"
+object = "block/blk-integrity.o"
+only = "reference"
+item = "8=validate_usercopy_range+1"
+reason = "the hardened usercopy branch of copy_struct_to_user, which only checks a size that is not constant. extensible_ioctl_valid makes usize at least LBMD_SIZE_VER0, which is sizeof(meta_cap), so the size min(sizeof(meta_cap), usize) is always 16, rucc folds __builtin_constant_p and gcc does not"
+
+[[divergence]]
+what = "__bug_table"
+object = "block/partitions/ldm.o"
+only = "reference"
+item = '4="block/partitions/ldm.c" 41020000'
+reason = "the BUG_ON(!pp || !ldb) in ldm_create_data_partitions. Its only caller, ldm_partition, has done BUG_ON(!state) and returns when the kmalloc of ldb fails"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/block/mtip32xx/mtip32xx.o"
+only = "reference"
+item = '4="include/linux/ucopysize.h" 39000309'
+reason = "the WARN_ON_ONCE(bytes > INT_MAX) in check_copy_size. In exec_drive_taskfile a taskout or taskin above 130560 has already returned -EINVAL, so the copy_to_user length is bounded"
+
+[[divergence]]
+what = "__bug_table"
+object = "kernel/signal.o"
+only = "reference"
+item = '4="include/linux/ucopysize.h" 39000309'
+reason = "WARN_ON_ONCE(bytes > INT_MAX) in check_copy_size, where every copy in signal.c has a sizeof or a length bounded by one"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/gpu/buddy.o"
+only = "reference"
+item = '4="drivers/gpu/buddy.c" 5c020109'
+reason = "the gpu_buddy_assert(!(mark_dirty && mark_clear)) in __gpu_buddy_free_list, whose callers pass (false, false) or (mark_clear, !mark_clear)"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/gpu/drm/omapdrm/dss/dispc.o"
+only = "reference"
+item = '4="drivers/gpu/drm/omapdrm/dss/dispc.h" *'
+reason = "the default BUG() of each DISPC_*_OFFSET(plane) switch, and the BUG for OMAP_DSS_GFX in DISPC_PICTURE_SIZE. Every DISPC_OVL_xxx(n) adds DISPC_OVL_BASE(n), whose own default BUG has already bounded the plane, and no caller of DISPC_PICTURE_SIZE passes the GFX plane, so rucc removes them where it inlines and gcc keeps them in out of line copies"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/hwmon/ina2xx.o"
+only = "reference"
+item = '4="drivers/hwmon/ina2xx.c" 3d010309'
+reason = "the default WARN_ON_ONCE in ina2xx_get_value, whose callers pass only the bus and shunt voltage, power and current registers"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/iommu/arm/arm-smmu-v3/tegra241-cmdqv.o"
+only = "reference"
+item = '4="include/linux/iommu.h" *'
+reason = "the WARN_ON(!dst_data || !src_data) in __iommu_copy_struct_to_user and its array form. user_data is checked for NULL before both copies, and the other side is the address of a local"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/iommu/iommufd/selftest.o"
+only = "reference"
+item = '4="include/linux/iommu.h" 61020109'
+reason = "the WARN_ON(!dst_data || !src_data) in __iommu_copy_struct_to_user, called inside if (user_data) with the address of a local"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/broadcom/bcm4908_enet.o"
+only = "reference"
+item = '4="drivers/net/ethernet/broadcom/bcm4908_enet.c" 6b000109'
+reason = "the WARN_ON(set & ~mask) in enet_maskset. Every caller passes constants where set is 0, equal to mask, or inside it"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/mellanox/mlx5/core/en/ptp.o"
+only = "reference"
+item = '4="drivers/net/ethernet/mellanox/mlx5/core/en/ptp.c" 38000309'
+reason = "the WARN_ON_ONCE(!tracker->inuse) in mlx5e_ptp_port_ts_cqe_list_remove, whose only caller runs under if (likely(...inuse)) with no store in between"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/mellanox/mlx5/core/en_rx.o"
+only = "reference"
+item = '4="include/linux/skbuff.h" 300b0309'
+reason = "the DEBUG_NET_WARN_ON_ONCE(len > INT_MAX) in pskb_may_pull_reason, called from is_last_ethertype_ip with a u16 network depth plus 20 or 40"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/mellanox/mlxsw/spectrum*"
+only = "reference"
+item = '4="drivers/net/ethernet/mellanox/mlxsw/item.h" *'
+reason = "the BUG_ONs on the step, element size and offset of an item in __mlxsw_item_set32 and the bit array helpers. The items are const file scope MLXSW_ITEMs, so once rucc folds them each check is false, and gcc keeps the checks in its out of line copies"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/mellanox/mlxsw/spectrum.o"
+only = "reference"
+item = '4="drivers/net/ethernet/mellanox/mlxsw/reg.h" 08080109'
+reason = "the WARN_ON on num_rec in mlxsw_reg_spvmlr_pack, which is only called as (vid, vid), so num_rec is 1"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/mellanox/mlxsw/core_linecards.o"
+only = "reference"
+item = '4="drivers/net/ethernet/mellanox/mlxsw/reg.h" 1f2d0109'
+reason = "the length WARN_ON in mlxsw_reg_mddt_pack, which only gets the const register infos mcc, mcda, mcqi and mgir. The largest is 0x9C, and 0x9C plus the headers is below MLXSW_REG_MDDT_LEN"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/microchip/lan966x/lan966x_main.o"
+only = "reference"
+item = '4="drivers/net/ethernet/microchip/lan966x/lan966x_main.h" c4020109'
+reason = "the WARN_ON(rinst >= rcnt) in lan_rmw, which gcc keeps only in lan_rmw.constprop.0. Every lan_rmw in the file passes a register instance below its count, and rucc inlines each one"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/microchip/sparx5/lan969x/lan969x_rgmii.o"
+only = "reference"
+item = '4="drivers/net/ethernet/microchip/vcap/../sparx5/sparx5_main.h" 01030109'
+reason = "the WARN_ON(rinst >= rcnt) in spx5_rmw, which gcc keeps only in spx5_rmw.constprop.0. The only instances that are not 0 are HSIO_WRAP_DLL_CFG(idx, 0) and (idx, 1) with a count of 2, and rucc inlines them"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/netronome/nfp/flower/main.o"
+only = "reference"
+item = '4="drivers/net/ethernet/netronome/nfp/flower/main.c" a5010109'
+reason = "the WARN_ON(repr_type == NFP_REPR_TYPE_PF && i) in nfp_flower_spawn_vnic_reprs. The PF call passes a count of 1, rucc inlines it into nfp_flower_vnic_init, and its out of line copy is only called for VFs"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/pinctrl/uniphier/pinctrl-uniphier-core.o"
+only = "reference"
+item = '4="drivers/pinctrl/uniphier/pinctrl-uniphier-core.c" f0000000'
+reason = "the default BUG() in uniphier_conf_pin_bias_get, whose only caller reaches it for the three bias parameters it handles"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/platform/raspberrypi/vchiq-interface/vchiq_core.o"
+only = "reference"
+item = '4="drivers/platform/raspberrypi/vchiq-interface/vchiq_core.c" be030109'
+reason = "the WARN_ON(stride > VCHIQ_SLOT_SIZE) in queue_message. The static function gets 0, a sizeof, or the size vchiq_queue_message has checked against VCHIQ_MAX_MSG_SIZE, so the stride fits in a slot"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/vhost/vhost.o"
+only = "reference"
+item = '4="drivers/vhost/vhost.c" 65080000'
+reason = "the default BUG() in vhost_vring_set_num_addr, whose only caller calls it for VHOST_SET_VRING_NUM and VHOST_SET_VRING_ADDR"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/btrfs/raid56.o"
+only = "reference"
+item = '4="fs/btrfs/raid56.c" 9e080000'
+reason = "the ASSERT(mirror_num > 2) in set_rbio_raid6_extra_error, whose only call is under if (mirror_num > 2)"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/inode.o"
+only = "reference"
+item = '4="fs/inode.c" 290a0000'
+reason = "the VFS_BUG_ON(!hash_locked && !rcu_locked) in __wait_on_freeing_inode. The call rucc inlines passes hash_locked true, and the two calls to its out of line copy pass rcu_locked true"
+
+[[divergence]]
+what = "__bug_table"
+object = "io_uring/io_uring.o"
+only = "reference"
+item = '4="io_uring/refs.h" 27000309'
+reason = "the WARN_ON_ONCE(!(req->flags & REQ_F_REFCOUNT)) in req_ref_get, whose only call in io_wq_submit_work is on the else arm of the same test"
+
+[[divergence]]
+what = "__bug_table"
+object = "kernel/bpf/verifier.o"
+only = "reference"
+item = '4="kernel/bpf/verifier.c" 6d040309'
+reason = "a WARN in unmark_stack_slot_irq_flag. Without DEBUG_INFO_BTF special_kfunc_list is a zero static array nothing writes, so process_irq_flag matches the irq save kfuncs first and the restore arm is dead"
+
+[[divergence]]
+what = "__bug_table"
+object = "kernel/sched/build_policy.o"
+only = "reference"
+item = '4="kernel/sched/rt.c" ad000309'
+reason = "the WARN_ON_ONCE(!rt_entity_is_task(rt_se)) in rt_task_of, where every call follows a test that rt_se->my_q is NULL"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/memory.o"
+only = "reference"
+item = '4="arch/arm64/include/asm/tlbflush.h" 52020000'
+reason = "the BUG() for TLBF_NOBROADCAST alone in __flush_tlb_range, where every call in the object passes TLBF_NONE or TLBF_NOWALKCACHE"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/mlock.o"
+only = "reference"
+item = '4="include/linux/mm_inline.h" da000309'
+reason = "the demotion VM_WARN_ON_ONCE in lru_gen_update_size. Its callers here pass -1 for the old or the new generation and return before it"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/swap.o"
+only = "reference"
+item = '4="include/linux/mm_inline.h" da000309'
+reason = "the demotion VM_WARN_ON_ONCE in lru_gen_update_size. Its callers here pass -1 for the old or the new generation and return before it"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/rmap.o"
+only = "reference"
+item = '4="include/linux/rmap.h" e6010109'
+reason = "the VM_WARN_ON_FOLIO(!folio_test_hugetlb(folio)) in hugetlb_remove_rmap, whose two calls are directly under if (folio_test_hugetlb(folio))"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/bridge/br_netfilter_hooks.o"
+only = "reference"
+item = '4="include/linux/netfilter.h" fc000309'
+reason = "the WARN_ON_ONCE(hook >= ARRAY_SIZE(hooks_arp)) in nf_hook. The only ARP call passes NF_ARP_FORWARD, and rucc inlines nf_hook into each NF_HOOK with its constants where gcc keeps one copy"
+
+[[divergence]]
+what = "__jump_table"
+object = "net/rds/af_rds.o"
+only = "reference"
+item = "8=validate_usercopy_range+1"
+reason = "the hardened usercopy branch for a size that is not constant. All six copy_from_sockptr calls pass a sizeof, rucc inlines each one with its constant, and gcc keeps a shared copy_from_sockptr_offset.constprop.0"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_552+40"
+reason = "the pr_debug of dspio_scp bad resp buf len parms. The only call with a reply buffer passes the address of a size that holds 4, and gcc keeps the check in a constprop clone"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_591+40"
+reason = "the pr_debug of dma chan num invalid. The only dspload_image call passes ovly 0, so the channel is 0, and gcc keeps the check in a constprop clone"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/cxl/core/features.o"
+only = "reference"
+item = '4="drivers/cxl/core/features.c" b3010909'
+reason = "the fortify field spanning WARN of memcpy(pos, ..., sizeof(*pos)), where pos walks a kvzalloc buffer. The copy is the size of what pos points at, so the field size is only below it when what is left of the buffer is, and then the fortify panic before the WARN has already fired"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/spi/spi.o"
+only = "reference"
+item = '4="drivers/spi/spi.c" af030909'
+reason = "the fortify field spanning WARN of a copy into *bi as bi walks a kzalloc_objs array. The copy is the size of the element, so the field size is only below it when what is left of the array is, and then the fortify panic before the WARN has already fired"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/pci/of_property.o"
+only = "reference"
+item = '4="drivers/pci/of_property.c" 89000909'
+reason = "the fortify field spanning WARN of a copy into rp[i] of a kzalloc_objs array. The copy is the size of the element, so the field size is only below it when what is left of the array is, and then the fortify panic before the WARN has already fired"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/intel/ice/ice_switch.o"
+only = "reference"
+item = '4="drivers/net/ethernet/intel/ice/ice_switch.c" 29140909'
+reason = "the fortify field spanning WARN of a copy into buf[recp_cnt - 1] of an allocated array. The copy is the size of the element, so the field size is only below it when what is left of the array is, and then the fortify panic before the WARN has already fired"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/pinctrl/pinctrl-zynqmp.o"
+only = "reference"
+item = '4="drivers/pinctrl/pinctrl-zynqmp.c" 8c020909'
+reason = "the fortify field spanning WARN of the 16 byte copy into funcs[i].name of a devm_kcalloc array. The member is 16 bytes, so the field size is only below the copy when what is left of the array is, and then the fortify panic before the WARN has already fired"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/spi/spi-dw-core.o"
+only = "reference"
+item = '4="drivers/spi/spi-dw-core.c" 21020909'
+reason = "the fortify field spanning WARN of the copy to &out[i] in dw_spi_exec_mem_op, where out is dws->buf or a kzalloc of len. The loop keeps i + nbytes equal to len, so the copy always fits"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/hid/hid-nintendo.o"
+only = "reference"
+item = '4="drivers/hid/hid-nintendo.c" 5c0a0909'
+reason = "the fortify field spanning WARN of the copy into input_buf in joycon_ctlr_handle_event. The only caller returns when size is below 1, so min(size, 84) never goes past the 84 bytes of input_buf"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/huawei/hinic/hinic_hw_cmdq.o"
+only = "reference"
+item = '4="drivers/net/ethernet/huawei/hinic/hinic_hw_cmdq.c" f0000909'
+reason = "the fortify field spanning WARN of the copy into the 16 byte data of a cmdq buffer. The only call chain, hinic_set_arm_bit through cmdq_set_arm_bit, passes sizeof(arm_bit), which is 8"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/intel/ice/ice_flow.o"
+only = "reference"
+item = '4="drivers/net/ethernet/intel/ice/ice_flow.c" da050909'
+reason = "the fortify field spanning WARN of the copy into segs[i]. ice_flow_add_prof, the only caller, returns when segs_cnt is above ICE_FLOW_SEG_MAX, so i is at most 1 and what is left of segs[2] is at least the copy"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/chelsio/cxgb4/t4_hw.o"
+only = "reference"
+item = '4="drivers/net/ethernet/chelsio/cxgb4/t4_hw.c" 401f0909'
+reason = "the fortify field spanning WARN of the 6 byte macaddr copies in t4_alloc_mac_filt and t4_free_mac_filt. Both compilers work out what is left of the 64 byte command c and take a field size of MIN(6, left), which is only below 6 when left is, and then the fortify panic before the WARN has already fired. rucc's ranges see that and gcc's do not"
+
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/chelsio/cxgb4/t4_hw.o"
+only = "reference"
+item = '4="drivers/net/ethernet/chelsio/cxgb4/t4_hw.c" 971f0909'
+reason = "the fortify field spanning WARN of the 6 byte macaddr copies in t4_alloc_mac_filt and t4_free_mac_filt. Both compilers work out what is left of the 64 byte command c and take a field size of MIN(6, left), which is only below 6 when left is, and then the fortify panic before the WARN has already fired. rucc's ranges see that and gcc's do not"
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/chelsio/cxgb4vf/t4vf_hw.o"
+only = "reference"
+item = '4="drivers/net/ethernet/chelsio/cxgb4vf/t4vf_hw.c" 1b060909'
+reason = "the same 6 byte macaddr copies in t4vf_alloc_mac_filter and t4vf_free_mac_filter, with p walking c.u.exact[7]. The field size is MIN(6, left), so the fortify panic before the WARN fires first"
+
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/chelsio/cxgb4vf/t4vf_hw.o"
+only = "reference"
+item = '4="drivers/net/ethernet/chelsio/cxgb4vf/t4vf_hw.c" 6f060909'
+reason = "the same 6 byte macaddr copies in t4vf_alloc_mac_filter and t4vf_free_mac_filter, with p walking c.u.exact[7]. The field size is MIN(6, left), so the fortify panic before the WARN fires first"
+[[divergence]]
+what = "__bug_table"
+object = "fs/btrfs/send.o"
+only = "reference"
+item = '4="fs/btrfs/send.c" 8d010909'
+reason = "a DEBUG_WARN in the default arm of inconsistent_snapshot_error. Every caller passes a constant result, and changed_cb turns BTRFS_COMPARE_TREE_SAME into CHANGED first, so the default and SAME arms are dead"
+
+[[divergence]]
+what = "__bug_table"
+object = "security/apparmor/label.o"
+only = "reference"
+item = '4="security/apparmor/label.c" ee000909'
+reason = "the AA_BUG(n < 1) in unique, which is only called from aa_vec_unique under n > 8. rucc inlines it and drops the check, and gcc keeps unique out of line"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/ath/ath11k/mac.o"
+only = "reference"
+item = '4="drivers/net/wireless/ath/ath11k/mac.c" 2e280909'
+reason = "the fortify field spanning WARN of an ETH_ALEN copy into the addr[ETH_ALEN] of a struct mac_address, so the copy is the size of the member"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/intel/iwlwifi/fw/dbg-old.o"
+only = "reference"
+item = '4="drivers/net/wireless/intel/iwlwifi/fw/dbg-old.c" 4c030909'
+reason = "the fortify field spanning WARN of a copy of sizeof(dump_info->fw_human_readable) into that member, so the copy is the size of the member"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/intel/iwlwifi/fw/dbg.o"
+only = "reference"
+item = '4="drivers/net/wireless/intel/iwlwifi/fw/dbg.c" dc050909'
+reason = "the fortify field spanning WARN of a copy of sizeof(cfg_name->cfg_name) into that member, so the copy is the size of the member"
+
+[[divergence]]
+what = "__bug_table"
+object = "sound/soc/sof/ipc4-loader.o"
+only = "reference"
+item = '4="sound/soc/sof/ipc4-loader.c" 71000909'
+reason = "the fortify field spanning WARN of a copy of sizeof(*fm_entry) into a struct sof_man4_module, the type fm_entry points at, so the copy is the size of the destination"
+
+[[divergence]]
+what = "__bug_table"
+object = "security/keys/trusted-keys/trusted_tpm1.o"
+only = "reference"
+item = '4="security/keys/trusted-keys/trusted_tpm1.c" 08030909'
+reason = "the fortify field spanning WARN of the copy into blobauth[TPM_DIGEST_SIZE], just under the check that blobauth_len is at most sizeof(opt->blobauth)"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/bluetooth/hci_event.o"
+only = "reference"
+item = '4="net/bluetooth/hci_event.c" 88180909'
+reason = "the fortify field spanning WARN of the copy into le_adv_data[HCI_MAX_EXT_AD_LENGTH], which is not the last member, under the check that len is at most max_adv_len(), which is 251 or 31"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/ath/ath10k/coredump.o"
+only = "reference"
+item = '4="drivers/net/wireless/ath/ath10k/coredump.c" 27060909'
+reason = "the fortify field spanning WARN of a copy into the flexible array ce_hdr->entries. The field size of a flexible array is what is left of the whole object, the same size the fortify panic checks, and the WARN needs the two to differ, so it can never fire. gcc works the two sizes out apart and keeps it"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/ath/ath10k/coredump.o"
+only = "reference"
+item = '4="drivers/net/wireless/ath/ath10k/coredump.c" 33060909'
+reason = "the fortify field spanning WARN of a copy into the flexible array dump_tlv->tlv_data. The field size of a flexible array is what is left of the whole object, the same size the fortify panic checks, and the WARN needs the two to differ, so it can never fire. gcc works the two sizes out apart and keeps it"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/intel/iwlwifi/pcie/gen1_2/trans.o"
+only = "reference"
+item = '4="drivers/net/wireless/intel/iwlwifi/pcie/gen1_2/trans.c" 640e0909'
+reason = "the fortify field spanning WARN of a copy into the flexible array txcmd->data. The field size of a flexible array is what is left of the whole object, the same size the fortify panic checks, and the WARN needs the two to differ, so it can never fire. gcc works the two sizes out apart and keeps it"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/bluetooth/msft.o"
+only = "reference"
+item = '4="net/bluetooth/msft.c" 29020909'
+reason = "the fortify field spanning WARN of a copy into the flexible array pattern->pattern. The field size of a flexible array is what is left of the whole object, the same size the fortify panic checks, and the WARN needs the two to differ, so it can never fire. gcc works the two sizes out apart and keeps it"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/tls/tls_sw.o"
+only = "reference"
+item = '4="net/tls/tls_sw.c" 75050909'
+reason = "the fortify field spanning WARN of a copy into the flexible array dctx->sg. The field size of a flexible array is what is left of the whole object, the same size the fortify panic checks, and the WARN needs the two to differ, so it can never fire. gcc works the two sizes out apart and keeps it"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ntfs/attrlist.o"
+only = "reference"
+item = '4="fs/ntfs/attrlist.c" a3010909'
+reason = "the fortify field spanning WARN of a copy into the flexible array ale->name. The field size of a flexible array is what is left of the whole object, the same size the fortify panic checks, and the WARN needs the two to differ, so it can never fire. gcc works the two sizes out apart and keeps it"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ntfs/ea.o"
+only = "reference"
+item = '4="fs/ntfs/ea.c" 61010909'
+reason = "the fortify field spanning WARN of a copy into the flexible array the ea name. The field size of a flexible array is what is left of the whole object, the same size the fortify panic checks, and the WARN needs the two to differ, so it can never fire. gcc works the two sizes out apart and keeps it"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ntfs/ea.o"
+only = "reference"
+item = '4="fs/ntfs/ea.c" 64010909'
+reason = "the fortify field spanning WARN of a copy into the flexible array the ea value. The field size of a flexible array is what is left of the whole object, the same size the fortify panic checks, and the WARN needs the two to differ, so it can never fire. gcc works the two sizes out apart and keeps it"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ntfs/inode.o"
+only = "reference"
+item = '4="fs/ntfs/inode.c" 2f0c0909'
+reason = "the fortify field spanning WARN of a copy into the flexible array ale->name. The field size of a flexible array is what is left of the whole object, the same size the fortify panic checks, and the WARN needs the two to differ, so it can never fire. gcc works the two sizes out apart and keeps it"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ntfs/reparse.o"
+only = "reference"
+item = '4="fs/ntfs/reparse.c" 7e030909'
+reason = "the fortify field spanning WARN of a copy into the flexible array data->path_buffer. The field size of a flexible array is what is left of the whole object, the same size the fortify panic checks, and the WARN needs the two to differ, so it can never fire. gcc works the two sizes out apart and keeps it"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ntfs3/frecord.o"
+only = "reference"
+item = '4="fs/ntfs3/frecord.c" 2a030909'
+reason = "the fortify field spanning WARN of a copy into the flexible array le->name. The field size of a flexible array is what is left of the whole object, the same size the fortify panic checks, and the WARN needs the two to differ, so it can never fire. gcc works the two sizes out apart and keeps it"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ntfs3/inode.o"
+only = "reference"
+item = '4="fs/ntfs3/inode.c" 79040909'
+reason = "the fortify field spanning WARN of a copy into the flexible array rs->PathBuffer. The field size of a flexible array is what is left of the whole object, the same size the fortify panic checks, and the WARN needs the two to differ, so it can never fire. gcc works the two sizes out apart and keeps it"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ubifs/journal.o"
+only = "reference"
+item = '4="fs/ubifs/journal.c" e3040909'
+reason = "the fortify field spanning WARN of a copy into the flexible array dent2->name. The field size of a flexible array is what is left of the whole object, the same size the fortify panic checks, and the WARN needs the two to differ, so it can never fire. gcc works the two sizes out apart and keeps it"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ubifs/journal.o"
+only = "reference"
+item = '4="fs/ubifs/journal.c" a9050909'
+reason = "the fortify field spanning WARN of a copy into the flexible array dent2->name. The field size of a flexible array is what is left of the whole object, the same size the fortify panic checks, and the WARN needs the two to differ, so it can never fire. gcc works the two sizes out apart and keeps it"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/xfs/libxfs/xfs_dir2_sf.o"
+only = "reference"
+item = '4="fs/xfs/libxfs/xfs_dir2_sf.c" 3e010909'
+reason = "the fortify field spanning WARN of a copy into the flexible array sfep->name. The field size of a flexible array is what is left of the whole object, the same size the fortify panic checks, and the WARN needs the two to differ, so it can never fire. gcc works the two sizes out apart and keeps it"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/fddi/skfp/pmf.o"
+only = "reference"
+item = '4="drivers/net/fddi/skfp/pmf.c" d5040909'
+reason = "the fortify WARN of the memcpy(to, from + 2, 6) for 'A' in smt_set_para. to starts in a mib or a local and the while loop over the swap string moves it, so gcc gives it a size that goes round the loop and rucc gives up on a pointer a loop carries"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/fddi/skfp/pmf.o"
+only = "reference"
+item = '4="drivers/net/fddi/skfp/pmf.c" de040909'
+reason = "the fortify WARN of the memcpy(to, from, 4) for '4' in smt_set_para, where the swap string loop moves to as above"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/fddi/skfp/pmf.o"
+only = "reference"
+item = '4="drivers/net/fddi/skfp/pmf.c" e7040909'
+reason = "the fortify WARN of the memcpy(to, from, 8) for '8' in smt_set_para, where the swap string loop moves to as above"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/fddi/skfp/pmf.o"
+only = "reference"
+item = '4="drivers/net/fddi/skfp/pmf.c" f0040909'
+reason = "the fortify WARN of the memcpy(to, from, 32) for 'D' in smt_set_para, where the swap string loop moves to as above"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/btrfs/volumes.o"
+only = "reference"
+item = '4="fs/btrfs/volumes.c" 6a180909'
+reason = "the fortify WARN of the memcpy of stripe->dev_uuid in btrfs_chunk_alloc_add_chunk_item. Both compilers keep the panic check on what is left of the kzalloc, and the field size is the smaller of 16 and that, so once the panic check has passed it can not be below 16. rucc removes the WARN and gcc keeps it"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/f2fs/inline.o"
+only = "reference"
+item = '4="fs/f2fs/inline.c" 46010909'
+reason = "the fortify WARN of the memcpy into inline_data_addr in f2fs_recover_inline_data. gcc inlines get_dnode_addr, so it sees the pointer is i_addr or dn.addr plus a base and measures it, and rucc keeps get_dnode_addr out of line and has no size for what it returns"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/f2fs/inline.o"
+only = "reference"
+item = '4="include/linux/highmem.h" 4b020909'
+reason = "the fortify WARN of the memcpy in memcpy_from_folio called from f2fs_write_inline_data, whose destination is inline_data_addr. It goes away in rucc for the same reason, get_dnode_addr is out of line"
