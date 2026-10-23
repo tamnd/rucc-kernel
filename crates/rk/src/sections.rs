@@ -205,6 +205,10 @@ pub struct Object {
     pub modinfo: Vec<String>,
     /// The strings of `__ksymtab_strings`, in order.
     pub ksymtab_strings: Vec<String>,
+    /// The objects a module was linked from with `ld -r`, as the `.mod` file Kbuild writes next
+    /// to it names them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub members: Vec<String>,
 }
 
 /// Every object of a build by relative path.
@@ -509,11 +513,29 @@ pub fn scan(out: &Path) -> Result<Inventory, String> {
         let Ok(data) = std::fs::read(&path) else {
             continue;
         };
-        if let Ok(object) = read(&data) {
+        if let Ok(mut object) = read(&data) {
+            object.members = members(&path, &name);
             inventory.insert(name, object);
         }
     }
     Ok(inventory)
+}
+
+/// The members of a module, from the `.mod` file next to it, which lists each one on a line of its
+/// own as a path from the top of the build. A module built from one file lists only itself, and
+/// any other object has no `.mod` file at all.
+fn members(path: &Path, name: &str) -> Vec<String> {
+    let object = |m: &str| Path::new(m).extension().is_some_and(|e| e == "o");
+    if !object(name) {
+        return Vec::new();
+    }
+    let Ok(text) = std::fs::read_to_string(path.with_extension("mod")) else {
+        return Vec::new();
+    };
+    text.split_whitespace()
+        .filter(|m| object(m) && *m != name)
+        .map(ToString::to_string)
+        .collect()
 }
 
 /// One difference.
@@ -547,6 +569,8 @@ pub struct Comparison {
     pub only_other: Vec<String>,
     /// Every difference in a shared object.
     pub differences: Vec<Difference>,
+    /// The members of each module linked from more than one object.
+    pub members: BTreeMap<String, Vec<String>>,
 }
 
 impl Comparison {
@@ -660,8 +684,16 @@ impl Divergences {
 
     /// Gives every difference whose items the rules all explain its reasons.
     pub fn explain(&self, c: &mut Comparison) {
-        for d in &mut c.differences {
+        let mut at: BTreeMap<(&str, &str), Vec<usize>> = BTreeMap::new();
+        for (i, d) in c.differences.iter().enumerate() {
+            at.entry((d.object.as_str(), d.what.as_str()))
+                .or_default()
+                .push(i);
+        }
+        let mut found = Vec::with_capacity(c.differences.len());
+        for d in &c.differences {
             if d.reference_items.is_empty() && d.other_items.is_empty() {
+                found.push(None);
                 continue;
             }
             let sides = [
@@ -672,19 +704,75 @@ impl Divergences {
             let mut all = true;
             for (only, items) in sides {
                 for item in items {
-                    match self.rule(d, only, item) {
-                        Some(r) if !reasons.contains(&r.reason.as_str()) => reasons.push(&r.reason),
-                        Some(_) => {}
-                        None => all = false,
-                    }
+                    all &= self.item(c, &at, d, only, item, &mut reasons, MEMBERS);
                 }
             }
-            if all {
-                d.reason = Some(reasons.join(". "));
+            found.push(all.then(|| reasons.join(". ")));
+        }
+        for (d, reason) in c.differences.iter_mut().zip(found) {
+            if reason.is_some() {
+                d.reason = reason;
             }
         }
     }
+
+    /// Whether one item of a difference is explained, adding the reasons that explain it.
+    ///
+    /// Where no rule does and the object is a module, `ld -r` gave it the union of what its
+    /// members have. An item only one side of the module has is then only on that side in every
+    /// member that has it, and it is explained when each of those is, by the same reasons. So a
+    /// WARN in a header, which could have come from any member, is explained in `fs/f2fs/f2fs.o`
+    /// by the rule written for `fs/f2fs/inline.o`, the one member it is in.
+    #[allow(clippy::too_many_arguments)]
+    fn item<'a>(
+        &'a self,
+        c: &Comparison,
+        at: &BTreeMap<(&str, &str), Vec<usize>>,
+        d: &Difference,
+        only: Only,
+        item: &str,
+        reasons: &mut Vec<&'a str>,
+        depth: u32,
+    ) -> bool {
+        if let Some(r) = self.rule(d, only, item) {
+            if !reasons.contains(&r.reason.as_str()) {
+                reasons.push(&r.reason);
+            }
+            return true;
+        }
+        let Some(depth) = depth.checked_sub(1) else {
+            return false;
+        };
+        let Some(members) = c.members.get(&d.object) else {
+            return false;
+        };
+        let mut any = false;
+        for member in members {
+            let Some(found) = at.get(&(member.as_str(), d.what.as_str())) else {
+                continue;
+            };
+            for &i in found {
+                let m = &c.differences[i];
+                let items = match only {
+                    Only::Reference => &m.reference_items,
+                    _ => &m.other_items,
+                };
+                if !items.iter().any(|x| x == item) {
+                    continue;
+                }
+                if !self.item(c, at, m, only, item, reasons, depth) {
+                    return false;
+                }
+                any = true;
+            }
+        }
+        any
+    }
 }
+
+/// How deep [`Divergences::item`] follows a module into its members, which are modules
+/// themselves only where `ld -r` was run on the output of another.
+const MEMBERS: u32 = 4;
 
 fn set_difference(a: &BTreeSet<String>, b: &BTreeSet<String>) -> Vec<String> {
     a.difference(b).cloned().collect()
@@ -793,6 +881,11 @@ fn compare_object(name: &str, r: &Object, o: &Object, out: &mut Vec<Difference>)
 #[must_use]
 pub fn compare(reference: &Inventory, other: &Inventory) -> Comparison {
     let mut c = Comparison::default();
+    for (name, object) in reference.iter().chain(other) {
+        if !object.members.is_empty() && !c.members.contains_key(name) {
+            c.members.insert(name.clone(), object.members.clone());
+        }
+    }
     for (name, r) in reference {
         match other.get(name) {
             Some(o) => {
@@ -1270,6 +1363,104 @@ reason = "checked in the member"
         let reasons: Vec<Option<&str>> =
             c.differences.iter().map(|d| d.reason.as_deref()).collect();
         assert_eq!(reasons, [Some("checked"), Some("checked"), None, None]);
+    }
+
+    /// A module item no rule names is explained by its members, when every member that has it on
+    /// that side has it explained. One member without a reason, or no member with the item at all,
+    /// leaves it as it was.
+    #[test]
+    fn a_module_item_is_explained_by_the_members_it_came_from() {
+        let header = r#"4="include/linux/highmem.h" 4b020909"#;
+        let other = r#"4="include/linux/skbuff.h" 300b0309"#;
+        let names =
+            |n: &[&str]| -> BTreeSet<String> { n.iter().map(ToString::to_string).collect() };
+        let module =
+            |items: &[&str]| between("fs/f2fs/f2fs.o", "__bug_table", &names(items), &names(&[]));
+        let mut c = Comparison {
+            differences: vec![
+                module(&[header]),
+                between(
+                    "fs/f2fs/inline.o",
+                    "__bug_table",
+                    &names(&[header]),
+                    &names(&[]),
+                ),
+                between(
+                    "fs/f2fs/data.o",
+                    "sections",
+                    &names(&[".text.unlikely"]),
+                    &names(&[]),
+                ),
+                module(&[header, other]),
+                between("net/x/x.o", "__bug_table", &names(&[header]), &names(&[])),
+                between("net/x/a.o", "__bug_table", &names(&[header]), &names(&[])),
+                between("net/x/b.o", "__bug_table", &names(&[header]), &names(&[])),
+            ],
+            members: [
+                (
+                    "fs/f2fs/f2fs.o",
+                    &["fs/f2fs/inline.o", "fs/f2fs/data.o"][..],
+                ),
+                ("net/x/x.o", &["net/x/a.o", "net/x/b.o"][..]),
+            ]
+            .into_iter()
+            .map(|(m, of)| (m.to_string(), of.iter().map(ToString::to_string).collect()))
+            .collect(),
+            ..Comparison::default()
+        };
+        let rules = Divergences::parse(&format!(
+            r#"
+[[divergence]]
+what = "__bug_table"
+object = "fs/f2fs/inline.o"
+only = "reference"
+item = '{header}'
+reason = "checked in inline.c"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/x/a.o"
+only = "reference"
+item = '{header}'
+reason = "checked in a.c"
+"#
+        ))
+        .unwrap();
+        rules.explain(&mut c);
+        let reasons: Vec<Option<&str>> =
+            c.differences.iter().map(|d| d.reason.as_deref()).collect();
+        assert_eq!(
+            reasons,
+            [
+                Some("checked in inline.c"),
+                Some("checked in inline.c"),
+                None,
+                None,
+                None,
+                Some("checked in a.c"),
+                None
+            ]
+        );
+    }
+
+    /// The members are read from the `.mod` file next to a module, leaving out the module itself,
+    /// which is all a module of one file lists.
+    #[test]
+    fn a_module_has_the_members_its_mod_file_lists() {
+        let dir = std::env::temp_dir().join(format!("rk-sections-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("fs/f2fs")).unwrap();
+        std::fs::write(
+            dir.join("fs/f2fs/f2fs.mod"),
+            "fs/f2fs/dir.o\nfs/f2fs/inline.o\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("fs/f2fs/one.mod"), "fs/f2fs/one.o\n").unwrap();
+        let of = |name: &str| members(&dir.join(name), name);
+        assert_eq!(of("fs/f2fs/f2fs.o"), ["fs/f2fs/dir.o", "fs/f2fs/inline.o"]);
+        assert!(of("fs/f2fs/one.o").is_empty());
+        assert!(of("fs/f2fs/dir.o").is_empty());
+        assert!(of("fs/f2fs/f2fs.ko").is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

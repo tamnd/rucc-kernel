@@ -1041,3 +1041,52 @@ object = "fs/f2fs/inline.o"
 only = "reference"
 item = '4="include/linux/highmem.h" 4b020909'
 reason = "the fortify WARN of the memcpy in memcpy_from_folio called from f2fs_write_inline_data, whose destination is inline_data_addr. It goes away in rucc for the same reason, get_dnode_addr is out of line"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/clk/bcm/clk-kona.o"
+only = "reference"
+item = '4="drivers/clk/bcm/clk-kona.c" df020000'
+reason = "the BUG_ON(!rate) in round_rate. Its two callers, kona_peri_clk_round_rate and kona_peri_clk_set_rate, both pass rate ? rate : 1"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/gpu/drm/amd/amdkfd/kfd_events.o"
+only = "reference"
+item = '4="drivers/gpu/drm/amd/amdgpu/../amdkfd/kfd_events.c" 53020909'
+reason = "the fortify field spanning WARNs of the copies into memory_exception_data and hw_exception_data of ev_privs[i] in kfd_criu_checkpoint_events, a kvzalloc array. Each copy is the size of its member, so the field size is only below it when what is left of the array is, and then the fortify panic before the WARN has already fired"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/gpu/drm/amd/amdkfd/kfd_events.o"
+only = "reference"
+item = '4="drivers/gpu/drm/amd/amdgpu/../amdkfd/kfd_events.c" 57020909'
+reason = "the fortify field spanning WARNs of the copies into memory_exception_data and hw_exception_data of ev_privs[i] in kfd_criu_checkpoint_events, a kvzalloc array. Each copy is the size of its member, so the field size is only below it when what is left of the array is, and then the fortify panic before the WARN has already fired"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/scsi/mpi3mr/mpi3mr_app.o"
+only = "reference"
+item = '4="drivers/scsi/mpi3mr/mpi3mr_app.c" ea040909'
+reason = "the fortify field spanning WARN of the copy of sizeof(trigger_data) into trigger_data of each entry of a kmalloc buffer in mpi3mr_bsg_query_hdb. The copy is the size of the member, so the field size is only below it when what is left of the buffer is, and then the fortify panic before the WARN has already fired"
+
+[[divergence]]
+what = "__bug_table"
+object = "lib/test_bpf.o"
+only = "reference"
+item = '4="include/linux/skbuff.h" 860a0309'
+reason = "the DEBUG_NET_WARN_ON_ONCE(size > truesize) in skb_add_rx_frag_netmem. The two skb_add_rx_frag calls in test_bpf.c pass the same constant for both, MAX_DATA and 64"
+
+[[divergence]]
+what = "sections"
+object = "drivers/mtd/devices/block2mtd.o"
+only = "other"
+item = ".ref.text"
+reason = "mdtblock_early_get_bdev, which is __ref and so noinline, and in a module is only return ERR_PTR(-ENODEV). gcc finds it has no side effects and takes its return value into add_device, so the call and the function go, and rucc keeps the call"
+
+[[divergence]]
+what = "sections"
+object = "drivers/usb/typec/tcpm/maxim_contaminant.o"
+only = "other"
+item = ".data..read_mostly"
+reason = "the __print_once of the dev_err_once in max_contaminant_adc_to_mv. Every call passes ua_src true with CC1_SCALE2, CC2_SCALE2, SBU1 or SBU2, which the first case returns for, so gcc removes the print and rucc keeps it"
