@@ -234,7 +234,14 @@ pub struct Unit {
 /// moves by the pages the case had, the check fails, and the cleanup stops before it unregisters
 /// `pt_kunit_dev`, so the suites after it fail too. The GCC kernel fails the same way with a slower
 /// userland.
-const RACY: &[&str] = &["_iommu_test"];
+///
+/// `cs35l56_test_parse_xu_onchip_spkid` in `snd-soc-cs35l56-test-soundwire` registers a software
+/// node it allocated with `kunit_kzalloc` for each of its cases. With `CONFIG_DEBUG_KOBJECT_RELEASE`,
+/// which the 7.2.8 Fedora config has, the node of the case before stays registered for one to four
+/// seconds after it is put, so when the next case gets the same address `software_node_register`
+/// returns `-EEXIST`. On the 7.2.8 arm64 nightly the rucc kernel failed four of the cases this
+/// way and passed all twenty with the GCC userland.
+const RACY: &[&str] = &["_iommu_test", "snd-soc-cs35l56-test-soundwire"];
 
 /// Tests whose result is a measurement of time, which are reported and not graded, because under
 /// emulation the host decides how long anything takes.
@@ -255,9 +262,16 @@ const RACY: &[&str] = &["_iommu_test"];
 /// 1000 waiters that each give up after five seconds. On the same night, with the rucc kernel and
 /// the rucc userland, every waiter gave up before the last was forked, and it passed in both
 /// crossed runs.
+///
+/// `shm_test01` attaches a segment of a random size between one and a thousand pages ten times
+/// and calls `sched_yield` once for each byte it writes or reads, with the seed taken from the
+/// time. On the 7.2.8 arm64 nightly it took under 160 seconds on the reference kernel and more
+/// than the 600 LTP allows on the rucc kernel with the rucc userland, and it passed in both
+/// crossed runs, which took 250 and 430 seconds.
 const TIMING: &[&str] = &[
     "kselftest:seccomp:seccomp_benchmark",
     "kselftest:timers:rtcpie",
+    "ltp:mm:shm_test01",
     "ltp:syscalls:fcntl14",
     "ltp:syscalls:fcntl14_64",
     "ltp:syscalls:futex_cmp_requeue01",
@@ -743,10 +757,17 @@ fn write(plan: &Plan, outcome: &Outcome) -> Result<(), String> {
 /// Whether a suite boots again with the userlands swapped, to attribute these failed units. A
 /// failed boot could have been any suite's, so then every suite does. Otherwise only a suite that
 /// reports one of the units does: an LTP test that failed in `syscalls` says nothing about `mm`,
-/// and booting every runtest file again took the A64 job for 7.2.8 past its limit.
+/// and booting every runtest file again took the A64 job for 7.2.8 past its limit. A KUnit case
+/// runs in the kernel, so the userland cannot be why it failed and it is the kernel's without a
+/// second boot. The KUnit boot of 7.2.8 takes about two hours on arm64, and booting it again for
+/// one case ran the job past its limit. A test module that did not load still boots again, since
+/// it is the userland that loads it.
 #[must_use]
 pub fn rerun(suite: &str, failed: &[&str]) -> bool {
     failed.iter().any(|unit| {
+        if unit.starts_with("kunit:") {
+            return false;
+        }
         let kind = kind_of(unit);
         kind == Kind::Boot
             || match kind {
@@ -874,6 +895,17 @@ mod tests {
         ));
         assert!(rerun("smoke", &["smoke:mount"]));
         assert!(rerun("ltp:mm", &["boot"]));
+        assert!(!rerun(
+            "kunit",
+            &["kunit:list-kunit-test.list_test_list_init"]
+        ));
+        assert!(rerun(
+            "kunit",
+            &[
+                "kunit:list-kunit-test.list_test_list_init",
+                "kunit-module:lib/test_list.ko"
+            ]
+        ));
     }
 
     #[test]
@@ -1007,6 +1039,7 @@ mod tests {
             "kunit:amdv1_iommu_test.test_increase_level",
             "kunit:amdv1_iommu_test.test_increase_level.amdv1_cfg_1",
             "kunit:amdv1_fmt_test.test_attr_from_entry",
+            "kunit:snd-soc-cs35l56-test-soundwire.cs35l56_test_parse_xu_onchip_spkid",
         ]
         .into_iter()
         .map(|u| (u.to_string(), Status::Pass))
@@ -1029,6 +1062,7 @@ mod tests {
             "kselftest:seccomp:seccomp_benchmark",
             "kselftest:seccomp:seccomp_bpf",
             "kselftest:timers:rtcpie",
+            "ltp:mm:shm_test01",
         ]
         .into_iter()
         .map(|u| (u.to_string(), Status::Pass))
