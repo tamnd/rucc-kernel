@@ -862,6 +862,7 @@ fn boot_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         initramfs,
         timeout,
         append: args.get("append").unwrap_or_default().to_string(),
+        memory: 0,
         stem: None,
     };
     let outcome = boot::run(&plan)?;
@@ -1351,6 +1352,7 @@ fn baseline_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
                 initramfs,
                 timeout,
                 append: String::new(),
+                memory: 0,
                 stem: None,
             })?;
             // The log stays in the work directory, so the end of it goes where the job's log

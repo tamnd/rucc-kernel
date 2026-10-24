@@ -262,6 +262,7 @@ fn boot_cell(
         initramfs: initramfs.clone(),
         timeout: testrun::kunit_timeout(plan.timeout, &files),
         append: "rk.suite=kunit".to_string(),
+        memory: 0,
         stem: Some(plan.out.join(stem)),
     });
     let _ = std::fs::remove_file(&initramfs);
