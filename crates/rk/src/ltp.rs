@@ -249,6 +249,17 @@ fn strip_debug(strip: &str, bin: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// The least memory in MiB of a guest that runs the suite. A guest for LTP gets 4 GiB, and the
+/// size of its initramfs can only raise that. Otherwise the two kernels of rk test can get guests
+/// of different sizes, because each runs its own build of LTP. In the fedora-46 7.3 nightly the
+/// rucc build of the syscalls runtest was 8 MB smaller, which gave the rucc kernel 2048 MiB in
+/// place of 2304. `mallinfo2_01` then asked for 2 GiB with `malloc`, and the kernel refused it
+/// as more than the memory it had.
+#[must_use]
+pub fn memory(suite: &str) -> u64 {
+    if suite.starts_with("ltp:") { 4096 } else { 0 }
+}
+
 /// Seconds a boot running one runtest file may take: `base`, and three more for each test in it,
 /// since a file holds anything from one test to fifteen hundred.
 #[must_use]
@@ -452,6 +463,16 @@ pub fn units(console: &str) -> BTreeMap<String, crate::tap::Status> {
 mod tests {
     use super::*;
     use crate::tap::Status;
+
+    #[test]
+    fn both_builds_of_ltp_get_the_same_guest() {
+        // The syscalls runtest of the fedora-46 7.3 nightly, from gcc and from rucc.
+        let gcc = crate::boot::memory_mib(447_654_832).max(memory("ltp:syscalls"));
+        let rucc = crate::boot::memory_mib(439_536_080).max(memory("ltp:syscalls"));
+        assert_eq!((gcc, rucc), (4096, 4096));
+        assert_eq!(memory("kunit"), 0);
+        assert_eq!(memory("kselftest:net"), 0);
+    }
 
     #[test]
     fn a_runtest_file_reads_as_tags_and_commands() {

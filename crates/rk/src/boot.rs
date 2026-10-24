@@ -237,6 +237,8 @@ pub struct Plan {
     pub timeout: u64,
     /// Extra words for the kernel command line.
     pub append: String,
+    /// The least memory of the guest in MiB, or 0 for what the initramfs needs.
+    pub memory: u64,
     /// Where the console and the outcome go, as `<stem>.log` and `<stem>.json`. By default they
     /// are `boot.log` and `boot.json` in the build directory.
     pub stem: Option<PathBuf>,
@@ -429,7 +431,7 @@ pub fn qemu_command(plan: &Plan, image: &Path, kvm: bool) -> Vec<String> {
         plan.row.machine.clone()
     };
     let initramfs = std::fs::metadata(&plan.initramfs).map_or(0, |m| m.len());
-    let memory = format!("{}M", memory_mib(initramfs));
+    let memory = format!("{}M", memory_mib(initramfs).max(plan.memory));
     // x86 patches a static key with an INT3 while the other CPUs run, and its handler gives up
     // once the patch is done. With one host thread for each vCPU, QEMU 8.2 can let a vCPU run
     // the INT3 after the patch is done, and the kernel dies with "Oops: int3". The gcc and rucc
@@ -825,6 +827,7 @@ mod tests {
                 initramfs: PathBuf::from("i"),
                 timeout: 1,
                 append: String::new(),
+                memory: 0,
                 stem: None,
             };
             qemu_command(&plan, Path::new("Image"), false)
@@ -852,6 +855,7 @@ mod tests {
                 initramfs: PathBuf::from("i"),
                 timeout: 1,
                 append: append.to_string(),
+                memory: 0,
                 stem: None,
             };
             qemu_command(&plan, Path::new("Image"), false)
@@ -873,6 +877,7 @@ mod tests {
                 initramfs: PathBuf::from("i"),
                 timeout: 1,
                 append: String::new(),
+                memory: 0,
                 stem: None,
             };
             let words = qemu_command(&plan, Path::new("Image"), kvm);

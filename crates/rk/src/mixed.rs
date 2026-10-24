@@ -570,6 +570,7 @@ impl Trials<'_> {
                 self.plan.timeout
             },
             append: format!("rk.suite={suite}"),
+            memory: crate::ltp::memory(&suite),
             stem: Some(stem.to_path_buf()),
         });
         let _ = std::fs::remove_file(&initramfs);

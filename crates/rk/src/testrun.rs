@@ -587,6 +587,7 @@ fn boot_suite(plan: &Plan, build: &Path, userland: Userland, suite: &str, stem: 
         initramfs: initramfs.clone(),
         timeout,
         append: format!("rk.suite={suite}"),
+        memory: crate::ltp::memory(suite),
         stem: Some(plan.out.join(stem)),
     });
     let _ = std::fs::remove_file(&initramfs);
