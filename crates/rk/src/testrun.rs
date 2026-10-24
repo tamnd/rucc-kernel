@@ -386,6 +386,11 @@ pub struct Plan {
 /// lockup detector reports it, and `snd-portman2x4` registers its interrupt handler before it sets
 /// the card's `private_data`. The parallel port interrupt then comes first, and the handler takes a
 /// lock through a null pointer. On 7.3 the kunit boot of both kernels stopped there.
+///
+/// `dm_test_crtc_enable_vblank_ips_restore` in `amdgpu_dm_crtc_test` makes the enable path call
+/// `drm_crtc_vblank_restore` without `vbl_lock` held, and `assert_spin_locked` in
+/// `drm_vblank_restore` is then a `BUG`. With Fedora's x86-64 config on 7.3 both kernels stopped
+/// there, and the suites that each had not run yet were missing from its boot.
 const LEFT_OUT: &[&str] = &[
     "sound/drivers/snd-mts64.ko",
     "sound/drivers/snd-portman2x4.ko",
@@ -402,6 +407,7 @@ const LEFT_OUT: &[&str] = &[
     "drivers/accessibility/speakup/speakup_spkout.ko",
     "drivers/accessibility/speakup/speakup_txprt.ko",
     "kernel/locking/locktorture.ko",
+    "drivers/gpu/drm/amd/amdgpu/../display/amdgpu_dm/tests/amdgpu_dm_crtc_test.ko",
 ];
 
 /// The modules of a build as files for the initramfs, under `lib/modules/rk`, and the `order`
