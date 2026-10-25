@@ -503,12 +503,17 @@ pub fn qemu_command(plan: &Plan, image: &Path, kvm: bool) -> Vec<String> {
     };
     // A config can build KUnit in and leave it off until `kunit.enable=1`, as Fedora's does with
     // KUNIT_DEFAULT_ENABLED unset. The modules load and say "kunit: disabled", and no suite runs.
+    //
+    // The KUnit suites write about 15 MB to the log, faster than the serial console prints it.
+    // When the log buffer is full, the kernel overwrites lines that the console did not print,
+    // and it prints "** N printk messages dropped **" in their place. Each kernel then loses
+    // different units, and rk sees them as missing. A 32 MB buffer holds the full output.
     let kunit = if plan
         .append
         .split_whitespace()
         .any(|w| w == "rk.suite=kunit")
     {
-        "kunit.enable=1 "
+        "kunit.enable=1 log_buf_len=32M "
     } else {
         ""
     };
@@ -862,7 +867,7 @@ mod tests {
                 .pop()
                 .unwrap()
         };
-        assert!(line("rk.suite=kunit").contains(" kunit.enable=1 "));
+        assert!(line("rk.suite=kunit").contains(" kunit.enable=1 log_buf_len=32M "));
         assert!(!line("rk.suite=smoke").contains("kunit.enable"));
     }
 
