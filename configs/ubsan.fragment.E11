@@ -1,0 +1,63 @@
+# The UBSAN fragment for era E11: the test fragment with the UBSAN checks that gcc 16 builds a
+# distribution kernel with. rk build merges it after the configuration target, as it does the
+# test fragment, so that rk boot and rk test run a kernel with the checks on.
+
+# enough of a kernel to run init from an initramfs
+CONFIG_PRINTK=y
+CONFIG_TTY=y
+CONFIG_BINFMT_ELF=y
+CONFIG_BINFMT_SCRIPT=y
+CONFIG_PCI=y
+CONFIG_MODULES=y
+CONFIG_MULTIUSER=y
+CONFIG_FUTEX=y
+CONFIG_SHMEM=y
+# console and init
+CONFIG_SERIAL_8250=y
+CONFIG_SERIAL_8250_CONSOLE=y
+CONFIG_SERIAL_AMBA_PL011=y
+CONFIG_SERIAL_AMBA_PL011_CONSOLE=y
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+CONFIG_BLK_DEV_INITRD=y
+CONFIG_RD_GZIP=y
+CONFIG_TMPFS=y
+CONFIG_PROC_FS=y
+CONFIG_SYSFS=y
+# virtio for disk, net and 9p
+CONFIG_VIRTIO=y
+CONFIG_VIRTIO_PCI=y
+CONFIG_VIRTIO_MMIO=y
+CONFIG_VIRTIO_BLK=y
+CONFIG_VIRTIO_NET=y
+CONFIG_VIRTIO_CONSOLE=y
+CONFIG_NET_9P=y
+CONFIG_NET_9P_VIRTIO=y
+CONFIG_9P_FS=y
+# test infrastructure
+CONFIG_KUNIT=y
+CONFIG_KUNIT_ALL_TESTS=m
+# kunit_fault oopses on purpose, and with oops=panic that stops the run before the later suites
+# CONFIG_KUNIT_FAULT_TEST is not set
+# A module's BTF is split BTF on top of its own vmlinux's, so it never validates in the other
+# build's kernel, and rk cross-modules loads each build's modules into the other kernel. With this
+# the kernel drops the module's BTF with a warning and loads it, and still checks the CRCs
+CONFIG_MODULE_ALLOW_BTF_MISMATCH=y
+CONFIG_DEBUG_STACK_USAGE=y
+CONFIG_PRINTK_TIME=y
+CONFIG_PANIC_ON_OOPS=y
+# x86-64 only, for booting vmlinux directly
+CONFIG_PVH=y
+CONFIG_HYPERVISOR_GUEST=y
+CONFIG_PARAVIRT=y
+# UBSAN, with each check that Kconfig offers on x86-64. A report is a warning and does not stop
+# the run, and test_ubsan is off because it makes reports on purpose
+CONFIG_UBSAN=y
+CONFIG_UBSAN_BOUNDS=y
+CONFIG_UBSAN_BOUNDS_STRICT=y
+CONFIG_UBSAN_SHIFT=y
+CONFIG_UBSAN_DIV_ZERO=y
+CONFIG_UBSAN_BOOL=y
+CONFIG_UBSAN_ENUM=y
+# CONFIG_UBSAN_TRAP is not set
+# CONFIG_TEST_UBSAN is not set
