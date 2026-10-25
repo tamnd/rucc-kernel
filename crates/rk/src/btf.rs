@@ -124,6 +124,12 @@ pub fn scan(path: &Path) -> Result<Btf, String> {
 /// file is the unit's own. That is how an arch's `.S` that overrides a `__weak` C default, such as
 /// `arch_bpf_timed_may_goto`, counts as a second definition, which pahole may read first and
 /// describe as `static fn() -> void`.
+///
+/// A `.c` file can be read into another one, as `fs/compat_binfmt_elf.c` reads `fs/binfmt_elf.c`
+/// with `elfhdr` changed to `elf32_hdr`. Then each of its static functions is defined twice in
+/// the one file, once in each unit, and on the 7.2.8 arm64 nightly pahole described the rucc
+/// kernel's `fill_elf_header` with the `elf32_hdr` copy. So a function a `.c` file defines counts
+/// once in each unit, see [`place`].
 fn defined_twice(elf: &object::File) -> Result<BTreeSet<String>, gimli::Error> {
     let endian = if elf.is_little_endian() {
         gimli::RunTimeEndian::Little
@@ -137,8 +143,10 @@ fn defined_twice(elf: &object::File) -> Result<BTreeSet<String>, gimli::Error> {
     let dwarf = gimli::Dwarf::load(load)?;
     let mut files: BTreeMap<String, BTreeSet<Vec<u8>>> = BTreeMap::new();
     let mut headers = dwarf.units();
+    let mut index = 0;
     while let Some(header) = headers.next()? {
         let unit = dwarf.unit(header)?;
+        index += 1;
         let mut entries = unit.entries();
         let mut assembly = false;
         while let Some(entry) = entries.next_dfs()? {
@@ -170,7 +178,7 @@ fn defined_twice(elf: &object::File) -> Result<BTreeSet<String>, gimli::Error> {
                 .attr_string(&unit, name)?
                 .to_string_lossy()
                 .into_owned();
-            files.entry(name).or_default().insert(path);
+            files.entry(name).or_default().insert(place(path, index));
         }
     }
     Ok(files
@@ -178,6 +186,15 @@ fn defined_twice(elf: &object::File) -> Result<BTreeSet<String>, gimli::Error> {
         .filter(|(_, paths)| paths.len() > 1)
         .map(|(name, _)| name)
         .collect())
+}
+
+/// Where a function is defined for [`defined_twice`]: its file, and for a `.c` file also the unit
+/// it was compiled in, since a header is read into many units and a `.c` file seldom is.
+fn place(mut path: Vec<u8>, unit: usize) -> Vec<u8> {
+    if path.ends_with(b".c") {
+        path.extend_from_slice(format!("#{unit}").as_bytes());
+    }
+    path
 }
 
 /// The directory and name of a file in a unit's line program, as the compiler wrote them.
@@ -915,6 +932,14 @@ mod tests {
             elf.append_section_data(id, &data, 1);
         }
         elf.write().unwrap()
+    }
+
+    #[test]
+    fn a_c_file_read_into_two_units_is_two_places_and_a_header_is_one() {
+        let c = |unit| place(b"fs/binfmt_elf.c".to_vec(), unit);
+        let h = |unit| place(b"include/linux/list.h".to_vec(), unit);
+        assert_ne!(c(1), c(2));
+        assert_eq!(h(1), h(2));
     }
 
     #[test]
