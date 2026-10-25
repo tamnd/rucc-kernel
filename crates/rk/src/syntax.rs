@@ -197,8 +197,13 @@ impl Known {
     }
 
     /// The issue for a unit, if it is known to fail.
+    ///
+    /// A unit from the source tree comes with the path the runner unpacked the tree at, as in
+    /// `/home/runner/work/rucc-kernel/rk-cache/src/linux-7.2.8/lib/crc/crc64-neon.c`, while one
+    /// the build wrote is relative to the build tree, so both are matched from inside the tree.
     #[must_use]
     pub fn issue(&self, unit: &str) -> Option<&str> {
+        let unit = in_tree(unit);
         self.entries
             .iter()
             .find(|k| match k.unit.strip_suffix('*') {
@@ -207,6 +212,13 @@ impl Known {
             })
             .map(|k| k.issue.as_str())
     }
+}
+
+/// The path of a unit inside the kernel tree, without the directory the tree was unpacked in.
+fn in_tree(unit: &str) -> &str {
+    let Some(at) = unit.rfind("/src/linux-") else { return unit };
+    let rest = &unit[at + "/src/".len()..];
+    rest.find('/').map_or(unit, |slash| &rest[slash + 1..])
 }
 
 /// The run, sorted against the known failures.
@@ -383,6 +395,21 @@ mod tests {
         );
         assert!(!Summary::new(&results, &Known::default()).passed());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_known_unit_from_the_source_tree_matches_wherever_the_tree_was_unpacked() {
+        let known = Known::parse(
+            "[[known]]\nunit = \"lib/crc/crc64-neon.c\"\nissue = \"tamnd/rucc#1\"\n\n\
+             [[known]]\nunit = \"lib/raid/raid6/arm/neon*\"\nissue = \"tamnd/rucc#1\"\n",
+        )
+        .unwrap();
+        let tree = "/home/runner/work/rucc-kernel/rk-cache/src/linux-7.2.8/";
+        assert!(known.issue(&format!("{tree}lib/crc/crc64-neon.c")).is_some());
+        assert!(known.issue("lib/crc/crc64-neon.c").is_some());
+        assert!(known.issue("lib/raid/raid6/arm/neon4.c").is_some());
+        assert!(known.issue(&format!("{tree}lib/raid/raid6/arm/neon.c")).is_some());
+        assert!(known.issue(&format!("{tree}lib/crc/crc32.c")).is_none());
     }
 
     #[test]

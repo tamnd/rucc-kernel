@@ -8,3 +8,29 @@
 # [[known]]
 # unit = "arch/x86/entry/entry_64.S"
 # issue = "tamnd/rucc#2270"
+
+# gcc's arm_neon.h, which the kernel reaches through -isystem of gcc's include directory. rucc's
+# own build reads rucc's header and compiles all of these.
+[[known]]
+unit = "lib/crc/crc64-neon.c"
+issue = "tamnd/rucc#3861"
+
+[[known]]
+unit = "crypto/aegis128-neon-inner.c"
+issue = "tamnd/rucc#3861"
+
+[[known]]
+unit = "lib/raid/raid6/arm/neon*"
+issue = "tamnd/rucc#3861"
+
+[[known]]
+unit = "lib/raid/raid6/arm/recov_neon_inner.c"
+issue = "tamnd/rucc#3861"
+
+[[known]]
+unit = "lib/raid/xor/arm64/xor-eor3.c"
+issue = "tamnd/rucc#3861"
+
+[[known]]
+unit = "lib/raid/xor/xor-neon.c"
+issue = "tamnd/rucc#3861"
