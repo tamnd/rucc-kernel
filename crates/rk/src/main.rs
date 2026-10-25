@@ -3,6 +3,7 @@
 
 mod asm;
 mod baseline;
+mod bench;
 mod boot;
 mod btf;
 mod build;
@@ -86,6 +87,7 @@ fn main() -> ExitCode {
             "asm-inventory" => asm_inventory(&repo, &args),
             "baseline" => baseline_command(&repo, &args),
             "initramfs" => initramfs_command(&args).map(|_| ExitCode::SUCCESS),
+            "bench" => bench_command(&repo, &args),
             _ => unreachable!("the parser only accepts known commands"),
         }
     });
@@ -973,6 +975,76 @@ fn test_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     print!("{summary}");
     step_summary(&summary);
     println!("wrote {}", plan.out.join("test.json").display());
+    Ok(verdict(outcome.passed()))
+}
+
+/// Boot the reference and the rucc kernel in turn and compare how fast they run `/bench`.
+fn bench_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+    let dir = |name: &str| -> Result<std::path::PathBuf, String> {
+        let path = args
+            .get(name)
+            .ok_or_else(|| format!("rk bench needs --{name}, a build directory"))?;
+        std::fs::canonicalize(path).map_err(|e| format!("resolving {path}: {e}"))
+    };
+    let reference = dir("reference")?;
+    let other = dir("other")?;
+    let built = outcome_of(&other).ok();
+    let row_name = args.get("row").map_or_else(
+        || {
+            built
+                .as_ref()
+                .map_or_else(|| "X64".to_string(), |o| o.row.clone())
+        },
+        str::to_string,
+    );
+    let rows = personas::Rows::load(&repo.file("rows.toml"))?;
+    let row = with_cpu(rows.get(&row_name)?.clone(), args);
+    let number = |name: &str, default: u64| -> Result<u64, String> {
+        args.get(name).map_or(Ok(default), |n| {
+            n.parse()
+                .map_err(|_| format!("--{name} {n} is not a number"))
+        })
+    };
+    let runs = usize::try_from(number("runs", 11)?).map_err(|e| e.to_string())?;
+    if runs == 0 {
+        return Err("--runs must be at least 1".to_string());
+    }
+    let out = args.get("out").map_or_else(
+        || {
+            let name = built.as_ref().map_or_else(
+                || "bench".to_string(),
+                |o| format!("bench-{}-{}-{}", o.version, o.row, o.config),
+            );
+            repo.file("work").join(name)
+        },
+        std::path::PathBuf::from,
+    );
+    let program = match args.get("bench") {
+        Some(path) => std::fs::read(path).map_err(|e| format!("reading {path}: {e}"))?,
+        None => bench::compile(args.get("cc").unwrap_or("gcc"), &out)?,
+    };
+    if !boot::is_static_elf(&program) || !boot::runs_on(&program, &row.arch) {
+        return Err(format!(
+            "/bench is not a static program the {} row's {} kernel can run; pass --bench with \
+             one built for it",
+            row.name, row.arch
+        ));
+    }
+    let plan = bench::Plan {
+        reference,
+        other,
+        row,
+        busybox: read_busybox(args.get("busybox"))?,
+        bench: program,
+        runs,
+        timeout: number("timeout", 900)?,
+        out,
+    };
+    let outcome = bench::run(&plan)?;
+    let summary = bench::summary(&outcome);
+    print!("{summary}");
+    step_summary(&summary);
+    println!("wrote {}", plan.out.join("bench.json").display());
     Ok(verdict(outcome.passed()))
 }
 

@@ -278,6 +278,21 @@ jobs:
           case $rc in 0) verdict=clean ;; 1) verdict=findings ;; *) verdict="not run" ;; esac
           echo "$verdict" > "$RUNNER_TEMP/checks/btf.status"
           cat "$RUNNER_TEMP/checks/btf.md"
+      # The run time of the two kernels, booted in turn under KVM (K8). Under TCG the numbers say
+      # how fast QEMU runs the code and not the CPU, so the A64 row does not run it.
+      - name: rk bench
+        if: always() && steps.test.outcome != 'skipped' && inputs.row != 'A64'
+        run: |
+          mkdir -p "$RUNNER_TEMP/checks"
+          rc=0
+          left=$(( DEADLINE - $(date +%s) ))
+          timeout "$(( left > 60 ? left : 60 ))" \
+            target/release/rk bench --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
+            --out "$RUNNER_TEMP/bench" > "$RUNNER_TEMP/checks/bench.md" || rc=$?
+          case $rc in 0) verdict=holds ;; 1) verdict=behind ;; *) verdict="not run" ;; esac
+          echo "$verdict" > "$RUNNER_TEMP/checks/bench.status"
+          cp "$RUNNER_TEMP/bench/bench.json" "$RUNNER_TEMP/checks/" 2>/dev/null || true
+          cat "$RUNNER_TEMP/checks/bench.md"
       - name: keep the record
         if: always()
         run: |
@@ -375,24 +390,27 @@ jobs:
         run: |
           import json, os, pathlib
           row = os.environ["ROW"]
-          lines = [f"### nightly, {row}", "", "| version | graded | failed | splats | verdict | objtool | frames | btf |", "|---|---|---|---|---|---|---|---|"]
+          lines = [f"### nightly, {row}", "", "| version | graded | failed | splats | verdict | objtool | frames | btf | bench |", "|---|---|---|---|---|---|---|---|---|"]
           for record in sorted(pathlib.Path("records").iterdir()):
               version = record.name.removeprefix("nightly-").removesuffix(f"-{row}")
               path = record / "test" / "test.json"
               checks = []
-              for name in ("objtool", "frames", "btf"):
+              for name in ("objtool", "frames", "btf", "bench"):
                   status = record / "checks" / f"{name}.status"
                   checks.append(status.read_text().strip() if status.exists() else "not run")
               if not path.exists():
-                  lines.append(f"| {version} | | | | not run | {checks[0]} | {checks[1]} | {checks[2]} |")
+                  lines.append(f"| {version} | | | | not run | {checks[0]} | {checks[1]} | {checks[2]} | {checks[3]} |")
                   continue
               t = json.loads(path.read_text())
               graded = [u for u in t["units"] if u["graded"]]
               failed = [u["name"] for u in graded if not u["passed"]]
               splats = len(t["splats"].get("other-only", []))
               verdict = "green" if not failed and not splats else "red"
-              lines.append(f"| {version} | {len(graded)} | {len(failed)} | {splats} | {verdict} | {checks[0]} | {checks[1]} | {checks[2]} |")
+              lines.append(f"| {version} | {len(graded)} | {len(failed)} | {splats} | {verdict} | {checks[0]} | {checks[1]} | {checks[2]} | {checks[3]} |")
           for record in sorted(pathlib.Path("records").iterdir()):
+              bench = record / "checks" / "bench.md"
+              if bench.exists() and bench.read_text().strip():
+                  lines += ["", bench.read_text()]
               summary = record / "mixed" / "summary.md"
               if summary.exists():
                   lines += ["", f"#### {record.name}", "", summary.read_text()]
