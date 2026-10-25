@@ -20,6 +20,10 @@
 //! `example.example_simple_test` and the suite itself is `example`. Parameterised cases nest one
 //! more level. Lines that are not TAP, which on a console are most of them, are skipped, so the
 //! parse survives other kernel messages in between.
+//!
+//! When a console cuts a message short, printk writes `** replaying previous printk message **`
+//! and then the whole message again. The cut line is skipped, so a cut name such as `dm_test_s`
+//! does not become a unit of its own.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -87,13 +91,23 @@ pub fn parse_result(text: &str) -> Option<(String, Status)> {
     (!name.is_empty()).then(|| (name.to_string(), status))
 }
 
+/// What printk writes before it writes a message again that the console cut short.
+const REPLAY: &str = "** replaying previous printk message **";
+
 /// Every KUnit result in a console log, by path. The printk timestamp is taken off each line
 /// first. When a path shows up twice, the worse result is kept.
 #[must_use]
 pub fn parse(console: &str) -> BTreeMap<String, Status> {
     let mut units: BTreeMap<String, Status> = BTreeMap::new();
     let mut open: Vec<(usize, String)> = Vec::new();
-    for line in console.lines() {
+    let mut lines = console.lines().peekable();
+    while let Some(line) = lines.next() {
+        if lines
+            .peek()
+            .is_some_and(|next| next.trim_end_matches('\r') == REPLAY)
+        {
+            continue;
+        }
         let line = crate::boot::strip_timestamp(line.trim_end_matches('\r'));
         let depth = indent(line);
         let text = line.trim_start();
@@ -170,6 +184,16 @@ mod tests {
         assert_eq!(units["list"], Status::Pass);
         assert_eq!(units["bits.bits_test"], Status::Fail);
         assert_eq!(units.len(), 4);
+    }
+
+    #[test]
+    fn a_line_the_console_cut_short_is_read_once_in_full() {
+        let console = "[    1.0]     # Subtest: dm\n[    1.1]     ok 4 dm_test_s\n** replaying previous printk message **\n[    1.1]     ok 4 dm_test_subconnector\n[    1.2]     ok 5 dm_test_next\n";
+        let units = parse(console);
+        assert_eq!(
+            units.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["dm.dm_test_next", "dm.dm_test_subconnector"]
+        );
     }
 
     #[test]
