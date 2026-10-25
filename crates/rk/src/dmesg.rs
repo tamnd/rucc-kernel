@@ -75,6 +75,9 @@ fn mask_word(word: &str) -> String {
         return word.to_string();
     }
     if let Some((name, _)) = word.split_once("+0x") {
+        // GCC can put part of a function in a clone, like `f.cold`, `f.isra.0` or
+        // `f.constprop.0`, and rucc does not. The splat is the same, so the suffix is removed.
+        let name = name.split_once('.').map_or(name, |(base, _)| base);
         return format!("{name}+N");
     }
     let mut out = String::new();
@@ -165,6 +168,16 @@ mod tests {
                     swapper/0/0";
         assert_eq!(normalize(gcc), normalize(rucc));
         assert_eq!(normalize(gcc), "WARNING: kernel/time/hrtimer.c:1071");
+    }
+
+    #[test]
+    fn a_clone_of_the_function_counts_as_the_function() {
+        let gcc = "BUG: KFENCE: use-after-free read in \
+                   test_memcache_typesafe_by_rcu.cold+0xd6/0x1f4 [kfence_test]";
+        let rucc = "BUG: KFENCE: use-after-free read in \
+                    test_memcache_typesafe_by_rcu+0x131/0x310 [kfence_test]";
+        assert_eq!(normalize(gcc), normalize(rucc));
+        assert_eq!(normalize("at f.isra.0+0x10/0x20"), "at f+N");
     }
 
     #[test]
