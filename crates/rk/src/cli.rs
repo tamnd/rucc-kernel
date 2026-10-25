@@ -52,6 +52,39 @@ const BUILD: &[&str] = &[
     "no-upstream-check",
 ];
 
+/// The flags of `rk test`.
+const TEST: &[&str] = &[
+    "reference",
+    "other",
+    "row",
+    "cpu",
+    "kinds",
+    "busybox",
+    "rucc-busybox",
+    "selftests",
+    "rucc-selftests",
+    "ltp",
+    "rucc-ltp",
+    "runs",
+    "timeout",
+    "jobs",
+    "out",
+];
+
+/// The flags of `rk bench`.
+const BENCH: &[&str] = &[
+    "reference",
+    "other",
+    "row",
+    "cpu",
+    "busybox",
+    "bench",
+    "cc",
+    "runs",
+    "timeout",
+    "out",
+];
+
 /// Options each command accepts, and whether it takes a positional word.
 fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
     Some(match command {
@@ -80,26 +113,7 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
                 "append",
             ],
         ),
-        "test" => (
-            false,
-            &[
-                "reference",
-                "other",
-                "row",
-                "cpu",
-                "kinds",
-                "busybox",
-                "rucc-busybox",
-                "selftests",
-                "rucc-selftests",
-                "ltp",
-                "rucc-ltp",
-                "runs",
-                "timeout",
-                "jobs",
-                "out",
-            ],
-        ),
+        "test" => (false, TEST),
         "selftests" => (false, &["build", "cc", "collections", "jobs", "out"]),
         "ltp" => (false, &["build", "cc", "runtests", "jobs", "out"]),
         "mixed" => (
@@ -134,6 +148,7 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
             ],
         ),
         "initramfs" => (false, &["out", "busybox"]),
+        "bench" => (false, BENCH),
         "asm-inventory" => (false, &["build", "jobs"]),
         "baseline" => (
             true,
@@ -190,6 +205,8 @@ usage:
   rk selftests --build DIR [--cc COMPILER] [--collections timers,size] [--jobs N] [--out DIR]
   rk ltp --build DIR [--cc COMPILER] [--runtests syscalls,mm] [--jobs N] [--out DIR]
   rk initramfs --out FILE [--busybox PATH]
+  rk bench --reference DIR --other DIR [--row X64] [--cpu NAME] [--runs 11] [--timeout 900]
+           [--bench PATH | --cc gcc] [--busybox PATH] [--out DIR]
   rk baseline [VERSION] --cc COMPILER [--row X64] [--config defconfig] [--fragment test]
               [--runs 3] [--timeout 600] [--stack-usage]
   rk asm-inventory --build DIR [--jobs N]

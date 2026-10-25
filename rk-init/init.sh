@@ -8,9 +8,11 @@
 # ones that failed for as long as that loads more, since a module can need one later in the
 # order. Every line rk boot and rk test read starts with RK-, apart from the TAP of KUnit and of the
 # selftests, which the kselftest:<collection> suite runs from /kselftest. The ltp:<runtest> suite
-# runs one LTP runtest file from /ltp and prints an RK-LTP line per test. The
-# C version that docs/plan/11-boot-and-tests.md describes replaces this once rucc can build it,
-# and until then both kernels run the same busybox, so the userland is never the difference.
+# runs one LTP runtest file from /ltp and prints an RK-LTP line per test. The bench suite runs
+# /bench, which rk bench builds from rk-init/bench.c, and /bench prints an RK-BENCH line for each
+# benchmark. The C version that docs/plan/11-boot-and-tests.md describes replaces this once rucc
+# can build it, and until then both kernels run the same busybox, so the userland is never the
+# difference.
 
 /bin/busybox --install -s /bin
 export PATH=/bin
@@ -122,6 +124,7 @@ case $suite in
     kunit) kunit ;;
     kselftest:*) kselftest "${suite#kselftest:}" ;;
     ltp:*) ltp "${suite#ltp:}" ;;
+    bench) [ -x /bench ] && /bench ;;
     *) echo "RK-SUITE $suite unknown" ;;
 esac
 
