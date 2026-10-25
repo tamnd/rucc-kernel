@@ -376,6 +376,21 @@ CONFIG_GCC_VERSION=140200
                 "{path}"
             );
         }
+        for name in ["ubsan", "kasan"] {
+            let path = format!(
+                "{}/../../configs/{name}.fragment.E11",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let text = std::fs::read_to_string(&path).unwrap();
+            assert!(
+                parse_fragment(&text).contains(&("KUNIT_FAULT_TEST".to_string(), "n".to_string())),
+                "{path}"
+            );
+            assert!(
+                parse_fragment(&text).contains(&(name.to_uppercase(), "y".to_string())),
+                "{path}"
+            );
+        }
     }
 
     #[test]
