@@ -5,8 +5,8 @@
 # kernel command line and reboots, which ends QEMU because rk boot runs it with -no-reboot. The
 # suite is smoke by default. The kunit suite loads every module rk test put under /lib/modules/rk,
 # in the order kbuild built them, which runs the KUnit tests they hold, and tries again with the
-# ones that failed for as long as that loads more, since a module can need one later in the
-# order. Every line rk boot and rk test read starts with RK-, apart from the TAP of KUnit and of the
+# ones that failed for a symbol for as long as that loads more, since a module can need one later
+# in the order. Every line rk boot and rk test read starts with RK-, apart from the TAP of KUnit and of the
 # selftests, which the kselftest:<collection> suite runs from /kselftest. The ltp:<runtest> suite
 # runs one LTP runtest file from /ltp and prints an RK-LTP line per test. The bench suite runs
 # /bench, which rk bench builds from rk-init/bench.c, and /bench prints an RK-BENCH line for each
@@ -67,11 +67,21 @@ kunit() {
     while [ -n "$left" ]; do
         failed=""
         for module in $left; do
-            if insmod /lib/modules/rk/$module 2>/dev/null; then
+            if error=$(insmod /lib/modules/rk/$module 2>&1); then
                 echo "RK-MODULE $module pass"
-            else
-                failed="$failed $module"
+                continue
             fi
+            # Only a symbol can come from a module later in the order. A module that fails
+            # otherwise fails the same way again, and some fail after their work on purpose:
+            # test_vmalloc runs for 500 seconds under TCG and then returns -EAGAIN, and trying it
+            # on every round took half of the 7.2.8 arm64 kunit boot.
+            case $error in
+                *"unknown symbol"*) failed="$failed $module" ;;
+                *)
+                    echo "$error"
+                    echo "RK-MODULE $module fail"
+                    ;;
+            esac
         done
         [ "$(echo $failed)" = "$(echo $left)" ] && break
         left=$failed
