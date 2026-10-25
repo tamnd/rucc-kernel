@@ -153,14 +153,62 @@ fn helper_of(helper: &str, caller: &str) -> bool {
 }
 
 /// The normalized splats of a console log.
+///
+/// A KASAN report from a KUnit case is known by the case and not by the function. The function
+/// is the one that did the bad access after inlining. In the KASAN suite, `krealloc_large_more_oob`
+/// only calls `krealloc_more_oob_helper`. GCC makes the call a tail call, so the report names the
+/// helper and the case is not in the trace. rucc inlines the helper, so the report names the case.
+/// A report goes to the case whose KTAP result line, `ok N name` or `not ok N name`, comes next
+/// after a `# Subtest:` line.
 #[must_use]
 pub fn splats(console: &str) -> BTreeSet<String> {
-    console
-        .lines()
-        .map(|line| crate::boot::strip_timestamp(line.trim_end_matches('\r')).trim())
-        .filter(|text| !text.starts_with("RK-") && is_splat(text))
-        .map(normalize)
-        .collect()
+    let mut found = BTreeSet::new();
+    let mut in_suite = false;
+    let mut pending = Vec::new();
+    for line in console.lines() {
+        let text = crate::boot::strip_timestamp(line.trim_end_matches('\r')).trim();
+        if text.starts_with("# Subtest:") {
+            in_suite = true;
+            continue;
+        }
+        if let Some(case) = case_of(text) {
+            for kind in pending.drain(..) {
+                found.insert(format!("{kind} in case {case}"));
+            }
+            continue;
+        }
+        if text.starts_with("RK-") || !is_splat(text) {
+            continue;
+        }
+        let splat = normalize(text);
+        match splat
+            .strip_prefix("BUG: KASAN: ")
+            .and_then(|rest| rest.split_once(" in "))
+        {
+            Some((kind, _)) if in_suite => pending.push(format!("BUG: KASAN: {kind}")),
+            _ => {
+                found.insert(splat);
+            }
+        }
+    }
+    found.extend(
+        pending
+            .into_iter()
+            .map(|kind| format!("{kind} in a case with no result")),
+    );
+    found
+}
+
+/// The KUnit case of a KTAP result line, as `kmalloc_oob_right` in `ok 1 kmalloc_oob_right`.
+fn case_of(text: &str) -> Option<&str> {
+    let rest = text
+        .strip_prefix("not ok ")
+        .or_else(|| text.strip_prefix("ok "))?;
+    let (number, rest) = rest.split_once(' ')?;
+    if !number.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    rest.split_whitespace().next()
 }
 
 #[cfg(test)]
@@ -248,6 +296,31 @@ mod tests {
         assert_eq!(
             normalize("list_add corruption. prev->next should be next (0xdead)"),
             "list_add corruption. prev->next should be next (N)"
+        );
+    }
+
+    #[test]
+    fn a_kasan_report_in_a_kunit_case_is_known_by_the_case() {
+        let gcc = "[ 1.0] BUG: KASAN: slab-out-of-bounds in krealloc_more_oob_helper+0x5a1/0x720\n\
+                   [ 2.0]     ok 13 krealloc_large_more_oob\n";
+        let rucc = "[ 1.0]     # Subtest: kasan\n\
+                    [ 1.1] BUG: KASAN: slab-out-of-bounds in krealloc_large_more_oob+0x5f5/0x8b0\n\
+                    [ 2.0]     ok 13 krealloc_large_more_oob\n\
+                    [ 3.0] BUG: KASAN: use-after-free in f+0x10/0x20\n";
+        assert_eq!(
+            splats(rucc).into_iter().collect::<Vec<_>>(),
+            [
+                "BUG: KASAN: slab-out-of-bounds in case krealloc_large_more_oob",
+                "BUG: KASAN: use-after-free in a case with no result",
+            ]
+        );
+        let gcc = format!("[ 0.5]     # Subtest: kasan\n{gcc}");
+        assert!(splats(rucc).contains(splats(&gcc).first().unwrap()));
+        assert_eq!(
+            splats(gcc.trim_start_matches("[ 0.5]     # Subtest: kasan\n"))
+                .into_iter()
+                .collect::<Vec<_>>(),
+            ["BUG: KASAN: slab-out-of-bounds in krealloc_more_oob_helper+N"]
         );
     }
 
