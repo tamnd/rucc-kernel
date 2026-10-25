@@ -173,7 +173,7 @@ pub struct Unit {
     pub rucc_modules: Vec<Status>,
     /// The rucc kernel with the reference modules.
     pub rucc_kernel: Vec<Status>,
-    /// Whether it is graded: the reference passed it every time.
+    /// Whether it is graded: the reference passed it every time, and its suite is not racy.
     pub graded: bool,
     /// Whether both crossed boots passed it every time.
     pub passed: bool,
@@ -193,7 +193,7 @@ pub fn grade(cells: &[Results; 3], runs: usize) -> Vec<Unit> {
                 .map(|c| c.get(name).unwrap_or(&missing).clone());
             Unit {
                 name: name.clone(),
-                graded: all(&r),
+                graded: all(&r) && !testrun::racy(name),
                 passed: all(&m) && all(&k),
                 reference: r,
                 rucc_modules: m,
@@ -251,7 +251,7 @@ fn boot_cell(
     modules: &Path,
     stem: &str,
 ) -> Result<(Units, BTreeSet<String>), String> {
-    let files = testrun::modules(modules)?;
+    let files = testrun::modules(modules, kernel != modules)?;
     let initramfs = plan.out.join(format!("{stem}.cpio"));
     std::fs::write(&initramfs, boot::initramfs_with(&plan.busybox, &files))
         .map_err(|e| format!("writing {}: {e}", initramfs.display()))?;
@@ -485,8 +485,13 @@ mod tests {
                 ("boot", Status::Pass),
                 ("kunit:list.a", Status::Pass),
                 ("kunit-module:lib/hw.ko", Status::Fail),
+                ("kunit:amdgpu_dm_hdcp.a", Status::Pass),
             ]),
-            cell(&[("boot", Status::Pass), ("kunit:list.a", Status::Pass)]),
+            cell(&[
+                ("boot", Status::Pass),
+                ("kunit:list.a", Status::Pass),
+                ("kunit:amdgpu_dm_hdcp.a", Status::Fail),
+            ]),
             cell(&[
                 ("boot", Status::Pass),
                 ("kunit:list.a", Status::Fail),
@@ -498,6 +503,7 @@ mod tests {
         assert!(by["boot"].graded && by["boot"].passed);
         assert!(by["kunit:list.a"].graded && !by["kunit:list.a"].passed);
         assert!(!by["kunit-module:lib/hw.ko"].graded);
+        assert!(!by["kunit:amdgpu_dm_hdcp.a"].graded, "a racy suite");
         assert_eq!(by["kunit-module:lib/hw.ko"].rucc_modules, [Status::Missing]);
         let o = Outcome {
             reference: PathBuf::new(),

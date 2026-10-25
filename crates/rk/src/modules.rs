@@ -135,7 +135,22 @@ pub fn read(data: &[u8]) -> Result<Module, String> {
 /// no longer match.
 #[must_use]
 pub fn without_debug(data: &[u8]) -> Vec<u8> {
-    stripped(data).unwrap_or_else(|| data.to_vec())
+    stripped(data, false).unwrap_or_else(|| data.to_vec())
+}
+
+/// A module without its debug information and without its `.BTF`, for a kernel it was not built
+/// with.
+///
+/// A module's BTF is split BTF, whose type IDs carry on from the ones of the `vmlinux` it was
+/// built against, so in any other kernel they name other types. The kernel cannot tell when the
+/// two happen to have the same number of types and strings, and then a module that registers
+/// kfuncs fails to load. On a 7.2.8 arm64 nightly GCC's `tcp_dctcp.ko` failed in the rucc
+/// kernel, which said its kfunc was `usb_of_get_connect_type` and already in `vmlinux`, and it
+/// loaded on another run of the same night. Without the section the kernel says "missing module BTF" and
+/// loads the module, which is what it already did with the BTF it could not read.
+#[must_use]
+pub fn without_debug_or_btf(data: &[u8]) -> Vec<u8> {
+    stripped(data, true).unwrap_or_else(|| data.to_vec())
 }
 
 /// One section header, the fields of it that are read or written here.
@@ -232,7 +247,7 @@ impl Layout {
     }
 
     /// Which sections go: the debug sections and the relocations of them.
-    fn debug(&self, data: &[u8]) -> Option<Vec<bool>> {
+    fn debug(&self, data: &[u8], btf: bool) -> Option<Vec<bool>> {
         let names = self.headers.get(self.shstrndx)?;
         let names_at = usize::try_from(names.offset).ok()?;
         let names = data.get(names_at..names_at.checked_add(usize::try_from(names.size).ok()?)?)?;
@@ -246,7 +261,9 @@ impl Layout {
             .iter()
             .map(|h| {
                 h.flags & object::elf::SHF_ALLOC.0 == 0
-                    && name_of(h).is_some_and(|n| n.starts_with(b".debug_"))
+                    && name_of(h).is_some_and(|n| {
+                        n.starts_with(b".debug_") || (btf && (n == b".BTF" || n == b".BTF.base"))
+                    })
             })
             .collect();
         let relocates = |h: &Header| {
@@ -277,12 +294,12 @@ impl Layout {
     }
 }
 
-fn stripped(data: &[u8]) -> Option<Vec<u8>> {
+fn stripped(data: &[u8], btf: bool) -> Option<Vec<u8>> {
     if data.ends_with(b"~Module signature appended~\n") {
         return None;
     }
     let layout = Layout::read(data)?;
-    let dropped = layout.debug(data)?;
+    let dropped = layout.debug(data, btf)?;
     if !dropped.contains(&true) {
         return None;
     }
@@ -455,6 +472,8 @@ mod tests {
         });
         let info = obj.add_section(Vec::new(), b".modinfo".to_vec(), SectionKind::Data);
         obj.append_section_data(info, b"license=GPL\0vermagic=7.2.8 SMP\0", 1);
+        let btf = obj.add_section(Vec::new(), b".BTF".to_vec(), SectionKind::Metadata);
+        obj.append_section_data(btf, &[9; 2048], 4);
         for name in [".debug_info", ".debug_str"] {
             let id = obj.add_section(Vec::new(), name.as_bytes().to_vec(), SectionKind::Debug);
             obj.append_section_data(id, &[7; 4096], 1);
@@ -519,6 +538,21 @@ mod tests {
         signed.extend(b"~Module signature appended~\n");
         assert_eq!(without_debug(&signed), signed);
         assert_eq!(without_debug(b"not a module"), b"not a module");
+    }
+
+    #[test]
+    fn a_module_for_another_kernel_loses_its_btf_as_well() {
+        use object::{Object, ObjectSection};
+        let full = with_debug(object::Architecture::X86_64);
+        let section = |data: &[u8], name: &str| {
+            let file = object::File::parse(data).unwrap();
+            file.section_by_name(name).unwrap().size()
+        };
+        assert_eq!(section(&without_debug(&full), ".BTF"), 2048);
+        let small = without_debug_or_btf(&full);
+        assert_eq!(section(&small, ".BTF"), 0);
+        assert_eq!(section(&small, ".debug_info"), 0);
+        assert_eq!(read(&small).unwrap().vermagic, "7.2.8 SMP");
     }
 
     #[test]

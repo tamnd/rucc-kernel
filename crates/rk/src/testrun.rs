@@ -241,7 +241,17 @@ pub struct Unit {
 /// seconds after it is put, so when the next case gets the same address `software_node_register`
 /// returns `-EEXIST`. On the 7.2.8 arm64 nightly the rucc kernel failed four of the cases this
 /// way and passed all twenty with the GCC userland.
-const RACY: &[&str] = &["_iommu_test", "snd-soc-cs35l56-test-soundwire"];
+///
+/// `dm_test_process_output_property_validate_always_scheduled` in `amdgpu_dm_hdcp` has
+/// `process_output` queue a work with no delay on the system workqueue and then checks that the
+/// work is still pending. With two CPUs a worker on the other one can run the empty work first.
+/// On the 7.2.8 arm64 nightly the reference kernel with the rucc modules failed it this way, and
+/// the same modules passed it in the rucc kernel.
+const RACY: &[&str] = &[
+    "_iommu_test",
+    "snd-soc-cs35l56-test-soundwire",
+    "amdgpu_dm_hdcp",
+];
 
 /// Tests whose result is a measurement of time, which are reported and not graded, because under
 /// emulation the host decides how long anything takes.
@@ -293,7 +303,7 @@ const ALWAYS_FAIL: &[&str] = &[
 ];
 
 /// Whether a unit is in a suite of [`RACY`] or is one of [`TIMING`] or [`ALWAYS_FAIL`].
-fn racy(name: &str) -> bool {
+pub fn racy(name: &str) -> bool {
     TIMING.contains(&name)
         || ALWAYS_FAIL.contains(&name)
         || name
@@ -428,15 +438,20 @@ const LEFT_OUT: &[&str] = &[
 /// The modules of a build as files for the initramfs, under `lib/modules/rk`, and the `order`
 /// file listing them in the order kbuild built them, without the ones in [`LEFT_OUT`]. Each is
 /// without its debug information, which a distribution config puts gigabytes of in, so that the
-/// initramfs stays under what QEMU reads.
-pub fn modules(build: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
+/// initramfs stays under what QEMU reads. With `crossed`, for a kernel the modules were not
+/// built with, each is without its BTF too. See [`crate::modules::without_debug_or_btf`].
+pub fn modules(build: &Path, crossed: bool) -> Result<Vec<(String, Vec<u8>)>, String> {
     let mut files = Vec::new();
     let mut names = String::new();
     for name in module_names(build) {
         let bytes = read_module(build, &name)?;
         files.push((
             format!("lib/modules/rk/{name}"),
-            crate::modules::without_debug(&bytes),
+            if crossed {
+                crate::modules::without_debug_or_btf(&bytes)
+            } else {
+                crate::modules::without_debug(&bytes)
+            },
         ));
         let _ = writeln!(names, "{name}");
     }
@@ -570,7 +585,7 @@ fn boot_all<'a>(
 /// directory. The initramfs is removed after the boot, and the console is kept.
 fn boot_suite(plan: &Plan, build: &Path, userland: Userland, suite: &str, stem: &str) -> Booted {
     let files = if suite == "kunit" {
-        modules(build)?
+        modules(build, false)?
     } else if let Some(collection) = suite.strip_prefix("kselftest:") {
         let dir = userland
             .selftests
@@ -1037,7 +1052,7 @@ mod tests {
             "lib/tests/test_ratelimit.o\ndrivers/gpu/drm/scheduler/tests/drm-sched-tests.o\nlib/tests/list-test.o\n",
         )
         .unwrap();
-        let files = modules(&dir).unwrap();
+        let files = modules(&dir, false).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
         let names: Vec<&str> = files.iter().map(|(name, _)| name.as_str()).collect();
         assert_eq!(
@@ -1144,6 +1159,8 @@ mod tests {
             "kunit:amdv1_iommu_test.test_increase_level.amdv1_cfg_1",
             "kunit:amdv1_fmt_test.test_attr_from_entry",
             "kunit:snd-soc-cs35l56-test-soundwire.cs35l56_test_parse_xu_onchip_spkid",
+            "kunit:amdgpu_dm_hdcp",
+            "kunit:amdgpu_dm_hdcp.dm_test_process_output_property_validate_always_scheduled",
             "kunit:stackinit.test_switch_2_none",
             "kunit:stackinit.test_user",
         ]
