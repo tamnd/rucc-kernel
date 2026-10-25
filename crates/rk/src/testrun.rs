@@ -580,25 +580,54 @@ fn boot_suite(plan: &Plan, build: &Path, userland: Userland, suite: &str, stem: 
     let initramfs = plan.out.join(format!("{stem}.cpio"));
     std::fs::write(&initramfs, boot::initramfs_with(busybox, &files))
         .map_err(|e| format!("writing {}: {e}", initramfs.display()))?;
-    eprintln!("rk: {stem}");
-    let outcome = boot::run(&boot::Plan {
-        build: build.to_path_buf(),
-        row: plan.row.clone(),
-        initramfs: initramfs.clone(),
-        timeout,
-        append: format!("rk.suite={suite}"),
-        memory: crate::ltp::memory(suite),
-        stem: Some(plan.out.join(stem)),
-    });
-    let _ = std::fs::remove_file(&initramfs);
-    let outcome = outcome?;
     let log = plan.out.join(format!("{stem}.log"));
-    let console =
-        std::fs::read_to_string(&log).map_err(|e| format!("reading {}: {e}", log.display()))?;
+    let booted = (|| -> Result<_, String> {
+        for boots in 1.. {
+            eprintln!("rk: {stem}");
+            let outcome = boot::run(&boot::Plan {
+                build: build.to_path_buf(),
+                row: plan.row.clone(),
+                initramfs: initramfs.clone(),
+                timeout,
+                append: format!("rk.suite={suite}"),
+                memory: crate::ltp::memory(suite),
+                stem: Some(plan.out.join(stem)),
+            })?;
+            let console = std::fs::read_to_string(&log)
+                .map_err(|e| format!("reading {}: {e}", log.display()))?;
+            if boots == CLOCK_BOOTS || !wrong_clock(&console) {
+                return Ok((outcome, console));
+            }
+            eprintln!("rk: {stem} took its TSC frequency from a bad PIT sample, booting it again");
+        }
+        unreachable!("the boots stop at CLOCK_BOOTS")
+    })();
+    let _ = std::fs::remove_file(&initramfs);
+    let (outcome, console) = booted?;
     Ok((
         units_of(suite, &plan.kinds, &outcome, &console),
         crate::dmesg::splats(&console),
     ))
+}
+
+/// How many times a suite boots when the kernel's clock is wrong each time.
+const CLOCK_BOOTS: usize = 3;
+
+/// Whether an x86 kernel took the TSC frequency from a PIT sample that the HPET or the PM timer
+/// does not agree with. Under TCG on a loaded host the vCPU can stop in the PIT loop, and a sample
+/// can pass the checks with a TSC count that is too small. The kernel then uses the PIT value
+/// because it trusts the PIT more than the reference. With `tsc=nowatchdog` nothing corrects
+/// it later, and the clock of the kernel runs too fast. The rucc kernel of the 7.3 UBSAN defconfig
+/// took 133.966 MHz where the HPET said 2794.851 MHz, its clock ran about 21 times too fast,
+/// and six KUnit cases timed out. The gcc and rucc kernels have the same code there, and either
+/// can draw the bad sample.
+fn wrong_clock(console: &str) -> bool {
+    console
+        .lines()
+        .any(|line| line.contains("tsc: PIT calibration deviates from"))
+        && console
+            .lines()
+            .any(|line| line.contains("tsc: Using PIT calibration value"))
 }
 
 /// The splats of both kernels over every run.
@@ -881,6 +910,19 @@ mod tests {
         assert_eq!(kind_of("kselftest:timers:posix_timers"), Kind::Kselftest);
         assert_eq!(suite_kind("kselftest:timers"), Kind::Kselftest);
         assert_eq!(suite_kind("kunit"), Kind::Kunit);
+    }
+
+    #[test]
+    fn a_kernel_that_trusted_a_bad_pit_sample_boots_again() {
+        let bad = "[    0.032000] tsc: PIT calibration deviates from HPET: 133966 2794851\n\
+                   [    0.033000] tsc: Using PIT calibration value\n\
+                   [    0.033000] tsc: Detected 133.966 MHz processor\n";
+        assert!(wrong_clock(bad));
+        let good = "[    0.028000] tsc: Unable to calibrate against PIT\n\
+                    [    0.029000] tsc: using HPET reference calibration\n\
+                    [    0.029000] tsc: Detected 2794.860 MHz processor\n";
+        assert!(!wrong_clock(good));
+        assert!(!wrong_clock(""));
     }
 
     #[test]
