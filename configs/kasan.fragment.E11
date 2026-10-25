@@ -52,7 +52,8 @@ CONFIG_HYPERVISOR_GUEST=y
 CONFIG_PARAVIRT=y
 # Generic KASAN, inline, with the checks of the stack and of the globals. A report is a warning
 # and does not stop the run. The kasan KUnit suite is off because it makes reports on purpose.
-# Turn it on and boot with kunit.filter_glob=kasan* to run it alone
+# To run it alone, set it to y, set KUNIT_ALL_TESTS to n, and boot with kunit.filter_glob=kasan*.
+# It needs TRACEPOINTS, and arm64 defconfig only has them with FTRACE and ENABLE_DEFAULT_TRACERS
 CONFIG_KASAN=y
 CONFIG_KASAN_GENERIC=y
 CONFIG_KASAN_INLINE=y
