@@ -278,9 +278,24 @@ const TIMING: &[&str] = &[
     "ltp:syscalls:getrusage04",
 ];
 
-/// Whether a unit is in a suite of [`RACY`] or is one of [`TIMING`].
+/// KUnit units the test itself expects to fail, which are reported and not graded, because
+/// whether they pass is luck.
+///
+/// `stackinit` fills the stack from one call, then reads the variable a second call never sets.
+/// The two `switch` units declare it before the first `case`, where no compiler can set it, and
+/// skip when they find the fill. They pass only when something wrote over the dead stack in
+/// between, such as the registers an exception saves on arm64 before it moves to the IRQ stack.
+/// On the 7.2.8 arm64 nightly the reference passed `test_switch_2_none` and the rucc kernel
+/// skipped it, and `rk mixed` found that the reference skips it too on another boot.
+const ALWAYS_FAIL: &[&str] = &[
+    "kunit:stackinit.test_switch_1_none",
+    "kunit:stackinit.test_switch_2_none",
+];
+
+/// Whether a unit is in a suite of [`RACY`] or is one of [`TIMING`] or [`ALWAYS_FAIL`].
 fn racy(name: &str) -> bool {
     TIMING.contains(&name)
+        || ALWAYS_FAIL.contains(&name)
         || name
             .strip_prefix("kunit:")
             .and_then(|rest| rest.split('.').next())
@@ -1089,6 +1104,8 @@ mod tests {
             "kunit:amdv1_iommu_test.test_increase_level.amdv1_cfg_1",
             "kunit:amdv1_fmt_test.test_attr_from_entry",
             "kunit:snd-soc-cs35l56-test-soundwire.cs35l56_test_parse_xu_onchip_spkid",
+            "kunit:stackinit.test_switch_2_none",
+            "kunit:stackinit.test_user",
         ]
         .into_iter()
         .map(|u| (u.to_string(), Status::Pass))
@@ -1100,7 +1117,13 @@ mod tests {
             .filter(|u| u.graded)
             .map(|u| u.name)
             .collect();
-        assert_eq!(graded, ["kunit:amdv1_fmt_test.test_attr_from_entry"]);
+        assert_eq!(
+            graded,
+            [
+                "kunit:amdv1_fmt_test.test_attr_from_entry",
+                "kunit:stackinit.test_user"
+            ]
+        );
     }
 
     #[test]
