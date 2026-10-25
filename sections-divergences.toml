@@ -547,6 +547,13 @@ reason = "the gpu_buddy_assert(!(mark_dirty && mark_clear)) in __gpu_buddy_free_
 
 [[divergence]]
 what = "__bug_table"
+object = "drivers/gpu/buddy.o"
+only = "reference"
+item = '4="" 8="drivers/gpu/buddy.c" 5c020109'
+reason = "the same gpu_buddy_assert on x86, where the entry has an empty format before the file"
+
+[[divergence]]
+what = "__bug_table"
 object = "drivers/gpu/drm/omapdrm/dss/dispc.o"
 only = "reference"
 item = '4="drivers/gpu/drm/omapdrm/dss/dispc.h" *'

@@ -1,23 +1,17 @@
-119 probes in the reference, 119 in the other, 21 answered differently.
+119 probes in the reference, 119 in the other, 15 answered differently.
 
 | reference | other | probe | other's error |
 |---|---|---|---|
-| yes | yes | `--version` | printed `gcc (rucc 0.24.8, GNU C persona 14.2.0) 14.2.0` |
+| yes | yes | `--version` | printed `gcc (rucc 0.30.12, GNU C persona 14.2.0) 14.2.0` |
 | yes | yes | `-E -x c - <<< __LP64__` | printed `# 1 "<stdin>"` |
-| yes | yes | `-Wa,--version -c -x assembler-with-cpp /dev/null` | printed `GNU assembler (rucc 0.24.8 integrated) 2.44` |
-| yes | no | `-Werror -fsanitize-coverage=trace-cmp -c -x c /dev/null` | `-fsanitize-coverage=trace-cmp: this compiler generates no coverage callbacks, and a fuzzer built with it would run without any feedback at all, see spec/N-drive` |
-| yes | no | `-Werror -fsanitize=alignment -c -x c /dev/null` | `-fsanitize=alignment: this compiler has no sanitizer instrumentation, and a build that asked for one and got none would run its tests unchecked, see spec/N-driv` |
-| yes | no | `-Werror -fsanitize=bool -c -x c /dev/null` | `-fsanitize=bool: this compiler has no sanitizer instrumentation, and a build that asked for one and got none would run its tests unchecked, see spec/N-driver-an` |
-| yes | no | `-Werror -fsanitize=bounds-strict -c -x c /dev/null` | `-fsanitize=bounds-strict: this compiler has no sanitizer instrumentation, and a build that asked for one and got none would run its tests unchecked, see spec/N-` |
-| yes | no | `-Werror -fsanitize=enum -c -x c /dev/null` | `-fsanitize=enum: this compiler has no sanitizer instrumentation, and a build that asked for one and got none would run its tests unchecked, see spec/N-driver-an` |
-| yes | no | `-Werror -fsanitize=integer-divide-by-zero -c -x c /dev/null` | `-fsanitize=integer-divide-by-zero: this compiler has no sanitizer instrumentation, and a build that asked for one and got none would run its tests unchecked, se` |
-| yes | no | `-Werror -fsanitize=kernel-address --param asan-kernel-mem-intrinsic-prefix=1 -c -x c /dev/null` | `unknown option '_'` |
-| yes | no | `-Werror -fsanitize=kernel-address -c -x c /dev/null` | `-fsanitize=kernel-address: this compiler has no sanitizer instrumentation, and a build that asked for one and got none would run its tests unchecked, see spec/N` |
-| yes | no | `-Werror -fsanitize=kernel-hwaddress -c -x c /dev/null` | `-fsanitize=kernel-hwaddress: this compiler has no sanitizer instrumentation, and a build that asked for one and got none would run its tests unchecked, see spec` |
-| yes | no | `-Werror -fsanitize=shift -c -x c /dev/null` | `-fsanitize=shift: this compiler has no sanitizer instrumentation, and a build that asked for one and got none would run its tests unchecked, see spec/N-driver-a` |
-| yes | no | `-Werror -fsanitize=signed-integer-overflow -c -x c /dev/null` | `-fsanitize=signed-integer-overflow: this compiler has no sanitizer instrumentation, and a build that asked for one and got none would run its tests unchecked, s` |
-| yes | no | `-Werror -fsanitize=thread --param tsan-distinguish-volatile=1 -c -x c /dev/null` | `unknown option '_'` |
-| yes | no | `-Werror -fsanitize=unreachable -c -x c /dev/null` | `-fsanitize=unreachable: this compiler has no sanitizer instrumentation, and a build that asked for one and got none would run its tests unchecked, see spec/N-dr` |
+| yes | yes | `-Wa,--version -c -x assembler-with-cpp /dev/null` | printed `GNU assembler (rucc 0.30.12 integrated) 2.44` |
+| yes | no | `-Werror -fsanitize=alignment -c -x c /dev/null` | `-fsanitize=alignment: this compiler has no instrumentation for this sanitizer, and a build that asked for one and got none would run its tests unchecked, see sp` |
+| yes | no | `-Werror -fsanitize=kernel-address --param asan-kernel-mem-intrinsic-prefix=1 -c -x c /dev/null` | `unknown --param name '_'` |
+| yes | no | `-Werror -fsanitize=kernel-address -c -x c /dev/null` | `-fsanitize=kernel-address: this compiler has no instrumentation for this sanitizer, and a build that asked for one and got none would run its tests unchecked, s` |
+| yes | no | `-Werror -fsanitize=kernel-hwaddress -c -x c /dev/null` | `-fsanitize=kernel-hwaddress: this compiler has no instrumentation for this sanitizer, and a build that asked for one and got none would run its tests unchecked,` |
+| yes | no | `-Werror -fsanitize=signed-integer-overflow -c -x c /dev/null` | `-fsanitize=signed-integer-overflow: this compiler has no instrumentation for this sanitizer, and a build that asked for one and got none would run its tests unc` |
+| yes | no | `-Werror -fsanitize=thread --param tsan-distinguish-volatile=1 -c -x c /dev/null` | `unknown --param name '_'` |
+| yes | no | `-Werror -fsanitize=unreachable -c -x c /dev/null` | `-fsanitize=unreachable: this compiler has no instrumentation for this sanitizer, and a build that asked for one and got none would run its tests unchecked, see ` |
 | yes | no | `-Werror -ftrivial-auto-var-init=zero -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang -c -x c /dev/null` | `unknown option '_'` |
 | yes | no | `-Werror -gsplit-dwarf -c -x c /dev/null` | `-gsplit-dwarf: this compiler writes no separate '_'` |
 | yes | yes | `-dM -E -x c /dev/null` | printed `#define _LP64 1` |
