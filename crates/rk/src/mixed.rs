@@ -539,7 +539,7 @@ impl Trials<'_> {
     fn boot(&self, stem: &Path) -> Result<bool, String> {
         let suite = suite_of(&self.plan.unit);
         let files = if suite == "kunit" {
-            testrun::modules(&self.tree)?
+            testrun::modules(&self.tree, false)?
         } else if let Some(collection) = suite.strip_prefix("kselftest:") {
             let dir = self
                 .plan
