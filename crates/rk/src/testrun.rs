@@ -653,8 +653,42 @@ pub struct Splats {
     pub reference: BTreeSet<String>,
     /// The rucc kernel's.
     pub other: BTreeSet<String>,
-    /// The rucc kernel's that the reference never printed.
+    /// The rucc kernel's that the reference never printed, in every run.
     pub other_only: BTreeSet<String>,
+    /// The rucc kernel's that the reference never printed, in some runs but not in all of them.
+    pub racy: BTreeSet<String>,
+}
+
+/// The splats of both kernels, with the rucc kernel's own put apart from the racy ones.
+///
+/// A rucc splat is also the reference's when the reference printed the same splat, or the same
+/// splat in a helper that one of the compilers inlined (see `dmesg::same`). Over more than one
+/// run, a rucc splat that is not in the log of each run is racy. A timer interrupt or the KASAN
+/// quarantine can make such a splat come and go. An example is `wild-memory-access in
+/// _raw_spin_lock`, which KASAN prints when an interrupt comes while `identify_cpu` has cleared
+/// `X86_FEATURE_LA57`. The summary shows a racy splat, but it does not fail the rucc kernel,
+/// because wrong code usually gives its splat in each run.
+fn sort_splats(reference: BTreeSet<String>, other: &[BTreeSet<String>]) -> Splats {
+    let mut splats = Splats {
+        reference,
+        other: other.iter().flatten().cloned().collect(),
+        ..Splats::default()
+    };
+    for splat in &splats.other {
+        if splats
+            .reference
+            .iter()
+            .any(|r| crate::dmesg::same(splat, r))
+        {
+            continue;
+        }
+        if other.len() > 1 && other.iter().any(|run| !run.contains(splat)) {
+            splats.racy.insert(splat.clone());
+        } else {
+            splats.other_only.insert(splat.clone());
+        }
+    }
+    splats
 }
 
 /// What `rk test` found, written to `test.json`.
@@ -703,7 +737,8 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
     let suites = plan.suites()?;
     let mut reference = Results::new();
     let mut other = Results::new();
-    let mut splats = Splats::default();
+    let mut reference_splats = BTreeSet::new();
+    let mut other_splats = Vec::new();
     for run in 0..plan.runs {
         let n = run + 1;
         // The two kernels boot each suite at the same time, so that whatever else the host is
@@ -726,22 +761,20 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
         }
         let mut booted = boot_all(plan, boots).into_iter();
         let (mut r_units, mut o_units) = (Units::new(), Units::new());
+        let mut o_splats = BTreeSet::new();
         while let (Some(reference_boot), Some(other_boot)) = (booted.next(), booted.next()) {
             let (units, found) = reference_boot?;
             merge(&mut r_units, units);
-            splats.reference.extend(found);
+            reference_splats.extend(found);
             let (units, found) = other_boot?;
             merge(&mut o_units, units);
-            splats.other.extend(found);
+            o_splats.extend(found);
         }
         add_run(&mut reference, run, &r_units);
         add_run(&mut other, run, &o_units);
+        other_splats.push(o_splats);
     }
-    splats.other_only = splats
-        .other
-        .difference(&splats.reference)
-        .cloned()
-        .collect();
+    let splats = sort_splats(reference_splats, &other_splats);
     let mut outcome = Outcome {
         reference: plan.reference.clone(),
         other: plan.other.clone(),
@@ -879,6 +912,13 @@ pub fn summary(o: &Outcome) -> String {
     if !o.splats.other_only.is_empty() {
         s.push_str("Splats only in the rucc kernel's log:\n\n");
         for splat in &o.splats.other_only {
+            let _ = writeln!(s, "- `{}`", splat.replace('`', "'"));
+        }
+        s.push('\n');
+    }
+    if !o.splats.racy.is_empty() {
+        s.push_str("Splats only in the rucc kernel's log, in some runs but not in all of them. They do not fail the run:\n\n");
+        for splat in &o.splats.racy {
             let _ = writeln!(s, "- `{}`", splat.replace('`', "'"));
         }
         s.push('\n');
@@ -1155,6 +1195,33 @@ mod tests {
         assert_eq!(attribute(Status::Missing, Status::Fail), "kernel");
         assert_eq!(attribute(Status::Pass, Status::Fail), "userland");
         assert_eq!(attribute(Status::Pass, Status::Pass), "interaction");
+    }
+
+    #[test]
+    fn a_splat_in_some_runs_is_racy_and_one_in_an_inlined_helper_is_the_reference() {
+        let set = |list: &[&str]| {
+            list.iter()
+                .map(|s| (*s).to_string())
+                .collect::<BTreeSet<_>>()
+        };
+        let reference = set(&["BUG: KASAN: slab-out-of-bounds in f_helper+N"]);
+        let other = [
+            set(&[
+                "BUG: KASAN: slab-out-of-bounds in f+N",
+                "WARNING: mm/slub.c:1",
+            ]),
+            set(&[
+                "BUG: KASAN: slab-out-of-bounds in f+N",
+                "WARNING: mm/slub.c:1",
+                "BUG: g+N",
+            ]),
+        ];
+        let splats = sort_splats(reference.clone(), &other);
+        assert_eq!(splats.other_only, set(&["WARNING: mm/slub.c:1"]));
+        assert_eq!(splats.racy, set(&["BUG: g+N"]));
+        let one = sort_splats(reference, &other[1..]);
+        assert_eq!(one.other_only, set(&["BUG: g+N", "WARNING: mm/slub.c:1"]));
+        assert!(one.racy.is_empty());
     }
 
     #[test]
