@@ -216,7 +216,9 @@ impl Known {
 
 /// The path of a unit inside the kernel tree, without the directory the tree was unpacked in.
 fn in_tree(unit: &str) -> &str {
-    let Some(at) = unit.rfind("/src/linux-") else { return unit };
+    let Some(at) = unit.rfind("/src/linux-") else {
+        return unit;
+    };
     let rest = &unit[at + "/src/".len()..];
     rest.find('/').map_or(unit, |slash| &rest[slash + 1..])
 }
@@ -405,10 +407,18 @@ mod tests {
         )
         .unwrap();
         let tree = "/home/runner/work/rucc-kernel/rk-cache/src/linux-7.2.8/";
-        assert!(known.issue(&format!("{tree}lib/crc/crc64-neon.c")).is_some());
+        assert!(
+            known
+                .issue(&format!("{tree}lib/crc/crc64-neon.c"))
+                .is_some()
+        );
         assert!(known.issue("lib/crc/crc64-neon.c").is_some());
         assert!(known.issue("lib/raid/raid6/arm/neon4.c").is_some());
-        assert!(known.issue(&format!("{tree}lib/raid/raid6/arm/neon.c")).is_some());
+        assert!(
+            known
+                .issue(&format!("{tree}lib/raid/raid6/arm/neon.c"))
+                .is_some()
+        );
         assert!(known.issue(&format!("{tree}lib/crc/crc32.c")).is_none());
     }
 
