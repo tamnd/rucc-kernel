@@ -118,6 +118,40 @@ pub fn normalize(text: &str) -> String {
     words.join(" ")
 }
 
+/// Whether two normalized splats are the same splat, with the function that one compiler inlined.
+///
+/// KASAN names the function that did the bad access, as in `BUG: KASAN: slab-out-of-bounds in
+/// krealloc_more_oob_helper+N`. When rucc inlines the helper into `krealloc_more_oob` and GCC does
+/// not, the two kernels name different functions in the same report. The two names are the same
+/// function when one is the other with a suffix that starts with `_`, which is how the kernel names
+/// its helpers. All other words must be equal.
+#[must_use]
+pub fn same(a: &str, b: &str) -> bool {
+    if a == b {
+        return true;
+    }
+    let (a, b): (Vec<&str>, Vec<&str>) = (a.split(' ').collect(), b.split(' ').collect());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut differ = a.iter().zip(&b).filter(|(x, y)| x != y);
+    match (differ.next(), differ.next()) {
+        (Some((x, y)), None) => helper_of(x, y) || helper_of(y, x),
+        _ => false,
+    }
+}
+
+/// Whether `helper` is `caller` with a suffix, as `f_helper+N` is to `f+N`.
+fn helper_of(helper: &str, caller: &str) -> bool {
+    let (Some(helper), Some(caller)) = (helper.strip_suffix("+N"), caller.strip_suffix("+N"))
+    else {
+        return false;
+    };
+    helper
+        .strip_prefix(caller)
+        .is_some_and(|rest| rest.len() > 1 && rest.starts_with('_'))
+}
+
 /// The normalized splats of a console log.
 #[must_use]
 pub fn splats(console: &str) -> BTreeSet<String> {
@@ -178,6 +212,27 @@ mod tests {
                     test_memcache_typesafe_by_rcu+0x131/0x310 [kfence_test]";
         assert_eq!(normalize(gcc), normalize(rucc));
         assert_eq!(normalize("at f.isra.0+0x10/0x20"), "at f+N");
+    }
+
+    #[test]
+    fn a_report_in_an_inlined_helper_is_the_same_report() {
+        let gcc =
+            normalize("BUG: KASAN: slab-out-of-bounds in krealloc_more_oob_helper+0x5a1/0x720");
+        let rucc = normalize("BUG: KASAN: slab-out-of-bounds in krealloc_more_oob+0x3f2/0x9c0");
+        assert!(same(&gcc, &rucc));
+        assert!(same(&rucc, &gcc));
+        assert!(!same(
+            &rucc,
+            "BUG: KASAN: use-after-free in krealloc_more_oob_helper+N"
+        ));
+        assert!(!same(
+            &rucc,
+            "BUG: KASAN: slab-out-of-bounds in krealloc_more_oobx+N"
+        ));
+        assert!(!same(
+            &rucc,
+            "BUG: KASAN: slab-out-of-bounds in kmalloc_oob_right+N"
+        ));
     }
 
     #[test]
