@@ -13,6 +13,10 @@ symbol = "CC_VERSION_TEXT"
 reason = "the first line of --version, which names the compiler and so always differs"
 
 [[divergence]]
+symbol = "DEBUG_INFO_SPLIT"
+reason = "Kconfig only offers it when the compiler takes -gsplit-dwarf, and rucc writes no .dwo files and says so. Off in the reference too, so no unit is built differently"
+
+[[divergence]]
 symbol = "CC_HAS_KASAN_*"
 reason = "rucc has no -fsanitize=kernel-address or kernel-hwaddress, and plan section 8.10 keeps the sanitizers out of the grade, with KASAN off in both builds"
 

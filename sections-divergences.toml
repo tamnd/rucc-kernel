@@ -368,6 +368,13 @@ only = "reference"
 item = '4="" 8="drivers/base/power/wakeup.c" bd000109'
 reason = "WARN_ON(!ws) in wakeup_source_remove on 7.3, whose only caller wakeup_source_unregister calls it inside if (ws)"
 
+[[divergence]]
+what = "__bug_table"
+object = "drivers/base/power/wakeup.o"
+only = "reference"
+item = '4="drivers/base/power/wakeup.c" bd000109'
+reason = "the same WARN_ON(!ws) on 7.2, where the entry has no empty name before the file"
+
 # Sections that come from the reference compiler's defaults and not from the kernel's flags.
 
 [[divergence]]
