@@ -508,12 +508,19 @@ pub fn qemu_command(plan: &Plan, image: &Path, kvm: bool) -> Vec<String> {
     // When the log buffer is full, the kernel overwrites lines that the console did not print,
     // and it prints "** N printk messages dropped **" in their place. Each kernel then loses
     // different units, and rk sees them as missing. A 32 MB buffer holds the full output.
+    //
+    // KUnit gives a case 300 seconds, and a slow one three times that, and then runs the exit
+    // while the case is still going. Under TCG the host decides how long a case takes. On the
+    // 7.2.8 arm64 nightly `binder_alloc_exhaustive_test` took 622 seconds on the reference and
+    // 891 on the rucc kernel with the reference modules, where its exit then found the mapping
+    // still up and hit a `BUG_ON`. `kunit.timeout=900` gives a slow case 45 minutes. 6.12.111
+    // has a fixed 300 seconds and no such parameter, and says it is unknown and goes on.
     let kunit = if plan
         .append
         .split_whitespace()
         .any(|w| w == "rk.suite=kunit")
     {
-        "kunit.enable=1 log_buf_len=32M "
+        "kunit.enable=1 kunit.timeout=900 log_buf_len=32M "
     } else {
         ""
     };
@@ -867,7 +874,9 @@ mod tests {
                 .pop()
                 .unwrap()
         };
-        assert!(line("rk.suite=kunit").contains(" kunit.enable=1 log_buf_len=32M "));
+        assert!(
+            line("rk.suite=kunit").contains(" kunit.enable=1 kunit.timeout=900 log_buf_len=32M ")
+        );
         assert!(!line("rk.suite=smoke").contains("kunit.enable"));
     }
 
