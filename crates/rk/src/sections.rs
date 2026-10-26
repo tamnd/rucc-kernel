@@ -16,8 +16,9 @@
 //! jump label, the format, file, line and flags of a bug, the fixup type of an exception entry,
 //! and the CPU feature of an alternative. A site dropped by a lost `asm goto` or `.pushsection`
 //! still shows. The call-site lists that depend on inlining, `__mcount_loc` and the lists objtool
-//! writes, are compared per function, for the functions both objects have. The strings of
-//! `.modinfo` and `__ksymtab_strings` are the same.
+//! writes, are compared per function, for the functions both objects have. A module whose count
+//! for a function differs only because its members inlined it differently is explained by them.
+//! The strings of `.modinfo` and `__ksymtab_strings` are the same.
 //!
 //! Some differences are choices each optimizer makes for itself, such as a constant pool, a cold
 //! section or a check one compiler proves can never fire. `sections-divergences.toml` lists them
@@ -533,9 +534,26 @@ fn members(path: &Path, name: &str) -> Vec<String> {
         return Vec::new();
     };
     text.split_whitespace()
-        .filter(|m| object(m) && *m != name)
-        .map(ToString::to_string)
+        .map(tidy)
+        .filter(|m| object(m) && m != name)
         .collect()
+}
+
+/// A path from the top of the build with its `.` and `..` resolved, as the objects are named.
+/// Kbuild writes a member from another directory the way the Makefile names it, so amdgpu's `.mod`
+/// has `drivers/gpu/drm/amd/amdgpu/../amdkfd/kfd_module.o`.
+fn tidy(path: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            ".." => {
+                parts.pop();
+            }
+            "." | "" => {}
+            _ => parts.push(part),
+        }
+    }
+    parts.join("/")
 }
 
 /// One difference.
@@ -883,7 +901,8 @@ pub fn compare(reference: &Inventory, other: &Inventory) -> Comparison {
     let mut c = Comparison::default();
     for (name, object) in reference.iter().chain(other) {
         if !object.members.is_empty() && !c.members.contains_key(name) {
-            c.members.insert(name.clone(), object.members.clone());
+            let members = object.members.iter().map(|m| tidy(m)).collect();
+            c.members.insert(name.clone(), members);
         }
     }
     for (name, r) in reference {
@@ -900,7 +919,62 @@ pub fn compare(reference: &Inventory, other: &Inventory) -> Comparison {
         .filter(|k| !reference.contains_key(*k))
         .cloned()
         .collect();
+    for d in &mut c.differences {
+        let Some((list, function)) = d.what.split_once(" in ") else {
+            continue;
+        };
+        let builds = (reference, other, &c.members);
+        if SITES.contains(&list) && copies(builds, &d.object, list, function, MEMBERS) {
+            d.reason = Some(COPIES.to_string());
+        }
+    }
     c
+}
+
+/// Why a module's count of a function's sites can differ when its members' counts do not.
+const COPIES: &str = "the module has one site for each member that kept the function out of \
+line, and the members differ only in which of them inlined every call";
+
+/// Whether a function's sites in a module differ only because the members that kept it out of
+/// line differ.
+///
+/// `ld -r` gives a module the sites of all its members, so a static inline function from a header
+/// has one site for each member that kept a copy of it. A member where one compiler inlined every
+/// call has no copy in that build, which is a choice of the inliner and is not compared in the
+/// member itself. Each member must have as many sites in both builds where both have the function,
+/// or differ only because its own members do, and the members' sites must add up to the module's.
+fn copies(
+    builds: (&Inventory, &Inventory, &BTreeMap<String, Vec<String>>),
+    module: &str,
+    list: &str,
+    function: &str,
+    depth: u32,
+) -> bool {
+    let (reference, other, members) = builds;
+    let count = |inventory: &Inventory, object: &str| {
+        inventory
+            .get(object)
+            .and_then(|o| o.sites.get(list))
+            .and_then(|s| s.get(function))
+            .copied()
+            .unwrap_or_default()
+    };
+    let Some(depth) = depth.checked_sub(1) else {
+        return false;
+    };
+    let Some(members) = members.get(module) else {
+        return false;
+    };
+    let (mut x, mut y) = (0, 0);
+    for member in members {
+        let (a, b) = (count(reference, member), count(other, member));
+        if a != b && a != 0 && b != 0 && !copies(builds, member, list, function, depth) {
+            return false;
+        }
+        x += a;
+        y += b;
+    }
+    x == count(reference, module) && y == count(other, module)
 }
 
 /// How many rows of a long list the report shows.
@@ -1363,6 +1437,60 @@ reason = "checked in the member"
         let reasons: Vec<Option<&str>> =
             c.differences.iter().map(|d| d.reason.as_deref()).collect();
         assert_eq!(reasons, [Some("checked"), Some("checked"), None, None]);
+    }
+
+    #[test]
+    fn a_member_from_another_directory_is_named_as_the_objects_are() {
+        assert_eq!(
+            tidy("drivers/gpu/drm/amd/amdgpu/../amdkfd/kfd_module.o"),
+            "drivers/gpu/drm/amd/amdkfd/kfd_module.o"
+        );
+        assert_eq!(tidy("fs/f2fs/./inline.o"), "fs/f2fs/inline.o");
+    }
+
+    /// A module counts one site for each member that kept a function out of line. A member that
+    /// inlined every call in one build explains the module's count, a member whose own count
+    /// differs does not, and a module whose count is not its members' added up is not explained.
+    #[test]
+    fn a_module_count_that_follows_its_members_is_explained() {
+        let with = |sites: &[(&str, u64)], members: &[&str]| Object {
+            sites: [(
+                "__mcount_loc".to_string(),
+                sites.iter().map(|(f, n)| (f.to_string(), *n)).collect(),
+            )]
+            .into(),
+            members: members.iter().map(ToString::to_string).collect(),
+            ..Object::default()
+        };
+        let build = |module: u64, a: u64, b: u64| -> Inventory {
+            let at = |n: u64| if n == 0 { vec![] } else { vec![("f", n)] };
+            [
+                ("m.o".to_string(), with(&at(module), &["a.o", "b.o"])),
+                ("a.o".to_string(), with(&at(a), &[])),
+                ("b.o".to_string(), with(&at(b), &[])),
+            ]
+            .into()
+        };
+        let reasons = |reference: &Inventory, other: &Inventory| -> Vec<(String, bool)> {
+            compare(reference, other)
+                .differences
+                .iter()
+                .map(|d| (d.object.clone(), d.reason.is_some()))
+                .collect()
+        };
+        let reference = build(2, 1, 1);
+        assert_eq!(
+            reasons(&reference, &build(1, 1, 0)),
+            [("m.o".to_string(), true)]
+        );
+        assert_eq!(
+            reasons(&reference, &build(3, 1, 2)),
+            [("b.o".to_string(), false), ("m.o".to_string(), false)]
+        );
+        assert_eq!(
+            reasons(&reference, &build(3, 1, 0)),
+            [("m.o".to_string(), false)]
+        );
     }
 
     /// A module item no rule names is explained by its members, when every member that has it on
