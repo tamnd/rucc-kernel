@@ -47,7 +47,7 @@ rucc's AArch64 back end is complete for user programs (TARGETS.md lists it as ti
 
 The arm64 inline assembly surface is smaller than x86's per file but the system register table is large (07.4.2). The kernel's `alternative_cb`/`ALTERNATIVE` macros in `asm/alternative-macros.h` exercise the macro processor exactly like x86's.
 
-**Boot:** `qemu-system-aarch64 -M virt -cpu max -kernel Image -initrd ... -append "console=ttyAMA0"`. No firmware needed (QEMU loads `Image` directly). `-cpu max` gives PAC/BTI/MTE which tests the pac-ret path; a second run with `-cpu cortex-a57` tests the non-PAC fallback. KVM on arm runners: open question 8.
+**Boot:** `qemu-system-aarch64 -M virt -cpu max -kernel Image -initrd ... -append "console=ttyAMA0"`. No firmware needed (QEMU loads `Image` directly). `-cpu max` gives PAC/BTI/MTE which tests the pac-ret path; a second run with `-cpu cortex-a57` tests the non-PAC fallback. The arm runners have no KVM (open question 8), so A64 boots run under TCG.
 
 **Cost:** 6 weeks at K6, after K2 to K5's shared work.
 

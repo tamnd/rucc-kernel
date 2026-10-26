@@ -129,6 +129,8 @@ The museum set (04.1.4) includes 1.0 and excludes 0.x.
 
 **Deadline.** K0 (an hour's work). The answer shapes K6's machine plan.
 
+**Answer.** No. The `ubuntu-24.04-arm` runners have no `/dev/kvm`. In the baseline run 40156126503 the udev step printed "Failed to open the device 'kvm': Invalid argument", and all three 7.2.8 A64 `defconfig` boots ran under TCG, at about 4 seconds a boot. TCG was fast enough for K6: the 7.2.8 and 6.12.111 A64 nightlies built, booted and ran kunit on `-cpu max` and `-cpu cortex-a57` within the job limits. A64 benchmarks stay off, as `12-performance.md` says, and A64 kselftest and LTP will need thinning if they do not fit.
+
 ## 9. Distro configs that need what rucc cannot do
 
 **Belief.** Debian 13's amd64 and arm64 configs enable features rucc will not have by K5:
