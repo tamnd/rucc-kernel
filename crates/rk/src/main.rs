@@ -576,7 +576,11 @@ fn symvers_diff(args: &Args) -> Result<ExitCode, String> {
     if rm.is_empty() {
         return Err("the reference has no System.map; was it linked?".to_string());
     }
-    let comparison = symvers::compare((&rs, &rm), (&os, &om));
+    let trimmed = ["reference", "other"]
+        .iter()
+        .filter_map(|name| args.get(name))
+        .all(|d| symvers::trims(std::path::Path::new(d)));
+    let comparison = symvers::compare((&rs, &rm), (&os, &om), trimmed);
     print!("{}", symvers::report(&comparison));
     Ok(verdict(comparison.clean()))
 }

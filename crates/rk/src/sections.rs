@@ -909,6 +909,11 @@ fn compare_object(name: &str, r: &Object, o: &Object, out: &mut Vec<Difference>)
     }
 }
 
+/// The object the kernel generates from its export list, which `rk symvers-diff` compares symbol
+/// by symbol. With `CONFIG_TRIM_UNUSED_KSYMS` it holds only the exports some module uses, so its
+/// tables follow the calls each compiler made in the modules.
+const EXPORTS: &str = ".vmlinux.export.o";
+
 /// Compare two builds.
 #[must_use]
 pub fn compare(reference: &Inventory, other: &Inventory) -> Comparison {
@@ -920,6 +925,9 @@ pub fn compare(reference: &Inventory, other: &Inventory) -> Comparison {
         }
     }
     for (name, r) in reference {
+        if name == EXPORTS {
+            continue;
+        }
         match other.get(name) {
             Some(o) => {
                 c.shared += 1;
@@ -930,7 +938,7 @@ pub fn compare(reference: &Inventory, other: &Inventory) -> Comparison {
     }
     c.only_other = other
         .keys()
-        .filter(|k| !reference.contains_key(*k))
+        .filter(|k| !reference.contains_key(*k) && *k != EXPORTS)
         .cloned()
         .collect();
     for d in &mut c.differences {
