@@ -3074,3 +3074,244 @@ object = "lib/test_bpf.o"
 only = "reference"
 item = '4="" 8="include/linux/skbuff.h" 860a0309'
 reason = "the DEBUG_NET_WARN_ON_ONCE(size > truesize) in skb_add_rx_frag_netmem. Both calls in test_bpf.c pass the same constant for size and truesize"
+
+# More 7.2.8 rows from the same census. The jump table ones are pr_debug and usercopy branches
+# around code rucc proves dead or a length it proves constant.
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/btrfs/send.o"
+only = "reference"
+item = '4="" 8="fs/btrfs/send.c" 8d011109'
+reason = "the DEBUG_WARN in the default case of inconsistent_snapshot_error. Its callers changed_ref and changed_xattr get the result from changed_cb, which turns SAME into CHANGED, and every caller of changed_cb passes NEW, DELETED, CHANGED or SAME"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/netfilter/nf_tables_api.o"
+only = "reference"
+item = '4="" 8="net/netfilter/nf_tables_api.c" 72000309'
+reason = "the WARN_ON_ONCE(new_validate_state == NFT_VALIDATE_DO) under NFT_VALIDATE_SKIP in nft_validate_state_update. The only call that passes DO is in the NEED case of a switch on the same state, and the others pass NEED or SKIP"
+
+[[divergence]]
+what = "__jump_table"
+object = "block/blk-integrity.o"
+only = "reference"
+item = "8=validate_usercopy_range+3"
+reason = "the hardened usercopy branch of check_object_size in the copy_struct_to_user of blk_get_meta_cap. extensible_ioctl_valid has returned for a size below LBMD_SIZE_VER0, 16, so min(sizeof(meta_cap), usize) is 16 and rucc folds the __builtin_constant_p(n) test to true"
+
+[[divergence]]
+what = "__jump_table"
+object = "net/rds/af_rds.o"
+only = "reference"
+item = "8=validate_usercopy_range+3"
+reason = "the hardened usercopy branch of check_object_size. Every copy_from_sockptr in af_rds.c has a sizeof length, which rucc keeps through the inlined copy_from_sockptr_offset, where gcc moves it into a constprop clone that takes the length as an argument"
+
+[[divergence]]
+what = "__jump_table"
+object = "drivers/gpu/drm/i915/gvt/gtt.o"
+only = "reference"
+item = "8=__tracepoint_oos_sync+10"
+reason = "the oos_sync tracepoint, which is only called from the out of sync code under enable_out_of_sync, a static bool set to false that nothing writes, so rucc removes it"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_845+42"
+reason = "the pr_debug of dspio_scp bad resp buf len parms. The only call with a reply buffer passes the address of a size that holds 4, and gcc keeps the check in a constprop clone"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_884+42"
+reason = "the pr_debug of dma chan num invalid. The only dspload_image call passes ovly 0, so the channel is 0, and gcc keeps the check in a constprop clone"
+
+[[divergence]]
+what = "sections"
+object = "drivers/clocksource/timer-mediatek.o"
+only = "other"
+item = ".data..read_mostly"
+reason = "gpt_sched_reg, which only mtk_gpt_read_sched_clock reads. On x86 sched_clock_register is an empty inline, so the reader is never used and the static is only stored to. gcc removes a static that is only stored to and rucc keeps it"
+
+[[divergence]]
+what = "sections"
+object = "drivers/net/ethernet/marvell/octeontx2/af/cn20k/mbox_init.o"
+only = "other"
+item = "__tracepoint_check"
+reason = "the __used name of the otx2_msg_interrupt tracepoint from TRACEPOINT_CHECK in the two mbox irq handlers. The handlers are only in an ops struct nothing uses, and both compilers remove them, but rucc still writes the __used statics inside them. The section is only read at build time"
+
+[[divergence]]
+what = "sections"
+object = "drivers/net/ethernet/marvell/octeontx2/af/cn20k/mbox_init.o"
+only = "other"
+item = ".discard.addressable"
+reason = "the __ADDRESSABLE of the otx2_msg_interrupt static call key, from the same removed irq handlers as the __tracepoint_check entry"
+
+[[divergence]]
+what = "sections"
+object = "drivers/nfc/nfcmrvl/i2c.o"
+only = "other"
+item = ".smp_locks"
+reason = "the lock prefix of the set_bit(NFCMRVL_PHY_ERROR) under case -EREMOTEIO in nfcmrvl_i2c_int_irq_thread_fn. nfcmrvl_i2c_read only returns 0, -ENOMEM or -EBADMSG, so gcc removes the case and rucc keeps it"
+
+[[divergence]]
+what = "sections"
+object = "samples/seccomp/*"
+only = "reference"
+item = ".note.gnu.property"
+reason = "Ubuntu's gcc turns on -fcf-protection when no -fcf-protection is given, and writes the IBT and SHSTK property note. The seccomp samples are user programs built with no -fcf-protection. Debian's gcc and rucc write no note then"
+
+[[divergence]]
+what = "sections"
+object = "drivers/infiniband/sw/rdmavt/rc.o"
+only = "reference"
+item = ".data..unlikely"
+reason = "the once flag of the DEBUG_ATOMIC alignment WARN in instrumented.h, which gcc 16.2 removes as well"
+
+[[divergence]]
+what = "sections"
+object = "drivers/infiniband/sw/rdmavt/rc.o"
+only = "reference"
+item = ".smp_locks"
+reason = "the lock prefix of the atomic under the same DEBUG_ATOMIC WARN, which gcc 16.2 removes as well"
+
+[[divergence]]
+what = ".altinstructions"
+object = "drivers/net/wireless/intersil/p54/*"
+only = "reference"
+item = "97000000"
+reason = "a POPCNT alternative of an hweight the reference gcc keeps out of line. gcc 16.2 and rucc fold it, and a build of the object with gcc 16.2 has no .altinstructions"
+
+[[divergence]]
+what = ".altinstructions"
+object = "net/mac80211/mesh_ps.o"
+only = "reference"
+item = "97000000"
+reason = "a POPCNT alternative of an hweight the reference gcc keeps out of line. gcc 16.2 and rucc fold it, and a build of the object with gcc 16.2 has no .altinstructions"
+
+[[divergence]]
+what = "sections"
+object = "drivers/net/wireless/intersil/p54/*"
+only = "reference"
+item = ".altinstr_replacement"
+reason = "the replacement of the same POPCNT alternative"
+
+[[divergence]]
+what = "sections"
+object = "drivers/net/wireless/intersil/p54/*"
+only = "reference"
+item = ".altinstructions"
+reason = "the same POPCNT alternative"
+
+[[divergence]]
+what = "sections"
+object = "net/mac80211/mesh_ps.o"
+only = "reference"
+item = ".altinstr_replacement"
+reason = "the replacement of the same POPCNT alternative"
+
+[[divergence]]
+what = "sections"
+object = "net/mac80211/mesh_ps.o"
+only = "reference"
+item = ".altinstructions"
+reason = "the same POPCNT alternative"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_1010+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_860+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_862+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_864+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_866+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_868+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_892+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_894+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_900+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_902+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_946+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_948+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_956+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_958+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
