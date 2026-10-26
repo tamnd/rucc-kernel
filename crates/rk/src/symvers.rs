@@ -7,6 +7,11 @@
 //! different type behind, and a module built against one kernel will not load into the
 //! other. `System.map` is compared by its global symbols only, since which static functions
 //! survive depends on inlining and the local names carry the compiler's clone suffixes.
+//!
+//! With `CONFIG_TRIM_UNUSED_KSYMS` the kernel keeps an export only when some module uses it. So
+//! an export one build has and the other does not, of a symbol both define, follows which calls
+//! each compiler made in the modules, such as a retpoline thunk for a register only one of them
+//! called through. Those are listed as trimmed and do not count as a difference.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -76,6 +81,8 @@ pub struct Comparison {
     pub exports_missing: Vec<String>,
     /// Exports only the other build has.
     pub exports_extra: Vec<String>,
+    /// Exports one build trimmed and the other kept, of symbols both define.
+    pub exports_trimmed: Vec<String>,
     /// Exports whose CRC, module, kind or namespace differ, with both sides.
     pub exports_changed: Vec<(String, Export, Export)>,
     /// Global symbols only the reference has.
@@ -98,15 +105,17 @@ impl Comparison {
     }
 }
 
-/// Compare two builds' exports and global symbols.
+/// Compare two builds' exports and global symbols. `trimmed` says the builds were made with
+/// `CONFIG_TRIM_UNUSED_KSYMS`.
 #[must_use]
 pub fn compare(
     reference: (&BTreeMap<String, Export>, &BTreeSet<String>),
     other: (&BTreeMap<String, Export>, &BTreeSet<String>),
+    trimmed: bool,
 ) -> Comparison {
     let (rs, rm) = reference;
     let (os, om) = other;
-    Comparison {
+    let mut c = Comparison {
         exports_missing: rs
             .keys()
             .filter(|k| !os.contains_key(*k))
@@ -127,7 +136,25 @@ pub fn compare(
         globals_missing: rm.difference(om).cloned().collect(),
         globals_extra: om.difference(rm).cloned().collect(),
         counted: (rs.len(), rm.len()),
+        ..Comparison::default()
+    };
+    if trimmed {
+        let defined = |name: &String| rm.contains(name) && om.contains(name);
+        for list in [&mut c.exports_missing, &mut c.exports_extra] {
+            c.exports_trimmed
+                .extend(list.iter().filter(|n| defined(n)).cloned());
+            list.retain(|n| !defined(n));
+        }
+        c.exports_trimmed.sort();
     }
+    c
+}
+
+/// Whether the build in `dir` was configured with `CONFIG_TRIM_UNUSED_KSYMS`.
+#[must_use]
+pub fn trims(dir: &Path) -> bool {
+    std::fs::read_to_string(dir.join(".config"))
+        .is_ok_and(|text| text.lines().any(|l| l == "CONFIG_TRIM_UNUSED_KSYMS=y"))
 }
 
 /// Read `Module.symvers` and `System.map` from a build directory. A missing file reads as
@@ -163,6 +190,15 @@ pub fn report(c: &Comparison) -> String {
         "{} exports and {} global symbols in the reference.\n",
         c.counted.0, c.counted.1
     );
+    if !c.exports_trimmed.is_empty() {
+        let _ = writeln!(
+            s,
+            "Exports one build trimmed ({}): {}. Both define them, and \
+             `CONFIG_TRIM_UNUSED_KSYMS` keeps an export only when a module uses it.\n",
+            c.exports_trimmed.len(),
+            names(&c.exports_trimmed)
+        );
+    }
     if c.clean() {
         s.push_str("Both builds export the same symbols with the same CRCs.\n");
         return s;
@@ -213,12 +249,29 @@ mod tests {
         let rm = parse_map("ffff T start_kernel\nffff t helper.isra.0\nffff D jiffies\n");
         let om = parse_map("ffff T start_kernel\nffff t helper\n");
         assert_eq!(rm.len(), 2);
-        let c = compare((&rs, &rm), (&os, &om));
+        let c = compare((&rs, &rm), (&os, &om), false);
         assert_eq!(c.exports_changed.len(), 1);
         assert_eq!(c.globals_missing, ["jiffies"]);
         assert!(!c.clean());
         let text = report(&c);
         assert!(text.contains("| `b` | 0x2 vmlinux EXPORT_SYMBOL | 0x3 vmlinux EXPORT_SYMBOL |"));
-        assert!(compare((&rs, &rm), (&rs, &rm)).clean());
+        assert!(compare((&rs, &rm), (&rs, &rm), false).clean());
+    }
+
+    #[test]
+    fn an_export_one_build_trimmed_is_not_a_difference() {
+        let rs = parse_symvers(
+            "0x0\tthunk_rbp\tvmlinux\tEXPORT_SYMBOL\n0x0\tgone\tvmlinux\tEXPORT_SYMBOL\n",
+        );
+        let os = BTreeMap::new();
+        let rm = parse_map("ffff T thunk_rbp\nffff T gone\n");
+        let om = parse_map("ffff T thunk_rbp\n");
+        let c = compare((&rs, &rm), (&os, &om), true);
+        assert_eq!(c.exports_trimmed, ["thunk_rbp"]);
+        assert_eq!(c.exports_missing, ["gone"]);
+        assert!(report(&c).contains("Exports one build trimmed (1): `thunk_rbp`"));
+        let c = compare((&rs, &rm), (&os, &rm), true);
+        assert!(c.clean());
+        assert!(!compare((&rs, &rm), (&os, &rm), false).clean());
     }
 }
