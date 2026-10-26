@@ -392,7 +392,9 @@ jobs:
         if: failure() && steps.test.outcome == 'failure'
         timeout-minutes: 180
         run: |
-          unit=$(python3 -c 'import json, sys; t = json.load(open(sys.argv[1])); print(next((u["name"] for u in t["units"] if u["graded"] and not u["passed"] and u.get("attribution", "kernel") == "kernel"), ""))' "$RUNNER_TEMP/test/test.json")
+          # A boot that fails in the kunit run fails the boot unit too, but rk mixed on boot only boots
+          # the smoke suite, which passes. So a failed unit other than boot goes first.
+          unit=$(python3 -c 'import json, sys; t = json.load(open(sys.argv[1])); f = [u["name"] for u in t["units"] if u["graded"] and not u["passed"] and u.get("attribution", "kernel") == "kernel"]; print(next((n for n in f if n != "boot"), f[0] if f else ""))' "$RUNNER_TEMP/test/test.json")
           if [ -z "$unit" ]; then echo "no kernel failure to bisect"; exit 0; fi
           boot=()
           if [ -n "$CPU" ]; then boot+=(--cpu "$CPU"); fi
