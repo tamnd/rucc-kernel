@@ -710,7 +710,14 @@ fn syntax_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     let outcome = outcome_of(&build)?;
     let compiler = build::Compiler::identify(args.get("cc").unwrap_or("rucc"))?;
     let persona = if compiler.rucc {
-        let gnuc = if outcome.gnuc.is_empty() {
+        let gnuc = if let Some(gnuc) = args.get("gnuc") {
+            gnuc.to_string()
+        } else if let Some(gnuc) = (!outcome.compiler.rucc)
+            .then(|| gcc_version(&outcome.compiler.version))
+            .flatten()
+        {
+            gnuc
+        } else if outcome.gnuc.is_empty() {
             personas::Personas::load(&repo.file("personas.toml"))?
                 .eras
                 .into_iter()
@@ -752,6 +759,22 @@ fn syntax_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     } else {
         ExitCode::from(1)
     })
+}
+
+/// The last word of a GCC `--version` line that is a version of three numbers, as `16.2.0` in
+/// `gcc-16 (Debian 16.2.0-3) 16.2.0` and `14.2.1` in `gcc (GCC) 14.2.1 20250110`. The command
+/// lines of a GCC build are what kbuild chose for that GCC, so rucc replays them as that GCC.
+fn gcc_version(line: &str) -> Option<String> {
+    line.split_whitespace()
+        .rev()
+        .find(|w| {
+            let parts: Vec<&str> = w.split('.').collect();
+            parts.len() == 3
+                && parts
+                    .iter()
+                    .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+        })
+        .map(str::to_string)
 }
 
 /// Compare the compiler probes of two builds, and fail when they answer any differently.
@@ -1462,4 +1485,22 @@ fn baseline_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     } else {
         ExitCode::from(1)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::gcc_version;
+
+    #[test]
+    fn the_persona_of_a_gcc_build_is_that_gcc() {
+        assert_eq!(
+            gcc_version("gcc-16 (Debian 16.2.0-3) 16.2.0").as_deref(),
+            Some("16.2.0")
+        );
+        assert_eq!(
+            gcc_version("gcc (GCC) 14.2.1 20250110").as_deref(),
+            Some("14.2.1")
+        );
+        assert_eq!(gcc_version("").as_deref(), None);
+    }
 }
