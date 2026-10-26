@@ -138,6 +138,20 @@ Rough capacity:
 - a Releases sweep of 114 trees × 2 rows × (build + boot + KUnit) is about 114 × 2 × 10 minutes, or about 38 hours of gpc time. That is a weekly job, on the edge of fitting, and it runs incrementally (only trees whose inputs changed, meaning the rucc hash) with the rest of the week's rucc commits batched;
 - the monthly sets are about 90 + 5 trees.
 
+### 13.6.1 The split for 7.3
+
+The table above is the plan. For 7.3 the machines are not as the plan expected. gpc is not in service. No server has `/dev/kvm`, so each boot is under TCG. The servers are shared with other projects, so a long job runs at `nice` and one heavy job runs at a time on each server. The work for 7.3 is split as follows:
+
+| Machine | What it has | 7.3 work |
+|---|---|---|
+| server3 (8 cores, 23 GB, about 35 GB free) | QEMU for x86-64, i386, aarch64 and riscv64. gcc 16 in the `rk-era-forky` image | X64 builds and boots with gcc 16 and rucc, the KASAN and UBSAN kernels, the A64 KASAN kernel, `rk syntax` replays, `rk probes` and the speed runs. A speed run waits until no other heavy job runs |
+| server2 (6 cores, 11 GB, about 30 GB free) | QEMU for x86-64 only | X64 TCG boots of a kernel that server3 built, when server3 is busy. No A64 work until it has `qemu-system-aarch64` |
+| server1 (4 cores, 5 GB, about 3 GB free) | docker, no QEMU | No kernel builds, because the disk is almost full. Short rucc checks only |
+| GitHub `ubuntu-24.04` runners | gcc 14, rucc from a release or a branch | The census of each row and configuration, the X64 nightly and the `kernel` workflow |
+| GitHub `ubuntu-24.04-arm` runners | TCG only | The A64 nightly, with boot, smoke and KUnit, and the selftests and LTP when the job time lets them finish |
+
+A job that does not fit in the time limit of a hosted runner, such as an X64 `allmodconfig` boot with LTP, runs on server3. The nightly does not use the servers as self-hosted runners. The repository is public, and a self-hosted runner on it needs the owner's approval.
+
 ## 13.7 Storage
 
 Per run we keep:
