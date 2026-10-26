@@ -643,6 +643,17 @@ fn matches(pattern: &str, s: &str) -> bool {
     }
 }
 
+/// A bug entry's site without the condition text of its WARN.
+///
+/// With `DEBUG_BUGVERBOSE_DETAILED` a `WARN_ON(cond)` puts `#cond` where the format of a `WARN`
+/// goes, so allmodconfig prints `4="!p" 8="mm/x.c" 1c000309` for the site defconfig prints as
+/// `4="" 8="mm/x.c" 1c000309`. The file, line and flags still name it.
+fn uncondition(item: &str) -> Option<String> {
+    let rest = item.strip_prefix("4=\"")?;
+    let at = rest.find("\" 8=\"")?;
+    (at > 0).then(|| format!("4=\"\"{}", &rest[at + 1..]))
+}
+
 /// Whether a rule for `object` follows `item` into the module `object` is linked into.
 ///
 /// A bug entry names the file of its WARN or BUG. One that names `fs/btrfs/volumes.c` was compiled
@@ -689,14 +700,17 @@ impl Divergences {
     }
 
     /// The rule that explains one item of a difference, if there is one.
+    ///
+    /// A bug entry with the condition text of its WARN is the site a rule names without it.
     fn rule(&self, d: &Difference, only: Only, item: &str) -> Option<&Divergence> {
+        let bare = uncondition(item);
         self.divergences.iter().find(|r| {
             r.what == d.what
                 && (r.only == only || r.only == Only::Either)
                 && r.object
                     .as_deref()
                     .is_none_or(|o| matches(o, &d.object) || linked(o, item))
-                && matches(&r.item, item)
+                && (matches(&r.item, item) || bare.as_deref().is_some_and(|b| matches(&r.item, b)))
         })
     }
 
@@ -1589,6 +1603,21 @@ reason = "checked in a.c"
         assert!(of("fs/f2fs/dir.o").is_empty());
         assert!(of("fs/f2fs/f2fs.ko").is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_site_with_its_condition_is_the_site_without_it() {
+        let rules = Divergences::parse(
+            "[[divergence]]\nwhat = \"__bug_table\"\nonly = \"reference\"\n\
+             item = '4=\"\" 8=\"mm/x.c\" 1c000309'\nreason = \"r\"\n",
+        )
+        .unwrap();
+        let d = plain("mm/x.o", "__bug_table", String::new(), String::new());
+        let at = |item: &str| rules.rule(&d, Only::Reference, item).is_some();
+        assert!(at("4=\"\" 8=\"mm/x.c\" 1c000309"));
+        assert!(at("4=\"!p\" 8=\"mm/x.c\" 1c000309"));
+        assert!(!at("4=\"!p\" 8=\"mm/x.c\" 1d000309"));
+        assert_eq!(uncondition("4=\"\" 8=\"mm/x.c\" 1c000309"), None);
     }
 
     #[test]
