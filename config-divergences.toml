@@ -25,6 +25,10 @@ symbol = "KASAN*"
 reason = "KASAN itself and its generic and software tag modes are only visible when the compiler can build them, see CC_HAS_KASAN_*. On arm64 allmodconfig still turns KASAN on in the rucc build, since the hardware tag mode needs no compiler support, so the gcc build has KASAN_GENERIC with KASAN_INLINE, KASAN_STACK and the shadow offset, and the rucc build has KASAN_HW_TAGS"
 
 [[divergence]]
+symbol = "LOCKDEP_STACK_TRACE_*"
+reason = "Both sizes default higher under KASAN in recent kernels, 21 and 16 bits against 19 and 14. allmodconfig turns KASAN on in the gcc build before rk turns it off, and the larger value it chose stays, while the rucc build never sees KASAN, see CC_HAS_KASAN_*. They size lockdep's own tables and no compiler flag follows from them"
+
+[[divergence]]
 symbol = "CC_HAS_UBSAN_*"
 reason = "rucc has no -fsanitize=bounds-strict or any other UBSAN check, and plan section 8.10 keeps the sanitizers out of the grade. allmodconfig turns UBSAN on in both builds, and in the rucc build it has no checks under it"
 
