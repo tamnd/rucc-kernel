@@ -85,6 +85,17 @@ pub fn save<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     std::fs::write(path, text).map_err(|e| format!("writing {}: {e}", path.display()))
 }
 
+/// How far ahead of a function its padding can reach. `-fpatchable-function-entry=16,16` lays
+/// down 16 bytes, and the kernel aligns a function to 64 at most.
+pub const PADDING: u64 = 64;
+
+/// The function a symbol over its padding names, or the name itself.
+fn padded_name(name: &str) -> &str {
+    name.strip_prefix("__pfx_")
+        .or_else(|| name.strip_prefix("__cfi_"))
+        .unwrap_or(name)
+}
+
 /// The functions of an object by section index, sorted by address, for finding the function a
 /// relocation points into.
 pub struct Functions {
@@ -117,12 +128,25 @@ impl Functions {
 
     /// The function covering an offset in a section. A function with no size covers only its
     /// first byte.
+    ///
+    /// An offset no function covers, up to [`PADDING`] bytes before one, is in the padding
+    /// `-fpatchable-function-entry` lays down ahead of that function, and is that function's. A
+    /// `__pfx_` or `__cfi_` symbol objtool writes over the padding of a linked module is the
+    /// function it pads too, so a site has the same name in a module and in its members.
     #[must_use]
     pub fn at(&self, section: usize, offset: u64) -> Option<&str> {
         let list = self.by_section.get(&section)?;
         let i = list.partition_point(|(start, _, _)| *start <= offset);
-        let (start, size, name) = list.get(i.checked_sub(1)?)?;
-        (offset < start + (*size).max(1)).then_some(name.as_str())
+        let covering = i
+            .checked_sub(1)
+            .and_then(|j| list.get(j))
+            .filter(|(start, size, _)| offset < start + (*size).max(1));
+        let padded = || {
+            list.get(i)
+                .filter(|(start, _, _)| start - offset <= PADDING)
+        };
+        let (_, _, name) = covering.or_else(padded)?;
+        Some(padded_name(name))
     }
 
     /// The function a relocation points at: a function symbol itself, or the function covering
@@ -145,7 +169,7 @@ impl Functions {
             .checked_add_signed(reloc.addend())
             .unwrap_or_default();
         if symbol.kind() == SymbolKind::Text && offset == symbol.address() {
-            return symbol.name().ok().map(str::to_string);
+            return symbol.name().ok().map(|n| padded_name(n).to_string());
         }
         self.at(section.0, offset).map(str::to_string)
     }
@@ -270,6 +294,24 @@ mod tests {
         let text = file.section_by_name(".text").unwrap().index().0;
         assert_eq!(functions.at(text, 3), Some("first"));
         assert_eq!(functions.at(text, 100), None);
+    }
+
+    /// A patchable entry sits in the padding ahead of its function, which no symbol covers in a
+    /// unit and objtool's `__pfx_` symbol covers in a module. Either way it is the function's.
+    #[test]
+    fn a_site_in_the_padding_is_the_function_it_pads() {
+        let mut b = fixture::Builder::new();
+        b.function("first", &[0x90; 8]);
+        b.function("second", &[0xc3]);
+        b.function("__pfx_third", &[0x90; 16]);
+        b.function("third", &[0xc3]);
+        let bytes = b.bytes();
+        let file = object::File::parse(&*bytes).unwrap();
+        let functions = Functions::of(&file);
+        let text = file.section_by_name(".text").unwrap().index().0;
+        assert_eq!(functions.at(text, 10), Some("second"));
+        assert_eq!(functions.at(text, 32), Some("third"));
+        assert_eq!(functions.at(text, 48), Some("third"));
     }
 
     #[test]
