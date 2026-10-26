@@ -483,6 +483,18 @@ pub fn qemu_command(plan: &Plan, image: &Path, kvm: bool) -> Vec<String> {
     } else {
         ""
     };
+    // On the 7.3 arm64 nightly the kernel set memory with FEAT_MOPS, and in a KUnit boot one module
+    // load in a few hundred stopped in `__memset` in `module_memory_alloc`. The SETM wrote the
+    // page after the end of the area with no bytes left to set, and the kernel took a paging
+    // fault there. The gcc kernel with its own modules did it too, so the fault is not the
+    // compiler's, and QEMU 8.2's MOPS under TCG is the likely cause. With `arm64.nomops` the
+    // kernel uses its own copy and set loops on both kernels. Under KVM the CPU runs the
+    // instructions itself.
+    let mops = if plan.row.arch == "arm64" && !kvm {
+        "arm64.nomops "
+    } else {
+        ""
+    };
     // In 7.2 the clocksource watchdog checks the TSC of each CPU from a timer. It queues a call
     // on the other CPU and waits for it with interrupts off. If the timer interrupts a CPU that
     // has queued a call on the same CPU but not yet sent the IPI, the IPI never goes out. The
@@ -531,7 +543,7 @@ pub fn qemu_command(plan: &Plan, image: &Path, kvm: bool) -> Vec<String> {
         plan.initramfs.display().to_string(),
         "-append".to_string(),
         format!(
-            "console={} {early}{tsc}{kunit}panic=-1 oops=panic rdinit=/init {}",
+            "console={} {early}{mops}{tsc}{kunit}panic=-1 oops=panic rdinit=/init {}",
             plan.row.console, plan.append
         )
         .trim_end()
@@ -848,7 +860,7 @@ mod tests {
         };
         assert_eq!(
             line("A64"),
-            "console=ttyAMA0 earlycon panic=-1 oops=panic rdinit=/init"
+            "console=ttyAMA0 earlycon arm64.nomops panic=-1 oops=panic rdinit=/init"
         );
         assert_eq!(
             line("X64"),
