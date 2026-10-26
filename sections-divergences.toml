@@ -2522,3 +2522,555 @@ object = "drivers/crypto/ccree/*"
 only = "reference"
 item = '8=__UNIQUE_ID_ddebug1113+40'
 reason = "the config_gcm_context() returned with a failure dev_dbg at line 1969 in cc_proc_aead, found from the descriptor in gcc 12's asm. config_gcm_context only returns 0"
+
+# 7.2.8 allmodconfig census against gcc 16.2. Each WARN or BUG below is in the gcc build and
+# not in the rucc one. The site was checked in the source, and where it says so gcc 16.2 drops
+# it as well, which a build of the member with both compilers showed. The field spanning
+# WARNs of fortify memcpy are the ones where rucc's field size proves the copy fits or where the
+# destination is a flexible array, so both of its sizes are the same.
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/block/mtip32xx/mtip32xx.o"
+only = "reference"
+item = '4="" 8="include/linux/ucopysize.h" 39000309'
+reason = "the WARN_ON_ONCE(bytes > INT_MAX) in check_copy_size. In exec_drive_taskfile a taskout or taskin above 130560 has already returned -EINVAL, so the copy_to_user length is bounded"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/cxl/core/features.o"
+only = "reference"
+item = '4="" 8="drivers/cxl/core/features.c" b3011309'
+reason = "the field spanning WARN of memcpy(pos, &cxlfs->entries->ent[i], sizeof(*pos)), a whole entry copied into a whole entry. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/hid/hid-nintendo.o"
+only = "reference"
+item = '4="" 8="drivers/hid/hid-nintendo.c" 5c0a1309'
+reason = "the field spanning WARN of memcpy(ctlr->input_buf, data, min(size, JC_MAX_RESP_SIZE)), which the min keeps inside input_buf. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/infiniband/sw/rdmavt/rc.o"
+only = "reference"
+item = '4="" 8="include/linux/instrumented.h" 43000309'
+reason = "the DEBUG_ATOMIC alignment WARN of an atomic on a naturally aligned field. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/media/v4l2-core/v4l2-vp9.o"
+only = "reference"
+item = '4="" 8="drivers/media/v4l2-core/v4l2-vp9.c" 7f040109'
+reason = "the WARN_ON(divisor - 2 >= ARRAY_SIZE(inv)) on a divisor the callers bound. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/huawei/hinic/hinic_hw_cmdq.o"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/huawei/hinic/hinic_hw_cmdq.c" f0001309'
+reason = "the field spanning WARN of memcpy(wqe_scmd->buf_desc.data, buf_in, in_size), where the direct WQE callers check in_size against the buffer. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/broadcom/b43/phy_lp.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/broadcom/b43/phy_lp.c" f5060109'
+reason = "the B43_WARN_ON(samples > 63) on a sample count each caller passes as a small constant. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/mediatek/mt7601u/phy.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/mediatek/mt7601u/phy.c" 18000109'
+reason = "the WARN_ON(offset > 63) of the BBP register helpers, which every call reaches with a constant register below 64. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/mediatek/mt7601u/phy.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/mediatek/mt7601u/phy.c" 3c000109'
+reason = "the WARN_ON(offset > 63) of the BBP register helpers, which every call reaches with a constant register below 64. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/realtek/rtw88/rtw8822c.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/realtek/rtw88/rtw8822c.c" f8000109'
+reason = "the WARN(1) in the default case of a switch on a path or a rate section that every caller passes as a constant it handles. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/realtek/rtw88/rtw8822c.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/realtek/rtw88/rtw8822c.c" 0b010109'
+reason = "the WARN(1) in the default case of a switch on a path or a rate section that every caller passes as a constant it handles. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/ath/carl9170/phy.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/ath/carl9170/phy.c" d9030000'
+reason = "the BUG() in the default case of the switch on bw in carl9170_init_rf_bank4_pwr. bw comes from nl80211_to_carl, which only returns the three handled values. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/intel/iwlwifi/pcie/gen1_2/trans.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/intel/iwlwifi/pcie/gen1_2/trans.c" 640e1309'
+reason = "the field spanning WARN of memcpy(txcmd->data, cmdq->entries[idx].cmd, caplen), where caplen is capped by the size of the command. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/pinctrl/uniphier/pinctrl-uniphier-core.o"
+only = "reference"
+item = '4="" 8="drivers/pinctrl/uniphier/pinctrl-uniphier-core.c" f0000000'
+reason = "the BUG() in the default case of uniphier_conf_pin_bias_get. Its only caller switches on the same param and calls it only for the three bias values it handles. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/migrate.o"
+only = "reference"
+item = '4="" 8="include/linux/rmap.h" de010109'
+reason = "a VM_WARN_ON_FOLIO in the rmap sanity checks on a page count the migrate callers pass as one. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/gpu/drm/amd/amdkfd/kfd_events.o"
+only = "reference"
+item = '4="" 8="drivers/gpu/drm/amd/amdgpu/../amdkfd/kfd_events.c" 53021309'
+reason = "the field spanning WARN of memcpy(&ev_priv->memory_exception_data, &ev->memory_exception_data, sizeof(...)). gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/gpu/drm/amd/amdkfd/kfd_events.o"
+only = "reference"
+item = '4="" 8="drivers/gpu/drm/amd/amdgpu/../amdkfd/kfd_events.c" 57021309'
+reason = "the field spanning WARN of memcpy(&ev_priv->hw_exception_data, &ev->hw_exception_data, sizeof(...)). gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/chelsio/cxgb4/t4_hw.o"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/chelsio/cxgb4/t4_hw.c" 401f1309'
+reason = "the field spanning WARN of memcpy(p->macaddr, addr[offset + i], sizeof(p->macaddr)). gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/chelsio/cxgb4/t4_hw.o"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/chelsio/cxgb4/t4_hw.c" 971f1309'
+reason = "the field spanning WARN of memcpy(p->macaddr, addr[offset + i], sizeof(p->macaddr)). gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/chelsio/cxgb4vf/t4vf_hw.o"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/chelsio/cxgb4vf/t4vf_hw.c" 1b061309'
+reason = "the field spanning WARN of memcpy(p->macaddr, addr[offset + i], sizeof(p->macaddr)). gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/chelsio/cxgb4vf/t4vf_hw.o"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/chelsio/cxgb4vf/t4vf_hw.c" 6f061309'
+reason = "the field spanning WARN of memcpy(p->macaddr, addr[offset + i], sizeof(p->macaddr)). gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/intel/ice/ice_switch.o"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/intel/ice/ice_switch.c" 29141309'
+reason = "the field spanning WARN of memcpy(root->recipe_bitmap, rm->r_bitmap, sizeof(root->recipe_bitmap)). gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/fddi/skfp/pmf.o"
+only = "reference"
+item = '4="" 8="drivers/net/fddi/skfp/pmf.c" d5041309'
+reason = "the field spanning WARN of memcpy(to, from + 2, 6) in smt_set_para. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/fddi/skfp/pmf.o"
+only = "reference"
+item = '4="" 8="drivers/net/fddi/skfp/pmf.c" de041309'
+reason = "the field spanning WARN of memcpy(to, from, 4) in smt_set_para. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/fddi/skfp/pmf.o"
+only = "reference"
+item = '4="" 8="drivers/net/fddi/skfp/pmf.c" e7041309'
+reason = "the field spanning WARN of memcpy(to, from, 8) in smt_set_para. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/fddi/skfp/pmf.o"
+only = "reference"
+item = '4="" 8="drivers/net/fddi/skfp/pmf.c" f0041309'
+reason = "the field spanning WARN of memcpy(to, from, 32) in smt_set_para. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireguard/allowedips.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireguard/allowedips.c" 21001309'
+reason = "the field spanning WARN of memcpy(node->bits, src, bits / 8U), where bits is 32 or 128. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/ath/ath10k/coredump.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/ath/ath10k/coredump.c" 27061309'
+reason = "the field spanning WARN of memcpy(ce_hdr->entries, crash_data->ce_crash_data, CE_COUNT * sizeof(ce_hdr->entries[0])). gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/ath/ath10k/coredump.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/ath/ath10k/coredump.c" 33061309'
+reason = "the field spanning WARN of memcpy(dump_tlv->tlv_data, crash_data->ramdump_buf, crash_data->ramdump_buf_len). gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/ath/ath11k/mac.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/ath/ath11k/mac.c" 2e281309'
+reason = "the field spanning WARN of memcpy(addresses[i].addr, ar->mac_addr, ETH_ALEN). gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/intel/iwlwifi/fw/dbg-old.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/intel/iwlwifi/fw/dbg-old.c" 4c031309'
+reason = "the field spanning WARN of memcpy(dump_info->fw_human_readable, ..., sizeof(dump_info->fw_human_readable)). gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/intel/iwlwifi/fw/dbg.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/intel/iwlwifi/fw/dbg.c" dc051309'
+reason = "the field spanning WARN of memcpy(cfg_name->cfg_name, ..., sizeof(cfg_name->cfg_name)). gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/scsi/mpi3mr/mpi3mr_app.o"
+only = "reference"
+item = '4="" 8="drivers/scsi/mpi3mr/mpi3mr_app.c" ea041309'
+reason = "the field spanning WARN of memcpy(&hbd_status_entry->trigger_data, &diag_buffer->trigger_data, sizeof(...)). gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/thermal/intel/int340x_thermal/acpi_thermal_rel.o"
+only = "reference"
+item = '4="" 8="drivers/thermal/intel/int340x_thermal/acpi_thermal_rel.c" 84011309'
+reason = "the field spanning WARN of memcpy(&art_user[i].data, &arts[i].data, sizeof(art_user[i].data)). gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ntfs/ea.o"
+only = "reference"
+item = '4="" 8="fs/ntfs/ea.c" 64011309'
+reason = "the field spanning WARN of memcpy(p_ea->ea_name + name_len + 1, value, val_size) into the flexible ea_name. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ubifs/journal.o"
+only = "reference"
+item = '4="" 8="fs/ubifs/journal.c" e3041309'
+reason = "the field spanning WARN of memcpy(dent2->name, fname_name(fst_nm), fname_len(fst_nm)) into the flexible name. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "security/keys/trusted-keys/trusted_tpm1.o"
+only = "reference"
+item = '4="" 8="security/keys/trusted-keys/trusted_tpm1.c" 08031309'
+reason = "the field spanning WARN of memcpy(opt->blobauth, args[0].from, opt->blobauth_len) under opt->blobauth_len <= sizeof(opt->blobauth). gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "sound/pci/asihpi/hpimsgx.o"
+only = "reference"
+item = '4="" 8="sound/pci/asihpi/hpimsgx.c" 62021309'
+reason = "the field spanning WARN of memcpy(&rESP_HPI_OSTREAM_OPEN[adapter][i], &hr, sizeof(rESP_HPI_OSTREAM_OPEN[0][0])). gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "sound/pci/asihpi/hpimsgx.o"
+only = "reference"
+item = '4="" 8="sound/pci/asihpi/hpimsgx.c" 6f021309'
+reason = "the field spanning WARN of memcpy(&rESP_HPI_ISTREAM_OPEN[adapter][i], &hr, sizeof(rESP_HPI_ISTREAM_OPEN[0][0])). gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "sound/soc/intel/avs/messages.o"
+only = "reference"
+item = '4="" 8="sound/soc/intel/avs/messages.c" dc021309'
+reason = "the field spanning WARN of memcpy(tlv->value, &vols[i], tlv->length) into the flexible value. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "sound/soc/intel/avs/messages.o"
+only = "reference"
+item = '4="" 8="sound/soc/intel/avs/messages.c" 1b031309'
+reason = "the field spanning WARN of memcpy(tlv->value, &mutes[i], tlv->length) into the flexible value. gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/xfs/libxfs/xfs_dir2_sf.o"
+only = "reference"
+item = '4="" 8="fs/xfs/libxfs/xfs_dir2_sf.c" 3e011309'
+reason = "the field spanning WARN of memcpy(sfep->name, dep->name, dep->namelen) in xfs_dir2_block_to_sf. The destination is a flexible array member, so rucc's sizes for both fortify types are the same and the field spanning test cannot hold. gcc 16.2 keeps it because it works the two sizes out by different paths through the loop or the phi"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ubifs/journal.o"
+only = "reference"
+item = '4="" 8="fs/ubifs/journal.c" a9051309'
+reason = "the field spanning WARN of memcpy(dent2->name, fname_name(old_nm), fname_len(old_nm)). The destination is a flexible array member, so rucc's sizes for both fortify types are the same and the field spanning test cannot hold. gcc 16.2 keeps it because it works the two sizes out by different paths through the loop or the phi"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ntfs/attrlist.o"
+only = "reference"
+item = '4="" 8="fs/ntfs/attrlist.c" a3011309'
+reason = "the field spanning WARN of memcpy(ale->name, ...). The destination is a flexible array member, so rucc's sizes for both fortify types are the same and the field spanning test cannot hold. gcc 16.2 keeps it because it works the two sizes out by different paths through the loop or the phi"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ntfs/ea.o"
+only = "reference"
+item = '4="" 8="fs/ntfs/ea.c" 61011309'
+reason = "the field spanning WARN of memcpy(p_ea->ea_name, name, name_len). The destination is a flexible array member, so rucc's sizes for both fortify types are the same and the field spanning test cannot hold. gcc 16.2 keeps it because it works the two sizes out by different paths through the loop or the phi"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ntfs/inode.o"
+only = "reference"
+item = '4="" 8="fs/ntfs/inode.c" 2f0c1309'
+reason = "the field spanning WARN of memcpy(ale->name, ...). The destination is a flexible array member, so rucc's sizes for both fortify types are the same and the field spanning test cannot hold. gcc 16.2 keeps it because it works the two sizes out by different paths through the loop or the phi"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ntfs/reparse.o"
+only = "reference"
+item = '4="" 8="fs/ntfs/reparse.c" 7e031309'
+reason = "the field spanning WARN of memcpy(data->path_buffer + sub_len, ...). The destination is a flexible array member, so rucc's sizes for both fortify types are the same and the field spanning test cannot hold. gcc 16.2 keeps it because it works the two sizes out by different paths through the loop or the phi"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ntfs3/frecord.o"
+only = "reference"
+item = '4="" 8="fs/ntfs3/frecord.c" 2a031309'
+reason = "the field spanning WARN of memcpy(le->name, attr_name(attr), ...). The destination is a flexible array member, so rucc's sizes for both fortify types are the same and the field spanning test cannot hold. gcc 16.2 keeps it because it works the two sizes out by different paths through the loop or the phi"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ntfs3/inode.o"
+only = "reference"
+item = '4="" 8="fs/ntfs3/inode.c" 79041309'
+reason = "the field spanning WARN of memmove(rp_name + ..., rp_name, ...), where rp_name is rs->PathBuffer. The destination is a flexible array member, so rucc's sizes for both fortify types are the same and the field spanning test cannot hold. gcc 16.2 keeps it because it works the two sizes out by different paths through the loop or the phi"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/bluetooth/msft.o"
+only = "reference"
+item = '4="" 8="net/bluetooth/msft.c" 29021309'
+reason = "the field spanning WARN of memcpy(pattern->pattern, entry->value, entry->length). The destination is a flexible array member, so rucc's sizes for both fortify types are the same and the field spanning test cannot hold. gcc 16.2 keeps it because it works the two sizes out by different paths through the loop or the phi"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/tls/tls_sw.o"
+only = "reference"
+item = '4="" 8="net/tls/tls_sw.c" 75051309'
+reason = "the field spanning WARN of memcpy(sgout, out_sg, n_sgout * sizeof(*sgout)), where sgout points into the flexible sg of the tls_decrypt_ctx allocated just before. The destination is a flexible array member, so rucc's sizes for both fortify types are the same and the field spanning test cannot hold. gcc 16.2 keeps it because it works the two sizes out by different paths through the loop or the phi"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/pci/of_property.o"
+only = "reference"
+item = '4="" 8="drivers/pci/of_property.c" 89001309'
+reason = "the field spanning WARN of memcpy(rp[i].child_addr, rp[i].parent_addr, sizeof(rp[i].child_addr)). The length is a constant the size of the destination field, so the copy never spans it. gcc 16.2 keeps the test because its field size comes through a phi it cannot fold"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/spi/spi.o"
+only = "reference"
+item = '4="" 8="drivers/spi/spi.c" af031309'
+reason = "the field spanning WARN of memcpy(&bi->board_info, info, sizeof(*info)). The length is a constant the size of the destination field, so the copy never spans it. gcc 16.2 keeps the test because its field size comes through a phi it cannot fold"
+
+[[divergence]]
+what = "__bug_table"
+object = "sound/soc/sof/ipc4-loader.o"
+only = "reference"
+item = '4="" 8="sound/soc/sof/ipc4-loader.c" 71001309'
+reason = "the field spanning WARN of memcpy(&fw_module->man4_module_entry, fm_entry, sizeof(*fm_entry)). The length is a constant the size of the destination field, so the copy never spans it. gcc 16.2 keeps the test because its field size comes through a phi it cannot fold"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/btrfs/volumes.o"
+only = "reference"
+item = '4="" 8="fs/btrfs/volumes.c" 6a181309'
+reason = "the field spanning WARN of memcpy(stripe->dev_uuid, device->uuid, BTRFS_UUID_SIZE). The length is a constant the size of the destination field, so the copy never spans it. gcc 16.2 keeps the test because its field size comes through a phi it cannot fold"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/bluetooth/hci_event.o"
+only = "reference"
+item = '4="" 8="net/bluetooth/hci_event.c" 88181309'
+reason = "the field spanning WARN of memcpy(conn->le_adv_data, data, len) in process_adv_report, which runs under len <= max_adv_len(hdev), 31 or 251, the size of le_adv_data. rucc carries the bound"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/tls/tls_main.o"
+only = "reference"
+item = '4="" 8="include/linux/sockptr.h" 31001309'
+reason = "the field spanning WARN of the copy_from_sockptr_offset(crypto_info + 1, ...) in do_tls_setsockopt_conf. gcc inlines it and sees a write past the info member, rucc calls it out of line, where dst is a plain pointer with no field to span"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/f2fs/inline.o"
+only = "reference"
+item = '4="" 8="include/linux/highmem.h" 4b021309'
+reason = "the field spanning WARN of the memcpy in memcpy_from_folio, inlined into f2fs_write_inline_data. The destination is inline_data_addr, a pointer into one of two arrays of the node picked at run time and moved on each trip of the loop. rucc does not work out a field size for it, so it makes no field check there, and it keeps the fortify check against the whole object"
+
+[[divergence]]
+what = "__bug_table"
+object = "arch/x86/kvm/i8254.o"
+only = "reference"
+item = '4="" 8="arch/x86/kvm/i8254.c" 9c010109'
+reason = "the WARN_ON(channel != 0) under hpet_legacy_start in pit_load_count. Every caller that can have hpet_legacy_start set passes channel 0, so rucc proves it false"
+
+[[divergence]]
+what = "__bug_table"
+object = "arch/x86/net/bpf_jit_comp.o"
+only = "reference"
+item = '4="" 8="arch/x86/net/bpf_jit_comp.c" fa090109'
+reason = "the WARN_ON(err) after emit_atomic_rmw(&prog, BPF_CMPXCHG, ...). With the constant BPF_CMPXCHG the call always returns 0"
+
+[[divergence]]
+what = "__bug_table"
+object = "arch/x86/xen/multicalls.o"
+only = "reference"
+item = '4="" 8="arch/x86/xen/multicalls.c" 15010000'
+reason = "the BUG_ON(b->argidx >= MC_ARGS) in __xen_mc_entry, where argidx + size was checked against MC_ARGS just before"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/clk/bcm/clk-kona.o"
+only = "reference"
+item = '4="" 8="drivers/clk/bcm/clk-kona.c" df020000'
+reason = "the BUG_ON(!rate) in the divider code, where every caller passes rate ? rate : 1"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/netronome/nfp/flower/main.o"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/netronome/nfp/flower/main.c" a5010109'
+reason = "the WARN_ON(repr_type == NFP_REPR_TYPE_PF && i) in nfp_flower_spawn_vnic_reprs. The PF repr is spawned with a count of 1, so i is 0 whenever the type is the PF"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/broadcom/b43/phy_n.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/broadcom/b43/phy_n.c" f8000109'
+reason = "the B43_WARN_ON(field & (~(1 << (index - 1)))) that expects a single bit. Every caller passes a constant field with one bit set"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/platform/raspberrypi/vchiq-interface/vchiq_core.o"
+only = "reference"
+item = '4="" 8="drivers/platform/raspberrypi/vchiq-interface/vchiq_core.c" be030109'
+reason = "the WARN_ON(stride > VCHIQ_SLOT_SIZE) in queue_message, where every caller bounds the size by VCHIQ_MAX_MSG_SIZE or passes a small sizeof"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/staging/media/ipu7/ipu7-isys-csi-phy.o"
+only = "reference"
+item = '4="" 8="drivers/staging/media/ipu7/ipu7-isys-csi-phy.c" c7000109'
+reason = "the WARN_ON(lo > hi) of the bit field helper, which every call reaches with constants where lo <= hi"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/vhost/vhost.o"
+only = "reference"
+item = '4="" 8="drivers/vhost/vhost.c" 65080000'
+reason = "the BUG() in the default case of vhost_vring_set_num_addr, whose only caller passes VHOST_SET_VRING_NUM or VHOST_SET_VRING_ADDR"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/inode.o"
+only = "reference"
+item = '4="" 8="fs/inode.c" 290a0000'
+reason = "the VFS_BUG_ON(!hash_locked && !rcu_locked) in __wait_on_freeing_inode. Every caller passes one of the two as true"
+
+[[divergence]]
+what = "__bug_table"
+object = "io_uring/io_uring.o"
+only = "reference"
+item = '4="" 8="io_uring/refs.h" 27000309'
+reason = "the WARN_ON_ONCE(!(req->flags & REQ_F_REFCOUNT)) in req_ref_get, inlined in the else branch of a test of the same flag"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/swap.o"
+only = "reference"
+item = '4="" 8="include/linux/mm_inline.h" da000309'
+reason = "the demotion VM_WARN_ON_ONCE in lru_gen_update_size. Its callers in mm_inline.h pass -1 as the old or the new gen, and both of those cases return before the check"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/mlock.o"
+only = "reference"
+item = '4="" 8="include/linux/mm_inline.h" da000309'
+reason = "the demotion VM_WARN_ON_ONCE in lru_gen_update_size. Its callers in mm_inline.h pass -1 as the old or the new gen, and both of those cases return before the check"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/gpu/drm/i915/gvt/gtt.o"
+only = "reference"
+item = '4="" 8="drivers/gpu/drm/i915/gvt/gtt.c" a7051109'
+reason = "the WARN in ppgtt_allocate_oos_page. All the out of sync code runs under enable_out_of_sync, a static bool set to false that nothing writes, so rucc removes it"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/gpu/drm/i915/gvt/gtt.o"
+only = "reference"
+item = '4="" 8="drivers/gpu/drm/i915/gvt/gtt.c" b3091109'
+reason = "the WARN in clean_spt_oos. All the out of sync code runs under enable_out_of_sync, a static bool set to false that nothing writes, so rucc removes it"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/gpu/drm/i915/gvt/gtt.o"
+only = "reference"
+item = '4="" 8="drivers/gpu/drm/i915/gvt/trace.h" d0001309'
+reason = "the RCU WARN of the oos_sync tracepoint, which is only called from the out of sync code under enable_out_of_sync, a static bool set to false that nothing writes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/mellanox/mlx5/core/en_rx.o"
+only = "reference"
+item = '4="" 8="include/linux/skbuff.h" 300b0309'
+reason = "the DEBUG_NET_WARN_ON_ONCE(len > INT_MAX) in pskb_may_pull, called from is_last_ethertype_ip with network_depth plus an IP header size. network_depth starts at 0 and __vlan_get_protocol only sets it to a u16, so rucc carries the bound, where gcc keeps it in is_last_ethertype_ip.constprop.0"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/btrfs/raid56.o"
+only = "reference"
+item = '4="" 8="fs/btrfs/raid56.c" 9e080000'
+reason = "the ASSERT(mirror_num > 2) in set_rbio_raid6_extra_error, whose only caller runs it under if (mirror_num > 2)"
+
+[[divergence]]
+what = "__bug_table"
+object = "kernel/bpf/verifier.o"
+only = "reference"
+item = '4="" 8="kernel/bpf/verifier.c" 6d040309'
+reason = "the WARN_ON_ONCE in unmark_stack_slot_irq_flag. Without DEBUG_INFO_BTF, BTF_ID_LIST makes special_kfunc_list a static array that nothing writes, so rucc reads every entry as 0. The restore branch of process_irq_flag then tests the same func_id == 0 as the save branch before it and is never taken, so the call and its WARN go away"
+
+[[divergence]]
+what = "__bug_table"
+object = "lib/test_bpf.o"
+only = "reference"
+item = '4="" 8="include/linux/skbuff.h" 860a0309'
+reason = "the DEBUG_NET_WARN_ON_ONCE(size > truesize) in skb_add_rx_frag_netmem. Both calls in test_bpf.c pass the same constant for size and truesize"
