@@ -8,6 +8,18 @@ Each directory here is one row and configuration of the census workflow, brought
 | `7.2.8-X64-allmodconfig` | v0.30.12 | 26656 | 0 | 0 of 26534 | 979 of 2118 |
 | `7.2.8-A64-defconfig` | v0.30.12 | 4406 | 0 | 1 of 4396, known | 16 of 119 |
 | `7.2.8-A64-allmodconfig` | v0.30.12 | 25253 | 0 | 9 of 25238, known | 970 of 2074 |
+| `7.3-X64-defconfig` | v0.30.12 | 3076 | 0 | 6 of 3074 | 21 of 121 |
+| `7.3-X64-allmodconfig` | v0.30.12 | 27026 | 0 | 7 of 26902 | 985 of 2120 |
+| `7.3-A64-defconfig` | v0.30.12 | 4443 | 0 | 3 of 4433, 1 known | 22 of 121 |
+| `7.3-A64-allmodconfig` | v0.30.12 | 25580 | 0 | 11 of 25565, 9 known | 976 of 2076 |
+
+## 7.3 X64 and A64 defconfig and allmodconfig
+
+From census run 40250820374, with rucc v0.30.12. rucc compiled every unit in all four builds, and no unit asked for anything rucc does not have. The integrated assembler read every unit's inline assembly and `.S` files. That is 473 mnemonics in 1197 shapes for X64 defconfig, 654 in 1870 for X64 allmodconfig, 463 for A64 defconfig and 518 for A64 allmodconfig, so no mnemonic class is missing.
+
+The new syntax failures are all in the vDSO, 6 for X64 defconfig, 7 for X64 allmodconfig and 2 for each A64 build. 7.3 builds the vDSO with `-finline-stringops=memset` when the compiler takes it. gcc-14 takes it and v0.30.12 does not, so the replay of the gcc-14 command line stops with `unknown option '-finline-stringops=memset'`. The rucc build does not pass the flag, so it compiled these units. tamnd/rucc#3843 adds the flag after v0.30.12. The known A64 failures are the `<arm_neon.h>` units under tamnd/rucc#3861, as in 7.2.8.
+
+The defconfig probes are the 7.2.8 ones and six more. Five are UBSAN modes that 7.3 asks in defconfig too, `bool`, `bounds-strict`, `enum`, `integer-divide-by-zero` and `shift`, which rucc refuses and plan section 8.10 keeps out of the grade. The sixth is `-finline-stringops=memset`. `rk config-diff` finds the same cause. In each build `CC_OPT_INLINE_MEMSET` is the one `.config` symbol that `config-divergences.toml` does not explain. X64 allmodconfig also has `LOCKDEP_STACK_TRACE_BITS` and `LOCKDEP_STACK_TRACE_HASH_BITS`, whose defaults are larger with KASAN, and which follow from `CC_HAS_KASAN_GENERIC`. The census runs again with the next rucc release.
 
 ## 7.2.8 X64 defconfig and allmodconfig
 
