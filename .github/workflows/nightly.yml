@@ -15,6 +15,11 @@
 # left. rk cross-modules then loads each build's modules into the other kernel, and does not turn
 # the night red until K5. A red nightly is the point: the K3 exit criterion is three green nights in a row.
 #
+# When the era has a second reference, gcc-16 for 7.3, an X64 night builds it too, in the era
+# container, and grades rucc against it on boot, smoke and KUnit with the objtool and frames checks.
+# The gcc-16 column of the report gives that grade. The .config is not compared, because rucc claims
+# the first reference's GCC.
+#
 # The rucc binary is the pinned release, checked against its hash, as in kernel.yml. A manual run
 # can name a branch or commit of tamnd/rucc instead.
 #
@@ -131,7 +136,9 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - uses: Swatinem/rust-cache@v2.9.2
       - name: the reference for the version
-        run: cargo run -q --release -p rk -- personas --for "$VERSION" | grep '^gcc=' | sed 's/^gcc=/GCC=/' >> "$GITHUB_ENV"
+        run: |
+          cargo run -q --release -p rk -- personas --for "$VERSION" > "$RUNNER_TEMP/era"
+          sed -n 's/^gcc=/GCC=/p; s/^second-gcc=/SECOND=/p; s/^second-image=/SECOND_IMAGE=/p' "$RUNNER_TEMP/era" >> "$GITHUB_ENV"
         env:
           VERSION: ${{ matrix.version }}
       - name: kernel build dependencies
@@ -185,6 +192,20 @@ jobs:
         run: |
           target/release/rk build ${{ matrix.version }} --row "$ROW" --config "$CONFIG" --fragment test \
             --cc rucc --targets "$TARGETS" --out "$RUNNER_TEMP/rucc" --keep-going --stack-usage
+      # The second reference of the era, gcc-16 for 7.3, on X64 only. No hosted runner has it, so the
+      # build runs in the era container, as in kernel.yml. rucc is graded against it on boot, smoke and
+      # KUnit after the main grade, and its .config is not compared, since rucc claims the first GCC.
+      - name: rk build with the second reference
+        id: second
+        if: env.SECOND != '' && env.ROW == 'X64'
+        continue-on-error: true
+        run: |
+          target/release/rk fetch ${{ matrix.version }} --no-upstream-check
+          work="$(dirname "$(dirname "$GITHUB_WORKSPACE")")"
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e RK_CACHE \
+            -v "$work:$work" -w "$GITHUB_WORKSPACE" "$SECOND_IMAGE" \
+            target/release/rk build ${{ matrix.version }} --row "$ROW" --config "$CONFIG" --fragment test \
+            --cc "$SECOND" --targets "$TARGETS" --out "$RUNNER_TEMP/second" --stack-usage --no-upstream-check
       - name: rk selftests with gcc-14
         if: inputs.row != 'X32' && inputs.userland != 'no'
         run: |
@@ -293,10 +314,32 @@ jobs:
           echo "$verdict" > "$RUNNER_TEMP/checks/bench.status"
           cp "$RUNNER_TEMP/bench/bench.json" "$RUNNER_TEMP/checks/" 2>/dev/null || true
           cat "$RUNNER_TEMP/checks/bench.md"
+      - name: rk against the second reference
+        if: always() && steps.second.outcome == 'success' && steps.test.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/checks"
+          boot=(--timeout "$TIMEOUT")
+          if [ -n "$CPU" ]; then boot+=(--cpu "$CPU"); fi
+          left=$(( DEADLINE - 10 * 60 - $(date +%s) ))
+          rc=0
+          timeout "$(( left > 60 ? left : 60 ))" \
+            target/release/rk test --reference "$RUNNER_TEMP/second" --other "$RUNNER_TEMP/rucc" \
+            --kinds boot,smoke,kunit "${boot[@]}" --out "$RUNNER_TEMP/test-second" || rc=$?
+          case $rc in 0) verdict=green ;; 1) verdict=red ;; *) verdict="not run" ;; esac
+          echo "$verdict" > "$RUNNER_TEMP/checks/second.status"
+          target/release/rk objtool-report --reference "$RUNNER_TEMP/second" --other "$RUNNER_TEMP/rucc" \
+            > "$RUNNER_TEMP/checks/second-objtool.md" || true
+          target/release/rk frames --reference "$RUNNER_TEMP/second" --other "$RUNNER_TEMP/rucc" \
+            > "$RUNNER_TEMP/checks/second-frames.md" || true
+        env:
+          TIMEOUT: 600
       - name: keep the record
         if: always()
         run: |
-          mkdir -p record/gcc record/rucc record/test record/cross record/selftests record/ltp
+          mkdir -p record/gcc record/rucc record/second record/test record/test-second record/cross record/selftests record/ltp
+          cp "$RUNNER_TEMP/second"/{build.json,summary.md,build.log,.config} record/second/ 2>/dev/null || true
+          cp -r "$RUNNER_TEMP/test-second/." record/test-second/ 2>/dev/null || true
           for side in gcc rucc; do
             cp "$RUNNER_TEMP/$side"/{build.json,summary.md,build.log,.config} "record/$side/" 2>/dev/null || true
             # A link that stopped at the kallsyms check leaves no vmlinux, and the maps of each pass
@@ -390,23 +433,23 @@ jobs:
         run: |
           import json, os, pathlib
           row = os.environ["ROW"]
-          lines = [f"### nightly, {row}", "", "| version | graded | failed | splats | verdict | objtool | frames | btf | bench |", "|---|---|---|---|---|---|---|---|---|"]
+          lines = [f"### nightly, {row}", "", "| version | graded | failed | splats | verdict | objtool | frames | btf | bench | gcc-16 |", "|---|---|---|---|---|---|---|---|---|---|"]
           for record in sorted(pathlib.Path("records").iterdir()):
               version = record.name.removeprefix("nightly-").removesuffix(f"-{row}")
               path = record / "test" / "test.json"
               checks = []
-              for name in ("objtool", "frames", "btf", "bench"):
+              for name in ("objtool", "frames", "btf", "bench", "second"):
                   status = record / "checks" / f"{name}.status"
                   checks.append(status.read_text().strip() if status.exists() else "not run")
               if not path.exists():
-                  lines.append(f"| {version} | | | | not run | {checks[0]} | {checks[1]} | {checks[2]} | {checks[3]} |")
+                  lines.append(f"| {version} | | | | not run | {' | '.join(checks)} |")
                   continue
               t = json.loads(path.read_text())
               graded = [u for u in t["units"] if u["graded"]]
               failed = [u["name"] for u in graded if not u["passed"]]
               splats = len(t["splats"].get("other-only", []))
               verdict = "green" if not failed and not splats else "red"
-              lines.append(f"| {version} | {len(graded)} | {len(failed)} | {splats} | {verdict} | {checks[0]} | {checks[1]} | {checks[2]} | {checks[3]} |")
+              lines.append(f"| {version} | {len(graded)} | {len(failed)} | {splats} | {verdict} | {' | '.join(checks)} |")
           for record in sorted(pathlib.Path("records").iterdir()):
               bench = record / "checks" / "bench.md"
               if bench.exists() and bench.read_text().strip():
