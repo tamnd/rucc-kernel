@@ -2317,6 +2317,19 @@ reason = "the field spanning WARN of memcpy(conn->le_adv_data, data, len) in pro
 
 [[divergence]]
 what = "__bug_table"
+only = "reference"
+item = '4="" 8="include/linux/netfilter.h" *'
+reason = "the two WARN_ON_ONCEs in nf_hook, the hook >= ARRAY_SIZE(hooks_arp) for NFPROTO_ARP and the one in the default case. Every NF_HOOK and nf_hook call passes pf and hook as constants, so rucc inlines nf_hook into each caller and folds the switch, where gcc keeps one copy with both checks"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/mellanox/mlxsw/*"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/mellanox/mlxsw/item.h" *'
+reason = "the BUG_ON(index && !item->step) and the alignment BUG() in __mlxsw_item_offset on 7.2. The items are const file scope MLXSW_ITEMs, so once rucc folds them each check is false, and gcc keeps the checks in its out of line copies such as __mlxsw_item_get32.constprop.0"
+
+[[divergence]]
+what = "__bug_table"
 object = "net/bridge/br_netfilter.o"
 only = "reference"
 item = '4="include/linux/netfilter.h" f8000309'
