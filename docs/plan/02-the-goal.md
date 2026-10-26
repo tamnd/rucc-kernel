@@ -131,7 +131,7 @@ These figures are stricter than the Postgres folder's 1.2x, because the latest c
 | Row | Kernel `ARCH` | rucc target | Reference | Where it runs |
 |---|---|---|---|---|
 | X64 | `x86_64` (`x86` from 2.6.24) | `x86_64-linux-gnu` in kernel mode | GCC of the era, from K0's containers | `qemu-system-x86_64` with KVM on server3 and gpc, TCG on CI |
-| A64 | `arm64` | `aarch64-linux-gnu` in kernel mode | the same | `qemu-system-aarch64 -M virt`, KVM on the `ubuntu-24.04-arm` runners if they expose it, TCG otherwise |
+| A64 | `arm64` | `aarch64-linux-gnu` in kernel mode | the same | `qemu-system-aarch64 -M virt`, TCG on the `ubuntu-24.04-arm` runners, which have no KVM |
 | X32 | `i386`, then `x86` | `i686-linux-gnu`, which does not exist yet | the same | `qemu-system-i386` |
 | R64 | `riscv` | `riscv64-linux-gnu`, which does not exist yet | the same | `qemu-system-riscv64 -M virt` with OpenSBI |
 

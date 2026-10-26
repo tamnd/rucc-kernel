@@ -126,7 +126,7 @@ Each feature carries rucc's support state from a table rucc publishes (`rucc --p
 | gpc (32 cores x86-64) | the sweep worker: Releases and Last points builds, `allmodconfig`, era containers. KVM for X64 and X32 boots |
 | server3 (8 cores x86-64) | the benchmark box (12.2). Nightly Current X64 tests when not benchmarking. Benchmarks take exclusive use |
 | server2 (6 cores), server1 (4 cores) | TCG boots for A64 and R64. Nightly A64 KUnit and kselftest |
-| GitHub `ubuntu-24.04-arm` runners | A64 boots under KVM if available (open question 8) |
+| GitHub `ubuntu-24.04-arm` runners | A64 boots, under TCG since the runners have no KVM (open question 8) |
 | GitHub `ubuntu-24.04` runners | `pr.yml` harness tests. Small `tinyconfig` smoke builds as a canary |
 
 gpc is not yet listed in `test-machines.md`. K0 adds it with its provisioning file.
