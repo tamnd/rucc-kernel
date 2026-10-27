@@ -274,6 +274,25 @@ static const struct bench benches[] = {
 	{ "memcpy", memcpy_loop, 20000 },
 };
 
+/* Time one benchmark, print its line and exit. A failure exits with 1 from fail(). */
+static void time_one(const struct bench *bench)
+{
+	double best = 0;
+
+	bench->run(bench->ops / 10);
+	for (int pass = 0; pass < PASSES; pass++) {
+		double start = now();
+
+		bench->run(bench->ops);
+		double took = (now() - start) / bench->ops;
+		if (pass == 0 || took < best)
+			best = took;
+	}
+	printf("RK-BENCH %s %.1f\n", bench->name, best);
+	fflush(stdout);
+	exit(0);
+}
+
 int main(int argc, char **argv)
 {
 	int fd;
@@ -287,19 +306,23 @@ int main(int argc, char **argv)
 	close(fd);
 	for (size_t b = 0; b < sizeof(benches) / sizeof(benches[0]); b++) {
 		const struct bench *bench = &benches[b];
-		double best = 0;
+		int status;
+		pid_t child;
 
-		bench->run(bench->ops / 10);
-		for (int pass = 0; pass < PASSES; pass++) {
-			double start = now();
-
-			bench->run(bench->ops);
-			double took = (now() - start) / bench->ops;
-			if (pass == 0 || took < best)
-				best = took;
+		/*
+		 * Each benchmark runs in a child of its own, so that a kernel built without a feature
+		 * (tinyconfig has no AF_UNIX) skips that one benchmark and not all the ones after it.
+		 */
+		child = fork();
+		if (child < 0)
+			fail("fork");
+		if (child == 0)
+			time_one(bench);
+		if (waitpid(child, &status, 0) != child || !WIFEXITED(status) ||
+		    WEXITSTATUS(status) != 0) {
+			printf("RK-BENCH-SKIP %s\n", bench->name);
+			fflush(stdout);
 		}
-		printf("RK-BENCH %s %.1f\n", bench->name, best);
-		fflush(stdout);
 	}
 	unlink("/tmp/rk-bench");
 	return 0;
