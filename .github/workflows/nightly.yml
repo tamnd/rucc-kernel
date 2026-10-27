@@ -304,6 +304,10 @@ jobs:
       - name: rk bench
         if: always() && steps.test.outcome != 'skipped' && inputs.row != 'A64'
         run: |
+          # The host the numbers were taken on, since the ratio depends on it. A host that pays more
+          # for a call or a return under its mitigations widens every gap the call count makes.
+          grep -m1 'model name' /proc/cpuinfo || true
+          grep -r . /sys/devices/system/cpu/vulnerabilities/ || true
           mkdir -p "$RUNNER_TEMP/checks"
           rc=0
           left=$(( DEADLINE - $(date +%s) ))
