@@ -2,9 +2,10 @@
 //!
 //! Both kernels boot the same initramfs, with `rk-init/bench.c` built by the host gcc as `/bench`
 //! and the `bench` suite of rk-init. `/bench` prints one `RK-BENCH <name> <ns>` line for each
-//! benchmark. The kernels boot one after the other, never side by side, and in turn: rucc, gcc,
-//! rucc and so on, so that a host that gets slower during the run slows both. Each benchmark's
-//! number is the median of the runs, and the ratio is the rucc median over the gcc one.
+//! benchmark, or `RK-BENCH-SKIP <name>` when the kernel lacks what it needs. The kernels boot
+//! one after the other, never side by side, and in turn: rucc, gcc, rucc and so on, so that a
+//! host that gets slower during the run slows both. Each benchmark's number is the median of the
+//! runs, and the ratio is the rucc median over the gcc one.
 //!
 //! The K8 gate of 02.5 is a geometric mean of the ratios of at most 1.02 and no ratio over 1.05.
 //! `memcpy` runs no kernel code and is the control: it does not count in the mean, and when its
@@ -309,7 +310,8 @@ mod tests {
     #[test]
     fn the_numbers_are_read_from_the_console() {
         let console = "[ 1.0] booting\r\nRK-BOOTED 7.3.0 1.2\nRK-BENCH getppid 812.5\r\n\
-                       RK-BENCH fork-exit 90210.0\nRK-BENCH broken x\nRK-DONE\n";
+                       RK-BENCH fork-exit 90210.0\nRK-BENCH broken x\n\
+                       RK-BENCH-SKIP unix-pingpong\nRK-DONE\n";
         let got = numbers(console);
         assert_eq!(got.len(), 2);
         assert!((got["getppid"] - 812.5).abs() < 1e-9);
