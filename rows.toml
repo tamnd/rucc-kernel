@@ -54,7 +54,7 @@ machine = "pc"
 cpu = "max"
 console = "ttyS0"
 
-# Waits for rucc's RISC-V back end (K7). Listed so the name is taken.
+# rucc runs as itself and takes its target from --target=, which rk adds to the persona on this row.
 [[row]]
 name = "R64"
 arch = "riscv"

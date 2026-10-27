@@ -108,6 +108,7 @@ pub fn normalize(words: &[String], dirs: &[(&str, &str)]) -> Vec<String> {
         }
         if word.starts_with("-fgnuc-version=")
             || word.starts_with("-fgnu-as-version=")
+            || word.starts_with("--target=")
             || word.starts_with("-Wp,-MD,")
             || word.starts_with("-Wp,-MMD,")
             || matches!(word.as_str(), "-MD" | "-MMD")
@@ -286,7 +287,7 @@ mod tests {
 
     const GCC: &str = "savedcmd_kernel/fork.o := /g/rk-bin/rk-cc -Wp,-MMD,kernel/.fork.o.d -nostdinc -I/src/linux/include -mno-red-zone -fno-PIE -DKBUILD_MODFILE='\"kernel/fork\"' -DKBUILD_BASENAME='\"fork\"' -c -o kernel/fork.o /src/linux/kernel/fork.c   ; ./tools/objtool/objtool --hacks=jump_label kernel/fork.o\n\nsource_kernel/fork.o := /src/linux/kernel/fork.c\n";
 
-    const RUCC: &str = "savedcmd_kernel/fork.o := /r/rk-bin/rk-cc -fgnuc-version=14.2.0 -Wp,-MMD,kernel/.fork.o.d -nostdinc -I/src/linux/include -fno-PIE -DKBUILD_MODFILE='\"kernel/fork\"' -DKBUILD_BASENAME='\"fork\"' -c -o kernel/fork.o /src/linux/kernel/fork.c\n";
+    const RUCC: &str = "savedcmd_kernel/fork.o := /r/rk-bin/rk-cc -fgnuc-version=14.2.0 --target=x86_64-linux-gnu -Wp,-MMD,kernel/.fork.o.d -nostdinc -I/src/linux/include -fno-PIE -DKBUILD_MODFILE='\"kernel/fork\"' -DKBUILD_BASENAME='\"fork\"' -c -o kernel/fork.o /src/linux/kernel/fork.c\n";
 
     fn commands(text: &str, out: &str) -> Commands {
         let (object, words) = parse_cmd(text).unwrap();

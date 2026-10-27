@@ -16,7 +16,7 @@ The goal is simple to state and slow to reach: every Linux release, from the mus
 
 ## Rows
 
-A row is an architecture with a QEMU machine and a reference toolchain. X64 is x86-64 and comes first. A64 is arm64. X32 is i686, which the x86-64 kernel needs anyway for its real mode setup code and its 32-bit vDSO. R64 is riscv64 and waits for rucc to have a RISC-V back end.
+A row is an architecture with a QEMU machine and a reference toolchain. X64 is x86-64 and comes first. A64 is arm64. X32 is i686, which the x86-64 kernel needs anyway for its real mode setup code and its 32-bit vDSO. R64 is riscv64, where 7.2.8 built by rucc boots and passes the same smoke and KUnit tests as gcc.
 
 ## Milestones
 

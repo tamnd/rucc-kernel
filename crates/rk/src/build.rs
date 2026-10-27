@@ -544,7 +544,7 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
     std::fs::write(bin.join(rk_shim::config::FILE_NAME), config.to_toml())
         .map_err(|e| format!("writing the shim's settings: {e}"))?;
 
-    let persona = if plan.compiler.rucc {
+    let mut persona = if plan.compiler.rucc {
         vec![
             format!("-fgnuc-version={}", plan.era.gnuc),
             format!("-fgnu-as-version={}", plan.era.gnu_as),
@@ -552,6 +552,11 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
     } else {
         Vec::new()
     };
+    // rucc takes its target from the name it is run as, and the shim runs it by its real path,
+    // so on a cross row it is told the target the way clang is.
+    if plan.compiler.rucc && !plan.row.cross.is_empty() && !host_is(&plan.row.arch) {
+        persona.push(format!("--target={}", plan.row.cross.trim_end_matches('-')));
+    }
     let cc = std::iter::once(shim.display().to_string())
         .chain(persona.iter().cloned())
         .collect::<Vec<_>>()

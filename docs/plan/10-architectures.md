@@ -75,7 +75,7 @@ Rows: X32 boots `i386` defconfig (`ARCH=i386 defconfig` → `i386_defconfig`) un
 
 ## 10.4 R64: riscv64
 
-Blocked on rucc's M9 (the RISC-V back end, parent issue #10). When it exists, kernel specifics:
+rucc's RISC-V back end landed with M9, and 7.2.8 built by rucc boots on `virt` and passes the same boot, smoke and KUnit tests as gcc. Kernel specifics:
 
 | Item | Detail |
 |---|---|

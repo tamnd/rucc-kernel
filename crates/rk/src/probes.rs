@@ -14,9 +14,9 @@ use rk_shim::record::CompileRecord;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-/// What a probe asks, as its arguments without the compiler, the persona, the output and the
-/// names of temporary files, which change from run to run, followed by what it read on standard
-/// input after `<<<`. Every `as-instr` probe has the same arguments and differs only there.
+/// What a probe asks, as its arguments without the compiler, the persona (with the `--target=` a
+/// cross row gives rucc), the output and the names of temporary files, which change from run to
+/// run, followed by what it read on standard input after `<<<`. Every `as-instr` probe has the same arguments and differs only there.
 #[must_use]
 pub fn question(record: &CompileRecord) -> String {
     let mut words = Vec::new();
@@ -28,6 +28,7 @@ pub fn question(record: &CompileRecord) -> String {
         }
         if arg.starts_with("-fgnuc-version=")
             || arg.starts_with("-fgnu-as-version=")
+            || arg.starts_with("--target=")
             || (arg.starts_with("-o") && arg.len() > 2)
         {
             continue;
@@ -190,7 +191,7 @@ mod tests {
 {"started":1,"argv":["/o/rk-bin/rk-cc","-c","-o","a.o","a.c"],"compiler":"/g","cwd":"/o","wall-seconds":0.1,"exit":0}
 "#;
 
-    const RUCC: &str = r#"{"started":1,"argv":["/p/rk-bin/rk-cc","-fgnuc-version=14.2.0","-Werror","-mno-red-zone","-c","-x","c","/dev/null","-o",".tmp_40/tmp"],"compiler":"/r","cwd":"/p","wall-seconds":0.1,"exit":0,"probe":true}
+    const RUCC: &str = r#"{"started":1,"argv":["/p/rk-bin/rk-cc","-fgnuc-version=14.2.0","--target=x86_64-linux-gnu","-Werror","-mno-red-zone","-c","-x","c","/dev/null","-o",".tmp_40/tmp"],"compiler":"/r","cwd":"/p","wall-seconds":0.1,"exit":0,"probe":true}
 {"started":1,"argv":["/p/rk-bin/rk-cc","-fgnuc-version=14.2.0","-Werror","-fcf-protection=branch","-c","-x","c","/dev/null","-o",".tmp_41/tmp"],"compiler":"/r","cwd":"/p","wall-seconds":0.1,"exit":1,"stderr":"rucc: error: unsupported option '-fcf-protection=branch'\n","probe":true}
 "#;
 
