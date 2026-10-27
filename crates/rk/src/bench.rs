@@ -7,7 +7,9 @@
 //! host that gets slower during the run slows both. Each benchmark's number is the median of the
 //! runs, and the ratio is the rucc median over the gcc one.
 //!
-//! The K8 gate of 02.5 is a geometric mean of the ratios of at most 1.02 and no ratio over 1.05.
+//! The K8 gate of 02.5 is a geometric mean of the ratios of at most 1.02 and no ratio over 1.05,
+//! where a ratio is over 1.05 when the upper end of its 95% interval is. The interval comes from
+//! resampling the runs of each kernel with a fixed seed, so the same numbers give the same one.
 //! `memcpy` runs no kernel code and is the control: it does not count in the mean, and when its
 //! ratio is not within 5% of 1 the host was too noisy for the run to say anything.
 
@@ -30,6 +32,9 @@ pub const MEAN_LIMIT: f64 = 1.02;
 
 /// The most one ratio can be, and how far the control can be from 1.
 pub const ONE_LIMIT: f64 = 1.05;
+
+/// How many times the runs are resampled for an interval.
+const RESAMPLES: usize = 2000;
 
 /// What `rk bench` does.
 pub struct Plan {
@@ -67,6 +72,44 @@ impl Bench {
     pub fn ratio(&self) -> Option<f64> {
         let (r, o) = (median(&self.reference)?, median(&self.other)?);
         (r > 0.0).then(|| o / r)
+    }
+
+    /// The 95% interval of the ratio: resample the runs of each kernel, with replacement, take the
+    /// ratio of the medians each time, and keep the 2.5th and 97.5th percentiles.
+    #[must_use]
+    pub fn interval(&self) -> Option<(f64, f64)> {
+        self.ratio()?;
+        let mut seed = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut pick = |values: &[f64]| -> Vec<f64> {
+            (0..values.len())
+                .map(|_| {
+                    // xorshift64: enough to spread the picks, and the same every time.
+                    seed ^= seed << 13;
+                    seed ^= seed >> 7;
+                    seed ^= seed << 17;
+                    #[allow(clippy::cast_possible_truncation)]
+                    values[(seed % values.len() as u64) as usize]
+                })
+                .collect()
+        };
+        let mut ratios: Vec<f64> = (0..RESAMPLES)
+            .filter_map(|_| {
+                let r = median(&pick(&self.reference))?;
+                let o = median(&pick(&self.other))?;
+                (r > 0.0).then(|| o / r)
+            })
+            .collect();
+        ratios.sort_by(f64::total_cmp);
+        let at = |q: f64| {
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                clippy::cast_precision_loss
+            )]
+            let i = ((ratios.len() - 1) as f64 * q).round() as usize;
+            ratios[i]
+        };
+        Some((at(0.025), at(0.975)))
     }
 }
 
@@ -123,7 +166,7 @@ impl Outcome {
                 .benches
                 .iter()
                 .filter(|(name, _)| name.as_str() != CONTROL)
-                .all(|(_, b)| b.ratio().is_some_and(|r| r <= ONE_LIMIT))
+                .all(|(_, b)| b.interval().is_some_and(|(_, high)| high <= ONE_LIMIT))
     }
 }
 
@@ -259,7 +302,8 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
 pub fn summary(o: &Outcome) -> String {
     let mut out = format!(
         "## rk bench {} ({}, {} runs of each kernel)\n\n\
-         | benchmark | gcc ns | rucc ns | rucc / gcc |\n|---|---:|---:|---:|\n",
+         | benchmark | gcc ns | rucc ns | rucc / gcc | 95% interval |\n\
+         |---|---:|---:|---:|---|\n",
         o.row, o.accel, o.runs
     );
     for (name, b) in &o.benches {
@@ -267,10 +311,14 @@ pub fn summary(o: &Outcome) -> String {
         let ratio = b
             .ratio()
             .map_or_else(|| "-".to_string(), |r| format!("{r:.3}"));
+        let interval = b.interval().map_or_else(
+            || "-".to_string(),
+            |(low, high)| format!("{low:.3} to {high:.3}"),
+        );
         let note = if name == CONTROL { " (control)" } else { "" };
         let _ = writeln!(
             out,
-            "| {name}{note} | {} | {} | {ratio} |",
+            "| {name}{note} | {} | {} | {ratio} | {interval} |",
             cell(median(&b.reference)),
             cell(median(&b.other))
         );
@@ -330,6 +378,32 @@ mod tests {
             reference: vec![reference],
             other: vec![other],
         }
+    }
+
+    #[test]
+    fn the_interval_holds_the_ratio_and_widens_with_the_spread() {
+        let tight = Bench {
+            reference: vec![100.0; 11],
+            other: vec![103.0; 11],
+        };
+        let (low, high) = tight.interval().unwrap();
+        assert!((low - 1.03).abs() < 1e-9 && (high - 1.03).abs() < 1e-9);
+        let loose = Bench {
+            reference: vec![
+                90.0, 95.0, 100.0, 105.0, 110.0, 100.0, 98.0, 102.0, 97.0, 103.0, 100.0,
+            ],
+            other: vec![
+                93.0, 98.0, 103.0, 108.0, 113.0, 103.0, 101.0, 105.0, 100.0, 106.0, 103.0,
+            ],
+        };
+        let (low, high) = loose.interval().unwrap();
+        assert!(low < loose.ratio().unwrap() && loose.ratio().unwrap() < high);
+        assert!(
+            high > ONE_LIMIT,
+            "a ratio of 1.03 with this spread may well be over 1.05"
+        );
+        assert_eq!(loose.interval(), loose.interval(), "the seed is fixed");
+        assert_eq!(Bench::default().interval(), None);
     }
 
     #[test]
