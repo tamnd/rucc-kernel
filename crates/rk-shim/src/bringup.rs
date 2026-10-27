@@ -68,15 +68,16 @@ const NEWER_THAN_BRINGUP: &[&str] = &["-fzero-init-padding-bits="];
 
 /// The arguments a call hands to its compiler.
 ///
-/// rk puts the era's persona in `CC` as `-fgnuc-version=` and `-fgnu-as-version=`, which only rucc
-/// knows. GCC refuses
-/// it, so a delegated call leaves it out, along with the flags in [`NEWER_THAN_BRINGUP`]. Every
-/// other argument goes through as kbuild wrote it.
+/// rk puts the era's persona in `CC` as `-fgnuc-version=` and `-fgnu-as-version=`, and on a cross
+/// row `--target=`, which only rucc knows. GCC refuses it, so a delegated call leaves it out,
+/// along with the flags in [`NEWER_THAN_BRINGUP`]. Every other argument goes through as kbuild
+/// wrote it.
 #[must_use]
 pub fn passed_on(args: &[String], delegated: bool) -> Vec<String> {
     let refused = |a: &str| {
         a.starts_with("-fgnuc-version=")
             || a.starts_with("-fgnu-as-version=")
+            || a.starts_with("--target=")
             || NEWER_THAN_BRINGUP.iter().any(|f| a.starts_with(f))
     };
     args.iter()
@@ -183,6 +184,7 @@ mod tests {
         let args: Vec<String> = [
             "-fgnuc-version=14.2.0",
             "-fgnu-as-version=2.44",
+            "--target=riscv64-linux-gnu",
             "-m16",
             "-c",
             "-o",

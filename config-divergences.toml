@@ -96,6 +96,46 @@ reason = "The same as CC_CAN_LINK, one level stricter. On X32 in 6.1 Kconfig ask
 symbol = "GCC_ASM_GOTO_OUTPUT_WORKAROUND"
 reason = "This follows GCC_VERSION. In 6.1 it is y for gcc 12.0 to 12.3, which have bug 113921 in asm goto with outputs, and it adds an empty asm volatile after each asm goto. rucc claims 12.2.0 for 6.1 and gets it. The CI reference gcc-12 got it at 12.3.0 and does not at 12.4.0, and a reference gcc-13 at 13.3, as on server2, has the fix and does not either. The extra empty asm emits no code"
 
+[[divergence]]
+symbol = "CC_HAS_MIN_FUNCTION_ALIGNMENT"
+reason = "-fmin-function-alignment came in gcc 14. The persona is gcc 14.2 and rucc takes the flag and honors it, while the riscv64 reference is Ubuntu 24.04's gcc 13.3, which does not know it. The kernel only uses it to align functions, and on riscv64 it decides whether dynamic ftrace can be offered, see GCC_SUPPORTS_DYNAMIC_FTRACE"
+
+[[divergence]]
+symbol = "CC_HAS_SANE_FUNCTION_ALIGNMENT"
+reason = "follows CC_HAS_MIN_FUNCTION_ALIGNMENT, see there"
+
+[[divergence]]
+symbol = "GCC_SUPPORTS_DYNAMIC_FTRACE"
+reason = "on riscv64 with compressed instructions this needs -fmin-function-alignment, which gcc 13.3 lacks, see CC_HAS_MIN_FUNCTION_ALIGNMENT. rucc also takes -fpatchable-function-entry"
+
+[[divergence]]
+symbol = "HAVE_DYNAMIC_FTRACE*"
+reason = "selected by RISCV when GCC_SUPPORTS_DYNAMIC_FTRACE is set, see there"
+
+[[divergence]]
+symbol = "HAVE_FUNCTION_TRACER"
+reason = "selected by RISCV with dynamic ftrace, see GCC_SUPPORTS_DYNAMIC_FTRACE"
+
+[[divergence]]
+symbol = "HAVE_FUNCTION_GRAPH_TRACER"
+reason = "selected by RISCV with dynamic ftrace, see GCC_SUPPORTS_DYNAMIC_FTRACE"
+
+[[divergence]]
+symbol = "FUNCTION_TRACER"
+reason = "only visible with HAVE_FUNCTION_TRACER, see GCC_SUPPORTS_DYNAMIC_FTRACE. It is off in the rucc build, so no unit is built differently"
+
+[[divergence]]
+symbol = "STACK_TRACER"
+reason = "only visible with HAVE_FUNCTION_TRACER, see GCC_SUPPORTS_DYNAMIC_FTRACE. It is off in the rucc build"
+
+[[divergence]]
+symbol = "TOOLCHAIN_HAS_ZA*"
+reason = "The riscv64 reference is Ubuntu 24.04's gcc 13.3, which refuses Zacas and Zabha in -march. rucc takes them and assembles amocas and the byte and halfword AMOs, checked against llvm-mc"
+
+[[divergence]]
+symbol = "RISCV_ISA_ZABHA"
+reason = "follows TOOLCHAIN_HAS_ZABHA, see TOOLCHAIN_HAS_ZA*. The kernel picks the Zabha code at boot through alternatives, so a machine without it runs the same code as the gcc build"
+
 [[flags]]
 flag = "/home/runner/.cache/rucc/include/*"
 reason = "the -isystem the kernel takes from $(CC) -print-file-name=include for the units that use the NEON intrinsics, which is where each compiler keeps its own arm_neon.h"
