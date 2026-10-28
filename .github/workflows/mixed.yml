@@ -41,7 +41,7 @@ on:
       rucc:
         description: A branch, tag or commit of tamnd/rucc to build
         required: false
-        default: v0.30.12
+        default: v0.30.15
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.run_id }}
