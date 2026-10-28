@@ -82,8 +82,8 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RK_CACHE: ${{ github.workspace }}/../rk-cache
-  RUCC_VERSION: v0.30.12
-  RUCC_SHA256: 2d651235d9bd5ec27e8f3e0576161a5fe0e31c0b158ecc8ffcb6d587a8ae54e2
+  RUCC_VERSION: v0.30.15
+  RUCC_SHA256: 32e1cab992940f0563cb9e49bfc3c3ed23192e519ee277fdcf9edfefb8503ddb
   CONFIG: ${{ inputs.config || 'tinyconfig' }}
   ROW: ${{ inputs.row || 'X64' }}
   CPU: ${{ inputs.cpu }}
