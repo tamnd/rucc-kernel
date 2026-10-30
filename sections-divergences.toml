@@ -3956,3 +3956,10 @@ object = "sound/hda/codecs/ca0132.o"
 only = "reference"
 item = "8=__UNIQUE_ID_ddebug_598+40"
 reason = "the pr_debug of dma chan num invalid. The only dspload_image call passes ovly 0, so the channel is 0, and gcc keeps the check in a constprop clone"
+
+[[divergence]]
+what = "__jump_table"
+object = "drivers/gpu/drm/i915/gvt/gtt.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_1317+42"
+reason = "the gvt_dbg_mm of oos pages preallocated in setup_spt_oos. Its only caller is under enable_out_of_sync, a static bool set to false that nothing writes, so rucc removes it"
