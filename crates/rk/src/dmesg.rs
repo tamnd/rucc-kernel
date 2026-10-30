@@ -106,10 +106,19 @@ fn mask_word(word: &str) -> String {
 }
 
 /// A splat's first line, normalized.
+///
+/// A soft lockup names in brackets the task that ran when the watchdog fired, as in `watchdog: BUG:
+/// soft lockup - CPU#0 stuck for 26s! [swapper/0:0]`. While the x86 kselftests flood the serial
+/// console, that is either the idle task or `ksoftirqd`, and the CPU is stuck in the same interrupt
+/// for both. So the task is dropped from that line.
 #[must_use]
 pub fn normalize(text: &str) -> String {
+    let lockup = text.contains("soft lockup");
     let mut words = Vec::new();
     for word in text.split_whitespace() {
+        if lockup && word.starts_with('[') {
+            break;
+        }
         words.push(mask_word(word));
         if is_location(word) {
             break;
@@ -321,6 +330,17 @@ mod tests {
                 .into_iter()
                 .collect::<Vec<_>>(),
             ["BUG: KASAN: slab-out-of-bounds in krealloc_more_oob_helper+N"]
+        );
+    }
+
+    #[test]
+    fn the_task_of_a_soft_lockup_does_not_count() {
+        let gcc = "watchdog: BUG: soft lockup - CPU#0 stuck for 26s! [swapper/0:0]";
+        let rucc = "watchdog: BUG: soft lockup - CPU#0 stuck for 24s! [ksoftirqd/0:15]";
+        assert_eq!(normalize(gcc), normalize(rucc));
+        assert_eq!(
+            normalize(gcc),
+            "watchdog: BUG: soft lockup - CPU#N stuck for Ns!"
         );
     }
 
