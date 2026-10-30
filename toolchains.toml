@@ -49,4 +49,4 @@ digest = "sha256:6229a57a9f4d9463cd311830e73a71e5faf83dcded81436be41b819ff31cb8b
 [[container]]
 name = "rk-era-forky"
 image = "ghcr.io/tamnd/rucc-kernel/rk-era-forky"
-digest = "sha256:d3e41491cfa101def2b1d548d1168e8f4e8ccafc58d2cf1f5cbd9de1e3d0a871"
+digest = "sha256:417535844b014d7f4860017b04a8ae75ef7c81d6fa44a3e4f297e6b133efa44d"
