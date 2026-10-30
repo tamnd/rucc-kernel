@@ -150,6 +150,12 @@ jobs:
           fi
         env:
           VERSION: ${{ matrix.version }}
+      # A distro config builds a large tree for each compiler, and an X64 night of 7.3 builds three,
+      # so the runner frees the tools the job does not use first, as the census does.
+      - name: room for the build trees
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
       - name: kernel build dependencies
         run: |
           sudo apt-get update -q
