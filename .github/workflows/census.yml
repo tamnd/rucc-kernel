@@ -39,6 +39,10 @@ on:
         description: A branch, tag or commit of tamnd/rucc to build
         required: false
         default: v0.30.15
+      keep:
+        description: Paths in each build tree to keep in the record, such as an object a diff names, separated by spaces
+        required: false
+        default: ''
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.run_id }}
@@ -183,8 +187,14 @@ jobs:
           if [ "$CONFIG" != allmodconfig ]; then
             cp arch/*/boot/Image arch/*/boot/bzImage "$GITHUB_WORKSPACE/record/" 2>/dev/null || true
           fi
+          # The paths a manual run names, so that an object the diff reports can be read elsewhere.
+          if [ -n "$KEEP" ]; then
+            read -ra keep <<< "$KEEP"
+            tar -czf "$GITHUB_WORKSPACE/record/keep.tar.gz" --ignore-failed-read "${keep[@]}" || true
+          fi
         env:
           CONFIG: ${{ matrix.config }}
+          KEEP: ${{ inputs.keep }}
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
