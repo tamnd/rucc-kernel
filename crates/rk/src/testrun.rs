@@ -278,7 +278,14 @@ const RACY: &[&str] = &[
 /// time. On the 7.2.8 arm64 nightly it took under 160 seconds on the reference kernel and more
 /// than the 600 LTP allows on the rucc kernel with the rucc userland, and it passed in both
 /// crossed runs, which took 250 and 430 seconds.
+///
+/// `exec_changed_keys` in the arm64 `pac` test runs a helper with `fork` and `exec` many times and
+/// has the 30 seconds of the kselftest harness for it. Under TCG on the arm runner, the Fedora
+/// arm64 config of 7.3 makes each `exec` slow, and on two nights the rucc kernel ran out of time
+/// with either userland while the reference kernel did not. The same rucc kernel with `defconfig`
+/// passed it, and its whole arm64 collection took 90.5 seconds where the reference took 81.5.
 const TIMING: &[&str] = &[
+    "kselftest:arm64:pac",
     "kselftest:seccomp:seccomp_benchmark",
     "kselftest:timers:rtcpie",
     "ltp:mm:shm_test01",
