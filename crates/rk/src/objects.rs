@@ -146,9 +146,8 @@ impl Functions {
             .and_then(|j| list.get(j))
             .filter(|(start, size, _)| offset < start + (*size).max(1));
         let padded = || {
-            list.get(i).filter(|(start, _, name)| {
-                start - offset <= PADDING && padded_name(name) == name
-            })
+            list.get(i)
+                .filter(|(start, _, name)| start - offset <= PADDING && padded_name(name) == name)
         };
         let (_, _, name) = covering.or_else(padded)?;
         Some(padded_name(name))
