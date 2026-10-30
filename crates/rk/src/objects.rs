@@ -133,6 +133,10 @@ impl Functions {
     /// `-fpatchable-function-entry` lays down ahead of that function, and is that function's. A
     /// `__pfx_` or `__cfi_` symbol objtool writes over the padding of a linked module is the
     /// function it pads too, so a site has the same name in a module and in its members.
+    ///
+    /// An offset ahead of a `__pfx_` or `__cfi_` symbol is not in the padding, since that symbol
+    /// covers all of it. It is in code that lost its symbol, such as a weak function `ld -r` kept
+    /// when another member of the module defines the same name, and it is no function's.
     #[must_use]
     pub fn at(&self, section: usize, offset: u64) -> Option<&str> {
         let list = self.by_section.get(&section)?;
@@ -142,8 +146,9 @@ impl Functions {
             .and_then(|j| list.get(j))
             .filter(|(start, size, _)| offset < start + (*size).max(1));
         let padded = || {
-            list.get(i)
-                .filter(|(start, _, _)| start - offset <= PADDING)
+            list.get(i).filter(|(start, _, name)| {
+                start - offset <= PADDING && padded_name(name) == name
+            })
         };
         let (_, _, name) = covering.or_else(padded)?;
         Some(padded_name(name))
@@ -312,6 +317,23 @@ mod tests {
         assert_eq!(functions.at(text, 10), Some("second"));
         assert_eq!(functions.at(text, 32), Some("third"));
         assert_eq!(functions.at(text, 48), Some("third"));
+    }
+
+    /// `ld -r` keeps the code of a weak function another member overrides, with no symbol. A site
+    /// in it is ahead of the next function's `__pfx_` symbol, and is not that function's.
+    #[test]
+    fn a_site_ahead_of_a_prefix_symbol_is_no_functions() {
+        let mut b = fixture::Builder::new();
+        b.function("first", &[0x90; 8]);
+        b.function("second", &[0xc3]);
+        b.function("__pfx_third", &[0x90; 16]);
+        b.function("third", &[0xc3]);
+        let bytes = b.bytes();
+        let file = object::File::parse(&*bytes).unwrap();
+        let functions = Functions::of(&file);
+        let text = file.section_by_name(".text").unwrap().index().0;
+        assert_eq!(functions.at(text, 20), None);
+        assert_eq!(functions.at(text, 32), Some("third"));
     }
 
     #[test]
