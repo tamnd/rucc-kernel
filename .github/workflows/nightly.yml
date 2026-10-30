@@ -223,9 +223,11 @@ jobs:
       # The second reference of the era, gcc-16 for 7.3, on X64 only. No hosted runner has it, so the
       # build runs in the era container, as in kernel.yml. rucc is graded against it on boot, smoke and
       # KUnit after the main grade, and its .config is not compared, since rucc claims the first GCC.
+      # A manual run whose kinds have no KUnit, like the kselftest and LTP half of a distro night,
+      # does not build it, since that grade cannot run and the build takes more than an hour.
       - name: rk build with the second reference
         id: second
-        if: env.SECOND != '' && env.ROW == 'X64'
+        if: env.SECOND != '' && env.ROW == 'X64' && (env.KINDS == '' || contains(env.KINDS, 'kunit'))
         continue-on-error: true
         run: |
           target/release/rk fetch ${{ matrix.version }} --no-upstream-check
