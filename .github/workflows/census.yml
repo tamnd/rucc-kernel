@@ -63,7 +63,7 @@ jobs:
       gcc: ${{ steps.era.outputs.gcc }}
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: Swatinem/rust-cache@v2.9.3
       - id: era
         run: cargo run -q --release -p rk -- personas --for "$VERSION" | tee -a "$GITHUB_OUTPUT"
         env:
@@ -84,7 +84,7 @@ jobs:
       OUT: ${{ github.workspace }}/../${{ matrix.row }}-${{ matrix.config }}-${{ matrix.cc }}
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: Swatinem/rust-cache@v2.9.3
       - name: room for the build tree
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
@@ -195,7 +195,7 @@ jobs:
         env:
           CONFIG: ${{ matrix.config }}
           KEEP: ${{ inputs.keep }}
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: census-${{ inputs.version }}-${{ matrix.row }}-${{ matrix.config }}-${{ matrix.cc }}
@@ -219,8 +219,8 @@ jobs:
       OTHER: records/census-${{ inputs.version }}-${{ matrix.row }}-${{ matrix.config }}-rucc
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: Swatinem/rust-cache@v2.9.2
-      - uses: actions/download-artifact@v8.0.1
+      - uses: Swatinem/rust-cache@v2.9.3
+      - uses: actions/download-artifact@v8.0.2
         with:
           pattern: census-${{ inputs.version }}-${{ matrix.row }}-${{ matrix.config }}-*
           path: records
