@@ -406,6 +406,13 @@ pub struct Plan {
 /// Fedora's arm64 config on 7.2.8 the kunit boot had loaded 3600 modules in 1890 seconds when it
 /// came to `locktorture`, and the next 616 took as long again.
 ///
+/// `rcutorture` also starts its threads on load. After each stutter its writer warns at
+/// `rcutorture.c:1950` if no element has come back from a grace period. That is a check of time,
+/// and the console load of the kunit boot sets the time. With Fedora's x86-64 config on 7.3 the
+/// `drm_mode_probed_add` warnings of `amdgpu_dm_wb` print the list of loaded modules 32 times, and
+/// in that window both kernels completed only about 30 grace periods in 60 seconds. The rucc
+/// kernel gave the warning in each of three boots, and the gcc kernel did not give it.
+///
 /// `snd-mts64` and `snd-portman2x4` are MIDI interfaces on the parallel port, and Fedora's x86-64
 /// config builds both. Under QEMU, `snd-mts64` either fails its probe or spins in it until the soft
 /// lockup detector reports it, and `snd-portman2x4` registers its interrupt handler before it sets
@@ -432,6 +439,7 @@ const LEFT_OUT: &[&str] = &[
     "drivers/accessibility/speakup/speakup_spkout.ko",
     "drivers/accessibility/speakup/speakup_txprt.ko",
     "kernel/locking/locktorture.ko",
+    "kernel/rcu/rcutorture.ko",
     "drivers/gpu/drm/amd/amdgpu/../display/amdgpu_dm/tests/amdgpu_dm_crtc_test.ko",
 ];
 
