@@ -29,6 +29,8 @@
 # the x86_64 one. X32 pins no selftests or LTP in rows.toml, so its nights build neither and are
 # graded on boot, smoke and KUnit, which is what the K4 exit criterion asks for. A manual run with
 # userland set to no builds neither on any row, which keeps an A64 night on TCG inside the job's time.
+# R64 runs on the x86_64 runner. Its reference is the cross GCC of the era, its rucc is built from
+# source, its boots are TCG with the riscv64 busybox of Ubuntu, and it builds no selftests or LTP.
 #
 # On A64 rk test and rk cross-modules run four boots at once rather than one per two CPUs, since
 # most suites keep one of a guest's two CPUs busy and TCG leaves an idle one asleep. A distro config
@@ -52,7 +54,7 @@ on:
         required: false
         default: tinyconfig
       row:
-        description: The row, X64, A64 or X32
+        description: The row, X64, A64, X32 or R64
         required: false
         default: X64
       versions:
@@ -88,8 +90,8 @@ env:
   ROW: ${{ inputs.row || 'X64' }}
   CPU: ${{ inputs.cpu }}
   KINDS: ${{ inputs.kinds }}
-  JOBS: ${{ inputs.row == 'A64' && '4' || '' }}
-  TARGETS: ${{ inputs.row == 'A64' && 'Image modules' || 'bzImage modules' }}
+  JOBS: ${{ (inputs.row == 'A64' || inputs.row == 'R64') && '4' || '' }}
+  TARGETS: ${{ (inputs.row == 'A64' || inputs.row == 'R64') && 'Image modules' || 'bzImage modules' }}
 
 jobs:
   set:
@@ -120,7 +122,7 @@ jobs:
     name: ${{ matrix.version }} ${{ inputs.row || 'X64' }}
     needs: set
     runs-on: ${{ inputs.row == 'A64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
-    timeout-minutes: ${{ inputs.row == 'A64' && 355 || 300 }}
+    timeout-minutes: ${{ (inputs.row == 'A64' || inputs.row == 'R64') && 355 || 300 }}
     strategy:
       fail-fast: false
       matrix:
@@ -132,13 +134,20 @@ jobs:
       - name: the deadline
         run: echo "DEADLINE=$(( $(date +%s) + (LIMIT - 15) * 60 ))" >> "$GITHUB_ENV"
         env:
-          LIMIT: ${{ inputs.row == 'A64' && 355 || 300 }}
+          LIMIT: ${{ (inputs.row == 'A64' || inputs.row == 'R64') && 355 || 300 }}
       - uses: actions/checkout@v7.0.1
       - uses: Swatinem/rust-cache@v2.9.2
       - name: the reference for the version
         run: |
           cargo run -q --release -p rk -- personas --for "$VERSION" > "$RUNNER_TEMP/era"
           sed -n 's/^gcc=/GCC=/p; s/^second-gcc=/SECOND=/p; s/^second-image=/SECOND_IMAGE=/p' "$RUNNER_TEMP/era" >> "$GITHUB_ENV"
+          gcc=$(sed -n 's/^gcc=//p' "$RUNNER_TEMP/era")
+          if [ "$ROW" = R64 ]; then
+            echo "REFERENCE=riscv64-linux-gnu-$gcc" >> "$GITHUB_ENV"
+            echo "EXTRA=$gcc-riscv64-linux-gnu binutils-riscv64-linux-gnu opensbi" >> "$GITHUB_ENV"
+          else
+            echo "REFERENCE=$gcc" >> "$GITHUB_ENV"
+          fi
         env:
           VERSION: ${{ matrix.version }}
       - name: kernel build dependencies
@@ -146,9 +155,20 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -qy --no-install-recommends "$GCC" gcc-14 flex bison bc libelf-dev \
             libssl-dev cpio "$QEMU" busybox-static libcap-dev libnuma-dev rsync libaio-dev \
-            libacl1-dev libkeyutils-dev dwarves
+            libacl1-dev libkeyutils-dev dwarves $EXTRA
         env:
-          QEMU: ${{ inputs.row == 'A64' && 'qemu-system-arm' || 'qemu-system-x86' }}
+          QEMU: ${{ inputs.row == 'A64' && 'qemu-system-arm' || inputs.row == 'R64' && 'qemu-system-misc' || 'qemu-system-x86' }}
+      # The busybox of the runner is an x86_64 program, so an R64 night boots the riscv64 one of
+      # the same Ubuntu release.
+      - name: a riscv64 busybox
+        if: inputs.row == 'R64'
+        run: |
+          base=http://ports.ubuntu.com/ubuntu-ports
+          deb=$(curl -fsSL "$base/dists/noble/main/binary-riscv64/Packages.gz" | gzip -dc \
+            | awk '/^Package: busybox-static$/ { p = 1 } p && /^Filename:/ { print $2; exit }')
+          curl -fsSLo "$RUNNER_TEMP/busybox.deb" "$base/$deb"
+          dpkg-deb -x "$RUNNER_TEMP/busybox.deb" "$RUNNER_TEMP/busybox-r64"
+          echo "BUSYBOX=$RUNNER_TEMP/busybox-r64/bin/busybox" >> "$GITHUB_ENV"
       - name: let the runner user open /dev/kvm
         if: inputs.row != 'A64'
         run: |
@@ -157,7 +177,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm || true
       - name: rucc ${{ inputs.rucc || env.RUCC_VERSION }} from source
-        if: inputs.rucc != '' || inputs.row == 'A64'
+        if: inputs.rucc != '' || inputs.row == 'A64' || inputs.row == 'R64'
         run: |
           git clone -q https://github.com/tamnd/rucc "$RUNNER_TEMP/rucc-src"
           git -C "$RUNNER_TEMP/rucc-src" checkout -q "$REF"
@@ -167,7 +187,7 @@ jobs:
         env:
           REF: ${{ inputs.rucc || env.RUCC_VERSION }}
       - name: rucc ${{ env.RUCC_VERSION }}
-        if: inputs.rucc == '' && inputs.row != 'A64'
+        if: inputs.rucc == '' && inputs.row != 'A64' && inputs.row != 'R64'
         run: |
           name="rucc-$RUCC_VERSION-x86_64-unknown-linux-gnu"
           gh release download "$RUCC_VERSION" -R tamnd/rucc -p "$name.tar.gz" -D "$RUNNER_TEMP"
@@ -186,7 +206,7 @@ jobs:
       - name: rk build with the era's GCC
         run: |
           target/release/rk build ${{ matrix.version }} --row "$ROW" --config "$CONFIG" --fragment test \
-            --cc "$GCC" --targets "$TARGETS" --out "$RUNNER_TEMP/gcc" --stack-usage
+            --cc "$REFERENCE" --targets "$TARGETS" --out "$RUNNER_TEMP/gcc" --stack-usage
       - name: rk build with rucc
         continue-on-error: true
         run: |
@@ -207,12 +227,12 @@ jobs:
             target/release/rk build ${{ matrix.version }} --row "$ROW" --config "$CONFIG" --fragment test \
             --cc "$SECOND" --targets "$TARGETS" --out "$RUNNER_TEMP/second" --stack-usage --no-upstream-check
       - name: rk selftests with gcc-14
-        if: inputs.row != 'X32' && inputs.userland != 'no'
+        if: inputs.row != 'X32' && inputs.row != 'R64' && inputs.userland != 'no'
         run: |
           target/release/rk selftests --build "$RUNNER_TEMP/gcc" --cc gcc-14 \
             --out "$RUNNER_TEMP/selftests-gcc"
       - name: rk selftests with rucc
-        if: inputs.row != 'X32' && inputs.userland != 'no'
+        if: inputs.row != 'X32' && inputs.row != 'R64' && inputs.userland != 'no'
         continue-on-error: true
         run: |
           target/release/rk selftests --build "$RUNNER_TEMP/gcc" --cc rucc \
@@ -222,11 +242,11 @@ jobs:
           path: ${{ env.RK_CACHE }}/ltp
           key: ltp-${{ runner.arch }}-${{ hashFiles('ltp.toml') }}
       - name: rk ltp with gcc-14
-        if: inputs.row != 'X32' && inputs.userland != 'no'
+        if: inputs.row != 'X32' && inputs.row != 'R64' && inputs.userland != 'no'
         run: |
           target/release/rk ltp --build "$RUNNER_TEMP/gcc" --cc gcc-14 --out "$RUNNER_TEMP/ltp-gcc"
       - name: rk ltp with rucc
-        if: inputs.row != 'X32' && inputs.userland != 'no'
+        if: inputs.row != 'X32' && inputs.row != 'R64' && inputs.userland != 'no'
         continue-on-error: true
         run: |
           target/release/rk ltp --build "$RUNNER_TEMP/gcc" --cc rucc --out "$RUNNER_TEMP/ltp-rucc"
@@ -236,6 +256,7 @@ jobs:
           boot=(--timeout "$TIMEOUT")
           if [ -n "$CPU" ]; then boot+=(--cpu "$CPU"); fi
           if [ -n "$JOBS" ]; then boot+=(--jobs "$JOBS"); fi
+          if [ -n "$BUSYBOX" ]; then boot+=(--busybox "$BUSYBOX"); fi
           kinds=boot,smoke,kunit
           userland=()
           if [ -f "$RUNNER_TEMP/selftests-gcc/selftests.json" ]; then
@@ -259,7 +280,7 @@ jobs:
             target/release/rk test --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
             --kinds "$kinds" "${userland[@]}" "${rucc_userland[@]}" "${boot[@]}" --out "$RUNNER_TEMP/test"
         env:
-          TIMEOUT: ${{ inputs.row == 'A64' && 2400 || 600 }}
+          TIMEOUT: ${{ (inputs.row == 'A64' || inputs.row == 'R64') && 2400 || 600 }}
       - name: rk cross-modules
         if: always() && steps.test.outcome != 'skipped' && (inputs.kinds == '' || contains(inputs.kinds, 'kunit'))
         continue-on-error: true
@@ -267,12 +288,13 @@ jobs:
           boot=(--timeout "$TIMEOUT")
           if [ -n "$CPU" ]; then boot+=(--cpu "$CPU"); fi
           if [ -n "$JOBS" ]; then boot+=(--jobs "$JOBS"); fi
+          if [ -n "$BUSYBOX" ]; then boot+=(--busybox "$BUSYBOX"); fi
           left=$(( DEADLINE - $(date +%s) ))
           timeout "$(( left > 60 ? left : 60 ))" \
             target/release/rk cross-modules --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
             "${boot[@]}" --out "$RUNNER_TEMP/cross"
         env:
-          TIMEOUT: ${{ inputs.row == 'A64' && 2400 || 600 }}
+          TIMEOUT: ${{ (inputs.row == 'A64' || inputs.row == 'R64') && 2400 || 600 }}
       - name: rk objtool-report
         if: always() && steps.test.outcome != 'skipped'
         run: |
@@ -302,7 +324,7 @@ jobs:
       # The run time of the two kernels, booted in turn under KVM (K8). Under TCG the numbers say
       # how fast QEMU runs the code and not the CPU, so the A64 row does not run it.
       - name: rk bench
-        if: always() && steps.test.outcome != 'skipped' && inputs.row != 'A64'
+        if: always() && steps.test.outcome != 'skipped' && inputs.row != 'A64' && inputs.row != 'R64'
         run: |
           # The host the numbers were taken on, since the ratio depends on it. A host that pays more
           # for a call or a return under its mitigations widens every gap the call count makes.
