@@ -3315,3 +3315,651 @@ object = "sound/hda/codecs/ca0132.o"
 only = "reference"
 item = "8=__UNIQUE_ID_ddebug_958+42"
 reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+# 7.3 allmodconfig and defconfig census against gcc 14.2, with rucc v0.30.15. Each WARN or BUG
+# below is in the gcc build and not in the rucc one. The site was checked in the 7.3 source and in
+# its callers. Most sites are in both the x86 and the arm64 build, so most rules come in pairs. The
+# .altinstructions rules are for LSE atomics and LSUI entries. On 7.3 their capability numbers are
+# one higher than on 7.2.
+
+[[divergence]]
+what = "__bug_table"
+object = "arch/x86/net/bpf_jit_comp.o"
+only = "reference"
+item = '4="" 8="arch/x86/net/bpf_jit_comp.c" 270a0109'
+reason = "the WARN_ON(err) after emit_atomic_rmw(&prog, BPF_CMPXCHG, ...) in do_jit. With the constant BPF_CMPXCHG the call always returns 0"
+
+[[divergence]]
+what = "__bug_table"
+object = "block/partitions/ldm.o"
+only = "reference"
+item = '4="" 8="block/partitions/ldm.c" 41020000'
+reason = "the BUG_ON(!pp || !ldb) in ldm_create_data_partitions on x86. Its only caller, ldm_partition, has done BUG_ON(!state) and returns when the kmalloc of ldb fails"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/gpu/buddy.o"
+only = "reference"
+item = '4="" 8="drivers/gpu/buddy.c" b0020109'
+reason = "the gpu_buddy_assert(!(mark_dirty && mark_clear)) in __gpu_buddy_free_list, whose callers pass (false, false) or (mark_clear, !mark_clear)"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/gpu/buddy.o"
+only = "reference"
+item = '4="drivers/gpu/buddy.c" b0020109'
+reason = "the gpu_buddy_assert(!(mark_dirty && mark_clear)) in __gpu_buddy_free_list, whose callers pass (false, false) or (mark_clear, !mark_clear)"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/gpu/drm/omapdrm/dss/dss.o"
+only = "reference"
+item = '4="" 8="drivers/gpu/drm/omapdrm/dss/dss.c" 9e010109'
+reason = "the WARN_ON(dss->feat->has_lcd_clk_src && clk_src != DSS_CLK_SRC_FCK) in dss_select_dispc_clk_source. One caller passes DSS_CLK_SRC_FCK and the other calls it under !dss->feat->has_lcd_clk_src"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/hid/hid-nintendo.o"
+only = "reference"
+item = '4="" 8="drivers/hid/hid-nintendo.c" 810a1309'
+reason = "the field spanning WARN of memcpy(ctlr->input_buf, data, min(size, JC_MAX_RESP_SIZE)), which the min keeps inside the 84 bytes of input_buf"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/hid/hid-nintendo.o"
+only = "reference"
+item = '4="drivers/hid/hid-nintendo.c" 810a0909'
+reason = "the field spanning WARN of memcpy(ctlr->input_buf, data, min(size, JC_MAX_RESP_SIZE)), which the min keeps inside the 84 bytes of input_buf"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/mellanox/mlx5/core/en_rx.o"
+only = "reference"
+item = '4="" 8="include/linux/skbuff.h" 1f0b0309'
+reason = "the DEBUG_NET_WARN_ON_ONCE(len > INT_MAX) in pskb_may_pull_reason, called from is_last_ethertype_ip with a u16 network depth plus 20 or 40"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/mellanox/mlx5/core/en_rx.o"
+only = "reference"
+item = '4="include/linux/skbuff.h" 1f0b0309'
+reason = "the DEBUG_NET_WARN_ON_ONCE(len > INT_MAX) in pskb_may_pull_reason, called from is_last_ethertype_ip with a u16 network depth plus 20 or 40"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/mellanox/mlx5/core/mlx5_core.o"
+only = "reference"
+item = '4="" 8="include/linux/skbuff.h" 1f0b0309'
+reason = "the same pskb_may_pull_reason WARN from is_last_ethertype_ip in en_rx.c, linked into the module. A header site gets no help from the member's rule"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/mellanox/mlx5/core/mlx5_core.o"
+only = "reference"
+item = '4="include/linux/skbuff.h" 1f0b0309'
+reason = "the same pskb_may_pull_reason WARN from is_last_ethertype_ip in en_rx.c, linked into the module. A header site gets no help from the member's rule"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/pci/of_property.o"
+only = "reference"
+item = '4="" 8="drivers/pci/of_property.c" 8d001309'
+reason = "the field spanning WARN of memcpy(rp[i].child_addr, rp[i].parent_addr, sizeof(rp[i].child_addr)). The length is a constant the size of the destination field, so the copy never spans it"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/pci/of_property.o"
+only = "reference"
+item = '4="drivers/pci/of_property.c" 8d000909'
+reason = "the field spanning WARN of memcpy(rp[i].child_addr, rp[i].parent_addr, sizeof(rp[i].child_addr)). The length is a constant the size of the destination field, so the copy never spans it"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/spi/spi.o"
+only = "reference"
+item = '4="" 8="drivers/spi/spi.c" 6b041309'
+reason = "the field spanning WARN of memcpy(&bi->board_info, info, sizeof(*info)) as bi walks a kzalloc_objs array. The length is a constant the size of the destination field, so the copy never spans it"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/spi/spi.o"
+only = "reference"
+item = '4="drivers/spi/spi.c" 6b040909'
+reason = "the field spanning WARN of memcpy(&bi->board_info, info, sizeof(*info)) as bi walks a kzalloc_objs array. The length is a constant the size of the destination field, so the copy never spans it"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/vhost/vhost.o"
+only = "reference"
+item = '4="" 8="drivers/vhost/vhost.c" 85080000'
+reason = "the default BUG() in vhost_vring_set_num_addr, whose only caller passes VHOST_SET_VRING_NUM or VHOST_SET_VRING_ADDR"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/vhost/vhost.o"
+only = "reference"
+item = '4="drivers/vhost/vhost.c" 85080000'
+reason = "the default BUG() in vhost_vring_set_num_addr, whose only caller passes VHOST_SET_VRING_NUM or VHOST_SET_VRING_ADDR"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/btrfs/volumes.o"
+only = "reference"
+item = '4="" 8="fs/btrfs/volumes.c" c4181309'
+reason = "the field spanning WARN of memcpy(stripe->dev_uuid, device->uuid, BTRFS_UUID_SIZE) in btrfs_chunk_alloc_add_chunk_item. The length is a constant the size of the destination field, and both compilers keep the fortify panic check on what is left of the kzalloc"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/btrfs/volumes.o"
+only = "reference"
+item = '4="fs/btrfs/volumes.c" c4180909'
+reason = "the field spanning WARN of memcpy(stripe->dev_uuid, device->uuid, BTRFS_UUID_SIZE) in btrfs_chunk_alloc_add_chunk_item. The length is a constant the size of the destination field, and both compilers keep the fortify panic check on what is left of the kzalloc"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/inode.o"
+only = "reference"
+item = '4="" 8="fs/inode.c" 240a0000'
+reason = "the VFS_BUG_ON(!hash_locked && !rcu_locked) in __wait_on_freeing_inode. Every caller passes one of the two as true"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/inode.o"
+only = "reference"
+item = '4="fs/inode.c" 240a0000'
+reason = "the VFS_BUG_ON(!hash_locked && !rcu_locked) in __wait_on_freeing_inode. Every caller passes one of the two as true"
+
+[[divergence]]
+what = "__bug_table"
+only = "reference"
+item = '4="" 8="include/linux/leafops.h" c6000309'
+reason = "the VM_WARN_ON_ONCE(1) for an unknown entry type at the end of softleaf_type, new in 7.3. softleaf_from_pte and softleaf_from_pmd build the entry with swp_entry(__swp_type(...), ...), and __swp_type gives 5 bits, so type_num is at most 31. With MIGRATION, DEVICE_PRIVATE and MEMORY_FAILURE on, every type from MAX_SWAPFILES to 31 has a case. A model of the decode loses the WARN with rucc and with gcc 16.2"
+
+[[divergence]]
+what = "__bug_table"
+only = "reference"
+item = '4="include/linux/leafops.h" c6000309'
+reason = "the VM_WARN_ON_ONCE(1) for an unknown entry type at the end of softleaf_type, new in 7.3. softleaf_from_pte and softleaf_from_pmd build the entry with swp_entry(__swp_type(...), ...), and __swp_type gives 5 bits, so type_num is at most 31. With MIGRATION, DEVICE_PRIVATE and MEMORY_FAILURE on, every type from MAX_SWAPFILES to 31 has a case. A model of the decode loses the WARN with rucc and with gcc 16.2"
+
+[[divergence]]
+what = "__bug_table"
+object = "kernel/bpf/verifier.o"
+only = "reference"
+item = '4="" 8="kernel/bpf/verifier.c" 6e040309'
+reason = "the WARN_ON_ONCE(err && err != -EACCES) in unmark_stack_slot_irq_flag. Without DEBUG_INFO_BTF, BTF_ID_LIST makes special_kfunc_list a static array that nothing writes, so rucc reads every entry as 0. The restore branch of process_irq_flag then tests the same func_id == 0 as the save branch before it and is never taken"
+
+[[divergence]]
+what = "__bug_table"
+object = "kernel/bpf/verifier.o"
+only = "reference"
+item = '4="kernel/bpf/verifier.c" 6e040309'
+reason = "the WARN_ON_ONCE(err && err != -EACCES) in unmark_stack_slot_irq_flag. Without DEBUG_INFO_BTF, BTF_ID_LIST makes special_kfunc_list a static array that nothing writes, so rucc reads every entry as 0. The restore branch of process_irq_flag then tests the same func_id == 0 as the save branch before it and is never taken"
+
+[[divergence]]
+what = "__bug_table"
+object = "lib/test_bpf.o"
+only = "reference"
+item = '4="" 8="include/linux/skbuff.h" 750a0309'
+reason = "the DEBUG_NET_WARN_ON_ONCE(size > truesize) in skb_add_rx_frag_netmem. Both calls in test_bpf.c pass the same constant for size and truesize"
+
+[[divergence]]
+what = "__bug_table"
+object = "lib/test_bpf.o"
+only = "reference"
+item = '4="include/linux/skbuff.h" 750a0309'
+reason = "the DEBUG_NET_WARN_ON_ONCE(size > truesize) in skb_add_rx_frag_netmem. Both calls in test_bpf.c pass the same constant for size and truesize"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/folio.o"
+only = "reference"
+item = '4="" 8="include/linux/mm_inline.h" da000309'
+reason = "the demotion VM_WARN_ON_ONCE at the end of lru_gen_update_size. In mm/folio.c it is only reached through lru_gen_add_folio and lru_gen_del_folio, which pass -1 as the old or the new generation, and both of those return before the WARN"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/folio.o"
+only = "reference"
+item = '4="include/linux/mm_inline.h" da000309'
+reason = "the demotion VM_WARN_ON_ONCE at the end of lru_gen_update_size. In mm/folio.c it is only reached through lru_gen_add_folio and lru_gen_del_folio, which pass -1 as the old or the new generation, and both of those return before the WARN"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/shmem.o"
+only = "reference"
+item = '4="" 8="mm/shmem.c" f9010000'
+reason = "the VM_BUG_ON(!replacement) in shmem_replace_entry. Its only caller passes radswap, which is swp_to_radix_entry of a swap entry, an xarray value with the low bit set"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/bluetooth/hci_event.o"
+only = "reference"
+item = '4="" 8="net/bluetooth/hci_event.c" ba181309'
+reason = "the field spanning WARN of memcpy(conn->le_adv_data, data, len) in process_adv_report, which runs under len <= max_adv_len(hdev), 31 or 251, the size of le_adv_data. rucc carries the bound"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/bluetooth/hci_event.o"
+only = "reference"
+item = '4="net/bluetooth/hci_event.c" ba180909'
+reason = "the field spanning WARN of memcpy(conn->le_adv_data, data, len) in process_adv_report, which runs under len <= max_adv_len(hdev), 31 or 251, the size of le_adv_data. rucc carries the bound"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/ceph/osd_client.o"
+only = "reference"
+item = '4="" 8="net/ceph/osd_client.c" c4060109'
+reason = "the WARN_ON(!RB_EMPTY_NODE(&spg->node)) in free_spg_mapping. Both callers call erase_spg_mapping first, and the erase function DEFINE_RB_FUNCS makes ends with RB_CLEAR_NODE"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/hwmon/ina2xx.o"
+only = "reference"
+item = '4="drivers/hwmon/ina2xx.c" 4c010309'
+reason = "the default WARN_ON_ONCE in ina2xx_get_value, whose callers pass only the bus and shunt voltage, power and current registers"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/chelsio/cxgb4/t4_hw.o"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/chelsio/cxgb4/t4_hw.c" 411f1309'
+reason = "the fortify field spanning WARN of the 6 byte macaddr copy in t4_alloc_mac_filt. Both compilers work out what is left of the 64 byte command c and take a field size of MIN(6, left), which is only below 6 when left is, and then the fortify panic before the WARN has already fired"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/chelsio/cxgb4/t4_hw.o"
+only = "reference"
+item = '4="drivers/net/ethernet/chelsio/cxgb4/t4_hw.c" 411f0909'
+reason = "the fortify field spanning WARN of the 6 byte macaddr copy in t4_alloc_mac_filt. Both compilers work out what is left of the 64 byte command c and take a field size of MIN(6, left), which is only below 6 when left is, and then the fortify panic before the WARN has already fired"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/chelsio/cxgb4/t4_hw.o"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/chelsio/cxgb4/t4_hw.c" 981f1309'
+reason = "the same fortify field spanning WARN of the 6 byte macaddr copy in t4_free_mac_filt"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/chelsio/cxgb4/t4_hw.o"
+only = "reference"
+item = '4="drivers/net/ethernet/chelsio/cxgb4/t4_hw.c" 981f0909'
+reason = "the same fortify field spanning WARN of the 6 byte macaddr copy in t4_free_mac_filt"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/microchip/sparx5/lan969x/lan969x_rgmii.o"
+only = "reference"
+item = '4="drivers/net/ethernet/microchip/vcap/../sparx5/sparx5_main.h" 02030109'
+reason = "the WARN_ON(rinst >= rcnt) in spx5_rmw, which gcc keeps only in spx5_rmw.constprop.0. The only instances that are not 0 are HSIO_WRAP_DLL_CFG(idx, 0) and (idx, 1) with a count of 2, and rucc inlines them"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/ath/ath11k/mac.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/ath/ath11k/mac.c" 2f281309'
+reason = "the field spanning WARN of memcpy(addresses[i].addr, ar->mac_addr, ETH_ALEN), an ETH_ALEN copy into the addr[ETH_ALEN] of a struct mac_address"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/ath/ath11k/mac.o"
+only = "reference"
+item = '4="drivers/net/wireless/ath/ath11k/mac.c" 2f280909'
+reason = "the field spanning WARN of memcpy(addresses[i].addr, ar->mac_addr, ETH_ALEN), an ETH_ALEN copy into the addr[ETH_ALEN] of a struct mac_address"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/broadcom/b43/tables_lpphy.o"
+only = "reference"
+item = '4="drivers/net/wireless/broadcom/b43/tables_lpphy.c" 2b090109'
+reason = "the B43_WARN_ON(dev->phy.rev >= 2) in lpphy_rev0_1_write_gain_table, whose only caller calls it in the else arm of if (dev->phy.rev >= 2)"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/intel/iwlwifi/mvm/rs.o"
+only = "reference"
+item = '4="drivers/net/wireless/intel/iwlwifi/mvm/rs.c" c80a0309'
+reason = "the WARN_ON_ONCE(rx_mcs != IEEE80211_VHT_MCS_NOT_SUPPORTED) in rs_vht_highest_rx_mcs_index. rx_mcs is the 2 bit field of the map for nss, so it is 0 to 3, and 0, 1 and 2 return before the WARN, which leaves only 3, IEEE80211_VHT_MCS_NOT_SUPPORTED"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/super.o"
+only = "reference"
+item = '4="fs/super.c" 9d000309'
+reason = "the WARN_ON_ONCE(hweight32(flag & SUPER_WAKE_FLAGS) > 1) in super_wake. rucc inlines super_wake into its three callers, which pass SB_DEAD, SB_DYING and SB_BORN, so the count folds to 1, and gcc keeps super_wake out of line"
+
+[[divergence]]
+what = "__bug_table"
+object = "kernel/events/uprobes.o"
+only = "reference"
+item = '4="arch/arm64/include/asm/pgtable.h" b0010909'
+reason = "the VM_WARN_ONCE(pte_write(old_pte) && !pte_dirty(pte)) in __check_safe_pte_update. The set_pte_at in uprobe_write passes pte_mkdirty(fw->pte), and pte_dirty of that is always true"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/gup.o"
+only = "reference"
+item = '4="arch/arm64/include/asm/pgtable.h" ad010909'
+reason = "the VM_WARN_ONCE(!pte_young(pte)) in __check_safe_pte_update. The set_pte_at in gup.c passes entry = pte_mkyoung(entry), which has PTE_AF set"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/sparse-vmemmap.o"
+only = "reference"
+item = '4="arch/arm64/include/asm/pgtable.h" ad010909'
+reason = "the VM_WARN_ONCE(!pte_young(pte)) in __check_safe_pte_update. The pte vmemmap_pte_populate sets is pfn_pte of PAGE_KERNEL, which has PTE_AF"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/sparse-vmemmap.o"
+only = "reference"
+item = '4="arch/arm64/include/asm/pgtable.h" b0010909'
+reason = "the VM_WARN_ONCE(pte_write(old_pte) && !pte_dirty(pte)) in __check_safe_pte_update. The pte vmemmap_pte_populate sets is pfn_pte of PAGE_KERNEL, which has PTE_DIRTY"
+
+[[divergence]]
+what = "__bug_table"
+object = "security/apparmor/label.o"
+only = "reference"
+item = '4="security/apparmor/label.c" ef000909'
+reason = "the AA_BUG(n < 1) in unique, which is only called from aa_vec_unique under n > 8. rucc inlines it and drops the check, and gcc keeps unique out of line"
+
+[[divergence]]
+what = "__bug_table"
+object = "security/keys/trusted-keys/trusted_tpm1.o"
+only = "reference"
+item = '4="" 8="security/keys/trusted-keys/trusted_tpm1.c" 03031309'
+reason = "the field spanning WARN of memcpy(opt->blobauth, args[0].from, opt->blobauth_len) under opt->blobauth_len <= sizeof(opt->blobauth)"
+
+[[divergence]]
+what = "__bug_table"
+object = "security/keys/trusted-keys/trusted_tpm1.o"
+only = "reference"
+item = '4="security/keys/trusted-keys/trusted_tpm1.c" 03030909'
+reason = "the field spanning WARN of memcpy(opt->blobauth, args[0].from, opt->blobauth_len) under opt->blobauth_len <= sizeof(opt->blobauth)"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/broadcom/b43/tables_lpphy.o"
+only = "reference"
+item = '4="drivers/net/wireless/broadcom/b43/tables_lpphy.c" 3b090109'
+reason = "the B43_WARN_ON(dev->phy.rev < 2) in lpphy_rev2plus_write_gain_table, whose only caller calls it under dev->phy.rev >= 2"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/f2fs/inode.o"
+only = "reference"
+item = '4="include/linux/page-flags.h" 62010000'
+reason = "the VM_BUG_ON_PGFLAGS(page->compound_info & 1) in folio_flags, from folio_clear_private in folio_detach_private. folio_test_private has just done the same check in const_folio_flags and nothing writes compound_info between the two, so rucc drops the second check"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/debug_vm_pgtable.o"
+only = "reference"
+item = '4="mm/debug_vm_pgtable.c" 67030109'
+reason = "the WARN_ON(!softleaf_is_migration(entry)) checks in swap_migration_tests. Each entry comes from make_readable_migration_entry or make_writable_migration_entry with a constant type, and swp_entry masks the offset, so rucc folds the type tests"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/debug_vm_pgtable.o"
+only = "reference"
+item = '4="mm/debug_vm_pgtable.c" 68030109'
+reason = "the same constant migration type tests in swap_migration_tests"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/debug_vm_pgtable.o"
+only = "reference"
+item = '4="mm/debug_vm_pgtable.c" 6b030109'
+reason = "the same constant migration type tests in swap_migration_tests"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/debug_vm_pgtable.o"
+only = "reference"
+item = '4="mm/debug_vm_pgtable.c" 6c030109'
+reason = "the same constant migration type tests in swap_migration_tests"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/debug_vm_pgtable.o"
+only = "reference"
+item = '4="mm/debug_vm_pgtable.c" 6f030109'
+reason = "the same constant migration type tests in swap_migration_tests"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/debug_vm_pgtable.o"
+only = "reference"
+item = '4="mm/debug_vm_pgtable.c" 70030109'
+reason = "the same constant migration type tests in swap_migration_tests"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/debug_vm_pgtable.o"
+only = "reference"
+item = '4="mm/debug_vm_pgtable.c" a0030109'
+reason = "the WARN_ON(!pmd_trans_huge(pmd_mkinvalid(pmd_mkhuge(pmd)))) in pmd_thp_tests. On arm64 pmd_mkhuge clears the table bit and pmd_mkinvalid sets PTE_PRESENT_INVALID, so pmd_present is true, pmd_table is false and the test is a constant"
+
+[[divergence]]
+what = "__jump_table"
+object = "drivers/infiniband/core/uverbs_main.o"
+only = "reference"
+item = "8=validate_usercopy_range+1"
+reason = "the hardened usercopy branch of copy_to_user(buf, event, eventsz) in ib_uverbs_event_read. Both callers pass a sizeof as eventsz, rucc inlines the function into each one with its constant, and gcc keeps one shared copy"
+
+[[divergence]]
+what = "__jump_table"
+object = "drivers/infiniband/core/uverbs_main.o"
+only = "reference"
+item = "8=validate_usercopy_range+3"
+reason = "the same hardened usercopy branch in ib_uverbs_event_read on x86"
+
+[[divergence]]
+what = ".altinstructions"
+object = "drivers/mtd/nand/raw/lpc32xx_mlc.o"
+only = "reference"
+item = "4=alt_cb_patch_nops+0 2b80"
+reason = "the LSE atomics entry of the set_bit in dma_cap_set, the same as the 2a80 rule. On 7.3 the capability number is one higher. use_dma is never written, so rucc removes every DMA path"
+
+[[divergence]]
+what = ".altinstructions"
+object = "drivers/nfc/nfcmrvl/i2c.o"
+only = "other"
+item = "4=alt_cb_patch_nops+0 2b80"
+reason = "the LSE atomics entry of the set_bit(NFCMRVL_PHY_ERROR) under case -EREMOTEIO, the same as the 2a80 rule. On 7.3 the capability number is one higher"
+
+[[divergence]]
+what = ".altinstructions"
+object = "drivers/nfc/nfcmrvl/nfcmrvl_i2c.o"
+only = "other"
+item = "4=alt_cb_patch_nops+0 2b80"
+reason = "the LSE atomics entry of the set_bit(NFCMRVL_PHY_ERROR) under case -EREMOTEIO, the same as the 2a80 rule. On 7.3 the capability number is one higher"
+
+[[divergence]]
+what = ".altinstructions"
+object = "arch/arm64/kvm/at.o"
+only = "other"
+item = "2e00"
+reason = "ARM64_HAS_LSUI, which is number 46 on 7.3. CONFIG_AS_HAS_LSUI comes from an as-instr test with the compiler of the build. The rucc build passes the test, and gcc 14 with binutils 2.42 does not take .arch_extension lsui, so only the rucc build has the LSUI alternatives"
+
+[[divergence]]
+what = ".altinstructions"
+object = "arch/arm64/kernel/armv8_deprecated.o"
+only = "other"
+item = "2e00"
+reason = "ARM64_HAS_LSUI, which is number 46 on 7.3. CONFIG_AS_HAS_LSUI comes from an as-instr test with the compiler of the build. The rucc build passes the test, and gcc 14 with binutils 2.42 does not take .arch_extension lsui, so only the rucc build has the LSUI alternatives"
+
+[[divergence]]
+what = ".altinstructions"
+object = "kernel/futex/core.o"
+only = "other"
+item = "2e00"
+reason = "ARM64_HAS_LSUI, which is number 46 on 7.3. CONFIG_AS_HAS_LSUI comes from an as-instr test with the compiler of the build. The rucc build passes the test, and gcc 14 with binutils 2.42 does not take .arch_extension lsui, so only the rucc build has the LSUI alternatives"
+
+[[divergence]]
+what = ".altinstructions"
+object = "kernel/futex/pi.o"
+only = "other"
+item = "2e00"
+reason = "ARM64_HAS_LSUI, which is number 46 on 7.3. CONFIG_AS_HAS_LSUI comes from an as-instr test with the compiler of the build. The rucc build passes the test, and gcc 14 with binutils 2.42 does not take .arch_extension lsui, so only the rucc build has the LSUI alternatives"
+
+[[divergence]]
+what = ".altinstructions"
+object = "kernel/futex/waitwake.o"
+only = "other"
+item = "2e00"
+reason = "ARM64_HAS_LSUI, which is number 46 on 7.3. CONFIG_AS_HAS_LSUI comes from an as-instr test with the compiler of the build. The rucc build passes the test, and gcc 14 with binutils 2.42 does not take .arch_extension lsui, so only the rucc build has the LSUI alternatives"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/rds/page.o"
+only = "reference"
+item = '4="(unsigned long)v & mask" 8="include/linux/instrumented.h" 43000309'
+reason = "the DEBUG_ATOMIC alignment WARN of the atomic_inc in get_page(sg_page(scat)) in rds_page_remainder_alloc. sg_page clears the low two bits, and with HUGETLB_PAGE_OPTIMIZE_VMEMMAP page_folio gives the page address and a mask, so _refcount is always 4 byte aligned"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/debug_vm_pgtable.o"
+only = "reference"
+item = '4="" 8="mm/debug_vm_pgtable.c" e9020109'
+reason = "the WARN_ON(!pmd_soft_dirty(pmd_mksoft_dirty(pmd))) in pmd_soft_dirty_tests. On x86 pmd_mksoft_dirty sets _PAGE_SOFT_DIRTY on native_pmd_val, and pmd_soft_dirty tests the same bit, which neither pfn mask of pmd_flags covers, so the test is a constant"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/debug_vm_pgtable.o"
+only = "reference"
+item = '4="" 8="mm/debug_vm_pgtable.c" ea020109'
+reason = "the WARN_ON(pmd_soft_dirty(pmd_clear_soft_dirty(pmd))) in pmd_soft_dirty_tests, which clears the bit it then tests"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_848+42"
+reason = "the pr_debug of dspio_scp bad resp buf len parms. The only call with a reply buffer passes the address of a size that holds 4, and gcc keeps the check in a constprop clone"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_863+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_865+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_867+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_869+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_871+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_887+42"
+reason = "the pr_debug of dma chan num invalid. The only dspload_image call passes ovly 0, so the channel is 0, and gcc keeps the check in a constprop clone"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_895+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_897+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_903+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_905+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_949+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_951+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_959+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_961+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_1013+42"
+reason = "a pr_debug in the overlay path, dspio_alloc_dma_chan or a register read under if (ovly) in the DSP DMA setup, start or stop. The only dspload_image call passes ovly 0, so the path is dead, and gcc 16.2 removes it as well"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_559+40"
+reason = "the pr_debug of dspio_scp bad resp buf len parms. The only call with a reply buffer passes the address of a size that holds 4, and gcc keeps the check in a constprop clone"
+
+[[divergence]]
+what = "__jump_table"
+object = "sound/hda/codecs/ca0132.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_598+40"
+reason = "the pr_debug of dma chan num invalid. The only dspload_image call passes ovly 0, so the channel is 0, and gcc keeps the check in a constprop clone"
+
+[[divergence]]
+what = "__jump_table"
+object = "drivers/gpu/drm/i915/gvt/gtt.o"
+only = "reference"
+item = "8=__UNIQUE_ID_ddebug_1317+42"
+reason = "the gvt_dbg_mm of oos pages preallocated in setup_spt_oos. Its only caller is under enable_out_of_sync, a static bool set to false that nothing writes, so rucc removes it"
