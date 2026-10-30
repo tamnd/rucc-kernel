@@ -168,7 +168,9 @@ jobs:
             | awk '/^Package: busybox-static$/ { p = 1 } p && /^Filename:/ { print $2; exit }')
           curl -fsSLo "$RUNNER_TEMP/busybox.deb" "$base/$deb"
           dpkg-deb -x "$RUNNER_TEMP/busybox.deb" "$RUNNER_TEMP/busybox-r64"
-          echo "BUSYBOX=$RUNNER_TEMP/busybox-r64/bin/busybox" >> "$GITHUB_ENV"
+          busybox=$(find "$RUNNER_TEMP/busybox-r64" -name busybox -type f | head -n 1)
+          file "$busybox"
+          echo "BUSYBOX=$busybox" >> "$GITHUB_ENV"
       - name: let the runner user open /dev/kvm
         if: inputs.row != 'A64'
         run: |
@@ -424,6 +426,7 @@ jobs:
           if [ -z "$unit" ]; then echo "no kernel failure to bisect"; exit 0; fi
           boot=()
           if [ -n "$CPU" ]; then boot+=(--cpu "$CPU"); fi
+          if [ -n "$BUSYBOX" ]; then boot+=(--busybox "$BUSYBOX"); fi
           if [ -d "$RUNNER_TEMP/selftests-gcc" ]; then boot+=(--selftests "$RUNNER_TEMP/selftests-gcc"); fi
           if [ -d "$RUNNER_TEMP/ltp-gcc" ]; then boot+=(--ltp "$RUNNER_TEMP/ltp-gcc"); fi
           left=$(( DEADLINE - $(date +%s) ))
