@@ -3963,3 +3963,18 @@ object = "drivers/gpu/drm/i915/gvt/gtt.o"
 only = "reference"
 item = "8=__UNIQUE_ID_ddebug_1317+42"
 reason = "the gvt_dbg_mm of oos pages preallocated in setup_spt_oos. Its only caller is under enable_out_of_sync, a static bool set to false that nothing writes, so rucc removes it"
+
+# The 7.3 arm64 verifier, where gcc 14 records every bug line of verifier.c one lower than the
+# source. After the #include "diagnostics.h" on line 37, the gcc 14.2 preprocessor goes back to
+# line 37 and not 38, so each line after it is one short. This depends only on the size of the
+# headers before it. With the autoconf.h of the arm runner, which has rustc and pahole, the lines
+# are short. Without them they are correct, and with four unused defines added they are short
+# again, while one, two, eight or sixteen do not do it. rucc writes the lines of the source. Each
+# of the 69 sites of the A64 defconfig census of 30 October was checked against a gcc 14.2 build
+# with the correct lines, and each census line is that line less one, so no site is lost.
+[[divergence]]
+what = "__bug_table"
+object = "kernel/bpf/verifier.o"
+only = "either"
+item = '4="kernel/bpf/verifier.c" *'
+reason = "gcc 14.2 counts the lines of verifier.c one short after its include of diagnostics.h when the headers before it have some sizes, such as with the autoconf.h of the arm runner, so the same site has a different line in each build"
