@@ -25,7 +25,8 @@
 # runner has checked the tarball against kernel.org, because the container has no curl. The boot and
 # the audits run on the runner as for the others. The compare job compares rucc with the first
 # reference. One more build, rucc-second, is rucc claiming GCC 16 with rk build --persona second,
-# and the compare job holds its config and its probes against the GCC 16 build.
+# in the same container, and the compare job holds its config and its probes against the GCC 16
+# build.
 
 name: kernel
 
@@ -148,28 +149,28 @@ jobs:
           path: ${{ env.RK_CACHE }}/archives
           key: kernel-archives-${{ hashFiles('pins.toml') }}
           restore-keys: kernel-archives-
-      # rucc-second is rucc claiming the second reference, so that its probes can be held against
-      # that reference's.
       - name: rk build
-        if: matrix.cc != needs.era.outputs.second-gcc
+        if: matrix.cc != needs.era.outputs.second-gcc && matrix.cc != 'rucc-second'
         run: |
-          persona=()
-          if [ "$COMPILER" = rucc-second ]; then COMPILER=rucc; persona=(--persona second); fi
           target/release/rk build ${{ inputs.version }} --row X64 --config ${{ matrix.config }} \
-            --fragment test --cc "$COMPILER" --out "$RUNNER_TEMP/out" --keep-going --stack-usage "${persona[@]}"
-        env:
-          COMPILER: ${{ matrix.cc }}
+            --fragment test --cc ${{ matrix.cc }} --out "$RUNNER_TEMP/out" --keep-going --stack-usage
+      # rucc-second is rucc claiming the second reference. It builds in the same container as that
+      # reference, so that the linker, rustc and openssl Kconfig asks about are the same in both
+      # builds and a difference in the probes is the compiler's.
       - name: rk build in ${{ needs.era.outputs.second-image }}
-        if: matrix.cc == needs.era.outputs.second-gcc
+        if: matrix.cc == needs.era.outputs.second-gcc || matrix.cc == 'rucc-second'
         run: |
+          cc=("$COMPILER")
+          if [ "$COMPILER" = rucc-second ]; then cc=("$(command -v rucc)" --persona second); fi
           target/release/rk fetch ${{ inputs.version }} --no-upstream-check
           work="$(dirname "$(dirname "$GITHUB_WORKSPACE")")"
           docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e RK_CACHE \
             -v "$work:$work" -w "$GITHUB_WORKSPACE" "$IMAGE" \
             target/release/rk build ${{ inputs.version }} --row X64 --config ${{ matrix.config }} \
-            --fragment test --cc ${{ matrix.cc }} --out "$RUNNER_TEMP/out" --keep-going --stack-usage \
+            --fragment test --cc "${cc[@]}" --out "$RUNNER_TEMP/out" --keep-going --stack-usage \
             --no-upstream-check
         env:
+          COMPILER: ${{ matrix.cc }}
           IMAGE: ${{ needs.era.outputs.second-image }}
       - name: rk boot
         run: target/release/rk boot --build "$RUNNER_TEMP/out" --timeout 600
