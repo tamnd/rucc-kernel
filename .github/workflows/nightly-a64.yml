@@ -1,0 +1,30 @@
+# The A64 night: 7.3 on the arm runner, every night, from tinyconfig and the test fragment.
+#
+# A scheduled run of nightly.yml has no inputs, so it is always X64. This workflow starts a manual
+# run of nightly.yml with the A64 row and 7.3 thirty minutes after the X64 night starts. The A64
+# night then has its own run and its own report, and the summary of that run shows 7.3 A64 green
+# or red on its own line.
+#
+# The rucc binary is the pinned release, built from its tag on the arm runner, as nightly.yml does
+# for every A64 run.
+
+name: nightly-a64
+
+on:
+  schedule:
+    - cron: "53 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  start:
+    name: start the A64 night
+    runs-on: ubuntu-24.04
+    steps:
+      - name: dispatch nightly.yml for 7.3 on A64
+        run: gh workflow run nightly.yml -R "$GITHUB_REPOSITORY" -f row=A64 -f versions='["7.3"]'
+        env:
+          GH_TOKEN: ${{ github.token }}
