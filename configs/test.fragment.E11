@@ -15,6 +15,9 @@ CONFIG_MODULES=y
 CONFIG_MULTIUSER=y
 CONFIG_FUTEX=y
 CONFIG_SHMEM=y
+# The timers selftests need POSIX timers. Without them clock_adjtime fails with ENOSYS, and raw_skew
+# reads a struct timex that the kernel did not fill, so its result depends on the stack
+CONFIG_POSIX_TIMERS=y
 # console and init
 CONFIG_SERIAL_8250=y
 CONFIG_SERIAL_8250_CONSOLE=y
