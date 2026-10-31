@@ -298,7 +298,12 @@ fn build_plan(repo: &Repo, args: &Args) -> Result<build::Plan, String> {
     let pins = pins::Pins::load(&repo.file("pins.toml"))?;
     let pin = pins.get(args.target.as_deref())?.clone();
     let personas = personas::Personas::load(&repo.file("personas.toml"))?;
-    let era = personas.era_for(&pin.version)?.clone();
+    let era = personas.era_for(&pin.version)?;
+    let era = match args.get("persona") {
+        None | Some("era") => era.clone(),
+        Some("second") => era.claiming_second()?,
+        Some(other) => return Err(format!("--persona {other}: it is era or second")),
+    };
     let rows = personas::Rows::load(&repo.file("rows.toml"))?;
     let row = rows.get(args.get("row").unwrap_or("X64"))?.clone();
     let config = args.get("config").unwrap_or("defconfig").to_string();

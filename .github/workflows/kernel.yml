@@ -23,8 +23,9 @@
 # When the era has a second reference, GCC 16 for E11, it is built too. No hosted runner has GCC 16,
 # so rk build runs in the era container that personas.toml names for it, after rk fetch on the
 # runner has checked the tarball against kernel.org, because the container has no curl. The boot and
-# the audits run on the runner as for the others. The compare job still compares rucc with the first
-# reference only.
+# the audits run on the runner as for the others. The compare job compares rucc with the first
+# reference. One more build, rucc-second, is rucc claiming GCC 16 with rk build --persona second,
+# and the compare job holds its config and its probes against the GCC 16 build.
 
 name: kernel
 
@@ -85,7 +86,7 @@ jobs:
       - id: ccs
         run: |
           if [ -n "$SECOND" ]; then
-            echo "ccs=[\"$GCC\", \"rucc\", \"$SECOND\"]" >> "$GITHUB_OUTPUT"
+            echo "ccs=[\"$GCC\", \"rucc\", \"$SECOND\", \"rucc-second\"]" >> "$GITHUB_OUTPUT"
           else
             echo "ccs=[\"$GCC\", \"rucc\"]" >> "$GITHUB_OUTPUT"
           fi
@@ -98,7 +99,7 @@ jobs:
     needs: era
     runs-on: ubuntu-24.04
     timeout-minutes: 120
-    continue-on-error: ${{ matrix.cc == 'rucc' }}
+    continue-on-error: ${{ startsWith(matrix.cc, 'rucc') }}
     strategy:
       fail-fast: false
       matrix:
@@ -147,11 +148,17 @@ jobs:
           path: ${{ env.RK_CACHE }}/archives
           key: kernel-archives-${{ hashFiles('pins.toml') }}
           restore-keys: kernel-archives-
+      # rucc-second is rucc claiming the second reference, so that its probes can be held against
+      # that reference's.
       - name: rk build
         if: matrix.cc != needs.era.outputs.second-gcc
         run: |
+          persona=()
+          if [ "$COMPILER" = rucc-second ]; then COMPILER=rucc; persona=(--persona second); fi
           target/release/rk build ${{ inputs.version }} --row X64 --config ${{ matrix.config }} \
-            --fragment test --cc ${{ matrix.cc }} --out "$RUNNER_TEMP/out" --keep-going --stack-usage
+            --fragment test --cc "$COMPILER" --out "$RUNNER_TEMP/out" --keep-going --stack-usage "${persona[@]}"
+        env:
+          COMPILER: ${{ matrix.cc }}
       - name: rk build in ${{ needs.era.outputs.second-image }}
         if: matrix.cc == needs.era.outputs.second-gcc
         run: |
@@ -167,10 +174,10 @@ jobs:
       - name: rk boot
         run: target/release/rk boot --build "$RUNNER_TEMP/out" --timeout 600
       - name: rk asm-inventory
-        if: matrix.cc != 'rucc'
+        if: "!startsWith(matrix.cc, 'rucc')"
         run: target/release/rk asm-inventory --build "$RUNNER_TEMP/out"
       - name: rk syntax
-        if: matrix.cc != 'rucc'
+        if: "!startsWith(matrix.cc, 'rucc')"
         run: |
           target/release/rk syntax --build "$RUNNER_TEMP/out" --cc rucc > "$RUNNER_TEMP/out/syntax.md" || true
           cat "$RUNNER_TEMP/out/syntax.md" >> "$GITHUB_STEP_SUMMARY"
@@ -264,6 +271,19 @@ jobs:
         run: |
           target/release/rk frames --reference "$REF"/frames.json \
             --other records/X64-${{ matrix.config }}-rucc/frames.json | tee -a "$GITHUB_STEP_SUMMARY"
+      # rucc claiming the second reference, against the second reference, on what the kernel
+      # decides by GCC version.
+      - name: rk config-diff and rk probes against ${{ needs.era.outputs.second-gcc }}
+        if: always() && needs.era.outputs.second-gcc != ''
+        run: |
+          echo "### rucc claiming $SECOND, against $SECOND" | tee -a "$GITHUB_STEP_SUMMARY"
+          target/release/rk config-diff --reference "records/X64-$CONFIG-$SECOND" \
+            --other "records/X64-$CONFIG-rucc-second" | tee -a "$GITHUB_STEP_SUMMARY" || true
+          target/release/rk probes --reference "records/X64-$CONFIG-$SECOND" \
+            --other "records/X64-$CONFIG-rucc-second" | tee -a "$GITHUB_STEP_SUMMARY"
+        env:
+          CONFIG: ${{ matrix.config }}
+          SECOND: ${{ needs.era.outputs.second-gcc }}
 
   demands:
     name: the demand census
