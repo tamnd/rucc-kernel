@@ -46,6 +46,22 @@ pub struct Era {
     pub notes: String,
 }
 
+impl Era {
+    /// The era with rucc claiming its second reference, `-fgnuc-version` and the assembler
+    /// version of that GCC and its binutils, so that the probes the kernel decides by GCC version
+    /// can be held against the second reference too.
+    pub fn claiming_second(&self) -> Result<Era, String> {
+        let second = self
+            .second
+            .as_ref()
+            .ok_or_else(|| format!("{} has no second reference to claim", self.id))?;
+        let mut era = self.clone();
+        era.gnuc.clone_from(&second.gcc);
+        era.gnu_as.clone_from(&second.binutils);
+        Ok(era)
+    }
+}
+
 /// A reference toolchain.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Reference {
@@ -270,6 +286,17 @@ mod tests {
         assert_eq!(second.gcc, "16.2.0");
         assert_eq!(second.container, "rk-era-forky");
         assert!(p.era_for("6.12.111").unwrap().second.is_none());
+    }
+
+    #[test]
+    fn rucc_can_claim_the_second_reference_of_an_era_that_has_one() {
+        let p = committed();
+        let e11 = p.era_for("7.3").unwrap().claiming_second().unwrap();
+        assert_eq!(e11.gnuc, "16.2.0");
+        assert_eq!(e11.gnu_as, "2.47");
+        assert_eq!(e11.reference.gcc, "14.2.0");
+        let e10 = p.era_for("6.12.111").unwrap();
+        assert!(e10.claiming_second().unwrap_err().contains("E10"));
     }
 
     #[test]

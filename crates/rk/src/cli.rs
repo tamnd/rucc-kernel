@@ -50,6 +50,7 @@ const BUILD: &[&str] = &[
     "kcflags",
     "config-only",
     "no-upstream-check",
+    "persona",
 ];
 
 /// The flags of `rk test`.
@@ -215,7 +216,7 @@ usage:
            [--fragment test] (--config also takes a name in configs/distro/distros.toml)
            [--targets \"vmlinux bzImage\"] [--keep-going] [--twice] [--stack-usage]
            [--kcflags \"-fenable-inject-fault=f\"] [--config-only]
-           [--bringup m16 --bringup-cc gcc]
+           [--bringup m16 --bringup-cc gcc] [--persona era|second]
   rk version
 
 The repository is found by walking up to pins.toml, or from RK_ROOT. Downloads and unpacked

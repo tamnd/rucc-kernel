@@ -6,6 +6,8 @@
 //! compiler is rucc, the era's persona is part of `CC`, as `rk-cc -fgnuc-version=14.2.0
 //! -fgnu-as-version=2.44`, which is what a user building by hand would write too. The second one
 //! is what `scripts/as-version.sh` reads, so `CONFIG_AS_VERSION` matches the reference's binutils.
+//! `--persona second` makes rucc claim the era's second reference instead, `-fgnuc-version=16.2.0
+//! -fgnu-as-version=2.47` for 7.3, so that its probes can be compared with that reference's.
 //!
 //! Nothing else is added to the command line unless asked. `--stack-usage` passes
 //! `KCFLAGS=-fstack-usage`, as the kernel's own `scripts/stackusage` does, so that both compilers
