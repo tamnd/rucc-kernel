@@ -14,9 +14,9 @@
 # fits on the runner, and defconfig with the test fragment, as everywhere else. Any other config
 # that built its image is then booted with rk boot, and boot.json and boot.log go into the artifact.
 #
-# Each build also saves its sections, symbols and unit command lines, and the compare job runs the
-# config, probe, flags, sections, symvers and objtool differentials of rucc against gcc. They do
-# not fail the run.
+# Each build also saves its sections, symbols, vector counts and unit command lines and audits its
+# modules, and the compare job runs the config, probe, flags, sections, symvers, vec and objtool
+# differentials of rucc against gcc. They do not fail the run.
 
 name: census
 
@@ -170,16 +170,22 @@ jobs:
           target/release/rk boot --build "$OUT" --row "$ROW" --timeout 1500 "${busybox[@]}"
         env:
           ROW: ${{ matrix.row }}
-      - name: rk sections-diff
+      # The object audits run here, since the objects do not go to the compare job. rk vec-audit
+      # saves the counts it compares there, and rk modules-audit reads the modules of this build.
+      - name: rk object audits
         if: always()
-        run: target/release/rk sections-diff --reference "$OUT" --save "$OUT/sections.json" > /dev/null || true
+        run: |
+          target/release/rk sections-diff --reference "$OUT" --save "$OUT/sections.json" > /dev/null || true
+          target/release/rk vec-audit --build "$OUT" --save "$OUT/vec.json" > "$OUT/vec-audit.md" || true
+          target/release/rk modules-audit --build "$OUT" > "$OUT/modules-audit.md" || true
+          cat "$OUT/vec-audit.md" "$OUT/modules-audit.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
       - name: keep the record
         if: always()
         run: |
           mkdir -p record
           cd "$OUT"
           cp build.json summary.md config.log fragment.log build.log demands.md asm-inventory.md syntax.md kernel-pp.md \
-            boot.json boot.log .config sections.json Module.symvers System.map \
+            boot.json boot.log .config sections.json vec.json vec-audit.md modules-audit.md Module.symvers System.map \
             "$GITHUB_WORKSPACE/record/" 2>/dev/null || true
           if [ -f compile.jsonl ]; then gzip -c compile.jsonl > "$GITHUB_WORKSPACE/record/compile.jsonl.gz"; fi
           find . -path ./rk-bin -prune -o -name '.*.o.cmd' -print | tar -czf "$GITHUB_WORKSPACE/record/cmd.tar.gz" -T -
@@ -247,6 +253,11 @@ jobs:
       - name: rk symvers-diff
         if: always()
         run: target/release/rk symvers-diff --reference "$REF" --other "$OTHER" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: rk vec-audit
+        if: always()
+        run: |
+          target/release/rk vec-audit --build "$OTHER"/vec.json \
+            --reference "$REF"/vec.json | tee -a "$GITHUB_STEP_SUMMARY"
       - name: rk objtool-report
         if: always()
         run: target/release/rk objtool-report --reference "$REF" --other "$OTHER" | tee -a "$GITHUB_STEP_SUMMARY"
