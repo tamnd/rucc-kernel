@@ -377,6 +377,10 @@ jobs:
         run: |
           mkdir -p record/gcc record/rucc record/second record/test record/test-second record/cross record/selftests record/ltp
           cp "$RUNNER_TEMP/second"/{build.json,summary.md,build.log,.config} record/second/ 2>/dev/null || true
+          # Every command line gcc-16 was given, so the flags of the build can be tried on rucc.
+          if [ -f "$RUNNER_TEMP/second/compile.jsonl" ]; then
+            gzip -c "$RUNNER_TEMP/second/compile.jsonl" > record/second/compile.jsonl.gz
+          fi
           cp -r "$RUNNER_TEMP/test-second/." record/test-second/ 2>/dev/null || true
           for side in gcc rucc; do
             cp "$RUNNER_TEMP/$side"/{build.json,summary.md,build.log,.config} "record/$side/" 2>/dev/null || true
