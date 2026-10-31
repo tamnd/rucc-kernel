@@ -23,7 +23,9 @@
 //!
 //! When a console cuts a message short, printk writes `** replaying previous printk message **`
 //! and then the whole message again. The cut line is skipped, so a cut name such as `dm_test_s`
-//! does not become a unit of its own.
+//! does not become a unit of its own. The console can also write the marker after a line that is
+//! whole and then not write the message again, so a line is skipped only when the line after the
+//! marker starts with it.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -100,15 +102,18 @@ const REPLAY: &str = "** replaying previous printk message **";
 pub fn parse(console: &str) -> BTreeMap<String, Status> {
     let mut units: BTreeMap<String, Status> = BTreeMap::new();
     let mut open: Vec<(usize, String)> = Vec::new();
-    let mut lines = console.lines().peekable();
-    while let Some(line) = lines.next() {
-        if lines
-            .peek()
-            .is_some_and(|next| next.trim_end_matches('\r') == REPLAY)
+    let lines: Vec<&str> = console
+        .lines()
+        .map(|line| crate::boot::strip_timestamp(line.trim_end_matches('\r')))
+        .collect();
+    for (at, line) in lines.iter().enumerate() {
+        if lines.get(at + 1) == Some(&REPLAY)
+            && lines
+                .get(at + 2)
+                .is_some_and(|again| again.starts_with(line))
         {
             continue;
         }
-        let line = crate::boot::strip_timestamp(line.trim_end_matches('\r'));
         let depth = indent(line);
         let text = line.trim_start();
         if let Some(name) = text.strip_prefix("# Subtest: ") {
@@ -193,6 +198,16 @@ mod tests {
         assert_eq!(
             units.keys().map(String::as_str).collect::<Vec<_>>(),
             ["dm.dm_test_next", "dm.dm_test_subconnector"]
+        );
+    }
+
+    #[test]
+    fn a_line_the_console_does_not_write_again_is_kept() {
+        let console = "[    1.0]     # Subtest: dm\n[    1.1]     ok 133 dm_test_lvds\n** replaying previous printk message **\n[    1.2]     ok 134 dm_test_non_edp\n";
+        let units = parse(console);
+        assert_eq!(
+            units.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["dm.dm_test_lvds", "dm.dm_test_non_edp"]
         );
     }
 
