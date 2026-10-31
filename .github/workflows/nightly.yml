@@ -122,7 +122,7 @@ jobs:
     name: ${{ matrix.version }} ${{ inputs.row || 'X64' }}
     needs: set
     runs-on: ${{ inputs.row == 'A64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
-    timeout-minutes: ${{ (inputs.row == 'A64' || inputs.row == 'R64') && 355 || 300 }}
+    timeout-minutes: 355
     strategy:
       fail-fast: false
       matrix:
@@ -131,10 +131,12 @@ jobs:
       # The job is cancelled at its limit with nothing kept, so rk test and rk cross-modules stop
       # on their own before it. rk test gets until 45 minutes before the end, rk cross-modules
       # until 15 minutes before, and the checks and the record after them still run.
+      # Every row gets 355 minutes. An X64 night on fedora-46 builds with gcc-14, rucc and gcc-16, and
+      # with no cache these three builds take about 280 minutes.
       - name: the deadline
         run: echo "DEADLINE=$(( $(date +%s) + (LIMIT - 15) * 60 ))" >> "$GITHUB_ENV"
         env:
-          LIMIT: ${{ (inputs.row == 'A64' || inputs.row == 'R64') && 355 || 300 }}
+          LIMIT: 355
       - uses: actions/checkout@v7.0.1
       - uses: Swatinem/rust-cache@v2.9.2
       - name: the reference for the version
