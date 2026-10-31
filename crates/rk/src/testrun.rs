@@ -284,10 +284,19 @@ const RACY: &[&str] = &[
 /// arm64 config of 7.3 makes each `exec` slow, and on two nights the rucc kernel ran out of time
 /// with either userland while the reference kernel did not. The same rucc kernel with `defconfig`
 /// passed it, and its whole arm64 collection took 90.5 seconds where the reference took 81.5.
+///
+/// `rv_test_nomiss` in the KUnit suite `rv_mon` gives a mock deadline task a deadline of 20 us,
+/// and the `nomiss` monitor adds `deadline_thresh`, one tick, to it. The test then waits with
+/// `udelay` for about 1025 us and expects one reaction, so the monitor's timer and the test's own
+/// switch event come about 5 us apart. On the 7.3 arm64 Fedora night, each kernel passed it with
+/// its own modules and failed it in both crossed boots with two reactions. The suite fails with
+/// the case, so it is in the list too.
 const TIMING: &[&str] = &[
     "kselftest:arm64:pac",
     "kselftest:seccomp:seccomp_benchmark",
     "kselftest:timers:rtcpie",
+    "kunit:rv_mon",
+    "kunit:rv_mon.rv_test_nomiss",
     "ltp:mm:shm_test01",
     "ltp:syscalls:fcntl14",
     "ltp:syscalls:fcntl14_64",
