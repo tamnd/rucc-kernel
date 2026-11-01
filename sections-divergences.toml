@@ -4015,3 +4015,42 @@ object = "mm/mempolicy.o"
 only = "reference"
 item = '4="" 8="include/linux/page-flags.h" 62010000'
 reason = "the first VM_BUG_ON_PGFLAGS(page->compound_info & 1, page) of folio_flags, at line 354. gcc keeps folio_flags(folio, 1) out of line as folio_flags.constprop.0 for folio_set_large_rmappable. rucc inlines it into page_rmappable_folio and its callers, after folio_test_large. That test reads the same compound_info in const_folio_flags and stops in its own VM_BUG_ON_PGFLAGS at line 345 when bit 0 is set. Only a volatile read of the flags comes between the two, so bit 0 is known to be clear and rucc removes the second check. The check at line 355 reads the flags again, and rucc keeps it"
+
+# The 7.3 A64 allmodconfig census of 1 November.
+[[divergence]]
+what = "__bug_table"
+object = "arch/arm64/kvm/hyp/nvhe/*"
+only = "reference"
+item = '4="arch/arm64/kvm/hyp/include/hyp/debug-sr.h" 5f000309'
+reason = "the WARN_ON_ONCE(1) for VCPU_DEBUG_FREE in __vcpu_debug_regs. Both callers return first when kvm_debug_regs_in_use is false, which is when debug_owner is VCPU_DEBUG_FREE. gcc 14 keeps __vcpu_debug_regs out of line in debug-sr.nvhe.o, as nm shows, so the case stays. rucc inlines it, and only asm volatile reads and writes of system registers with no memory clobber come between the test and the switch, so rucc removes the case"
+
+# Modules that need kunit only in the rucc build. modpost writes depends= from the symbols a module
+# does not define, so a kunit call that gcc removes and rucc keeps adds kunit to the list. The .ko
+# is explained by its .mod.o.
+[[divergence]]
+what = ".modinfo"
+object = "drivers/firewire/ohci-serdes-test.mod.o"
+only = "reference"
+item = "depends="
+reason = "the KUNIT_EXPECT_MEMEQ of quadlets against expected in the at_data and it_data tests. The setters write constant fields into a local array, so gcc folds the memcmp to zero and removes the call to __kunit_do_failed_assertion. rucc keeps the call, so the module needs kunit_mem_assert_format and modpost writes depends=kunit"
+
+[[divergence]]
+what = ".modinfo"
+object = "drivers/firewire/ohci-serdes-test.mod.o"
+only = "other"
+item = "depends=kunit"
+reason = "the kunit dependency of the ohci-serdes-test rule above, on the rucc side"
+
+[[divergence]]
+what = ".modinfo"
+object = "lib/tests/bitfield_kunit.mod.o"
+only = "reference"
+item = "depends="
+reason = "the KUNIT_ASSERT_FALSE checks of test_bitfields_constants and test_bitfields_variables. Each one compares expressions of constants, or of a loop counter below a constant mask, so gcc proves each one false and removes the assert. rucc keeps some of them, so the module needs __kunit_do_failed_assertion and __kunit_abort and modpost writes depends=kunit"
+
+[[divergence]]
+what = ".modinfo"
+object = "lib/tests/bitfield_kunit.mod.o"
+only = "other"
+item = "depends=kunit"
+reason = "the kunit dependency of the bitfield_kunit rule above, on the rucc side"

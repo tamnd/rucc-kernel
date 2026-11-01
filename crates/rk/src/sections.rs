@@ -847,10 +847,14 @@ fn ko_members(name: &str, reference: &Inventory, other: &Inventory) -> Vec<Strin
     let Some(stem) = name.strip_suffix(".ko") else {
         return Vec::new();
     };
-    [format!("{stem}.o"), format!("{stem}.mod.o"), MODULE_COMMON.to_string()]
-        .into_iter()
-        .filter(|m| reference.contains_key(m) || other.contains_key(m))
-        .collect()
+    [
+        format!("{stem}.o"),
+        format!("{stem}.mod.o"),
+        MODULE_COMMON.to_string(),
+    ]
+    .into_iter()
+    .filter(|m| reference.contains_key(m) || other.contains_key(m))
+    .collect()
 }
 
 /// A difference with no items, for a comparison that is not between two sets.
@@ -1636,6 +1640,56 @@ reason = "checked in a.c"
                 None
             ]
         );
+    }
+
+    /// A `.ko` has its object, its `.mod.o` and `.module-common.o` as members, so a rule for the
+    /// `.modinfo` of the `.mod.o` explains the `.ko`. The modules of `depends=` are a set, and
+    /// another order is no difference.
+    #[test]
+    fn a_ko_is_explained_by_its_mod_o_and_depends_is_a_set() {
+        let with = |modinfo: &str| {
+            let mut b = Builder::new();
+            b.function("f", &[0xc3]);
+            b.section(".modinfo", modinfo.as_bytes());
+            read(&b.bytes()).unwrap()
+        };
+        let build = |depends: &str| -> Inventory {
+            let modinfo = format!("license=GPL\0depends={depends}\0");
+            [
+                ("a.o".to_string(), with("license=GPL\0")),
+                ("a.mod.o".to_string(), with(&modinfo)),
+                ("a.ko".to_string(), with(&modinfo)),
+                (MODULE_COMMON.to_string(), with("")),
+            ]
+            .into()
+        };
+        assert!(compare(&build("b,c"), &build("c,b")).clean());
+
+        let mut c = compare(&build(""), &build("kunit"));
+        assert_eq!(c.members["a.ko"], ["a.o", "a.mod.o", MODULE_COMMON]);
+        let objects: Vec<&str> = c.differences.iter().map(|d| d.object.as_str()).collect();
+        assert_eq!(objects, ["a.ko", "a.mod.o"]);
+        assert!(report(&c, false).contains("| a.ko | .modinfo | depends= | depends=kunit |"));
+        let rules = Divergences::parse(
+            r#"
+[[divergence]]
+what = ".modinfo"
+object = "a.mod.o"
+only = "reference"
+item = "depends="
+reason = "a kunit call only rucc keeps"
+
+[[divergence]]
+what = ".modinfo"
+object = "a.mod.o"
+only = "other"
+item = "depends=kunit"
+reason = "a kunit call only rucc keeps"
+"#,
+        )
+        .unwrap();
+        rules.explain(&mut c);
+        assert!(c.clean());
     }
 
     /// The members are read from the `.mod` file next to a module, leaving out the module itself,
