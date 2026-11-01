@@ -9,17 +9,29 @@
 //! It also checks that every module carries the build's `vermagic` and that the CRC each module
 //! records for a symbol it imports, in `__versions`, is the CRC `Module.symvers` has for it.
 //!
-//! The accepted list is x86-64's, which has been the same since 2.6 apart from `PLT32` in 4.16
-//! and `PC64` in 4.x. The GOTPCREL family is not on it: kernels before 5.x reject it outright and
-//! the ones after reject it for modules built without PIE. The relocations of other machines'
-//! modules are listed as not audited until their rows arrive, and their `vermagic` and CRCs are
-//! checked all the same.
+//! There is an accepted list for x86-64 and one for arm64. The x86-64 list has been the same
+//! since 2.6 apart from `PLT32` in 4.16 and `PC64` in 4.x. The GOTPCREL family is not on it:
+//! kernels before 5.x reject it outright and the ones after reject it for modules built without
+//! PIE. The arm64 list is the cases of `apply_relocate_add` in `arch/arm64/kernel/module.c`,
+//! which has no GOT type either. The relocations of other machines' modules are listed as not
+//! audited until their rows arrive, and their `vermagic` and CRCs are checked all the same.
 
 use crate::objects;
 use crate::symvers::Export;
 use object::elf::{
-    R_X86_64_32, R_X86_64_32S, R_X86_64_64, R_X86_64_NONE, R_X86_64_PC32, R_X86_64_PC64,
-    R_X86_64_PLT32, RelocationType,
+    R_AARCH64_ABS16, R_AARCH64_ABS32, R_AARCH64_ABS64, R_AARCH64_ADD_ABS_LO12_NC,
+    R_AARCH64_ADR_PREL_LO21, R_AARCH64_ADR_PREL_PG_HI21, R_AARCH64_ADR_PREL_PG_HI21_NC,
+    R_AARCH64_CALL26, R_AARCH64_CONDBR19, R_AARCH64_JUMP26, R_AARCH64_LD_PREL_LO19,
+    R_AARCH64_LDST8_ABS_LO12_NC, R_AARCH64_LDST16_ABS_LO12_NC, R_AARCH64_LDST32_ABS_LO12_NC,
+    R_AARCH64_LDST64_ABS_LO12_NC, R_AARCH64_LDST128_ABS_LO12_NC, R_AARCH64_MOVW_PREL_G0,
+    R_AARCH64_MOVW_PREL_G0_NC, R_AARCH64_MOVW_PREL_G1, R_AARCH64_MOVW_PREL_G1_NC,
+    R_AARCH64_MOVW_PREL_G2, R_AARCH64_MOVW_PREL_G2_NC, R_AARCH64_MOVW_PREL_G3,
+    R_AARCH64_MOVW_SABS_G0, R_AARCH64_MOVW_SABS_G1, R_AARCH64_MOVW_SABS_G2, R_AARCH64_MOVW_UABS_G0,
+    R_AARCH64_MOVW_UABS_G0_NC, R_AARCH64_MOVW_UABS_G1, R_AARCH64_MOVW_UABS_G1_NC,
+    R_AARCH64_MOVW_UABS_G2, R_AARCH64_MOVW_UABS_G2_NC, R_AARCH64_MOVW_UABS_G3, R_AARCH64_NONE,
+    R_AARCH64_PREL16, R_AARCH64_PREL32, R_AARCH64_PREL64, R_AARCH64_TSTBR14, R_X86_64_32,
+    R_X86_64_32S, R_X86_64_64, R_X86_64_NONE, R_X86_64_PC32, R_X86_64_PC64, R_X86_64_PLT32,
+    RelocationType,
 };
 use object::{Object as _, ObjectSection as _, RelocationFlags, SectionFlags};
 use std::collections::BTreeMap;
@@ -37,9 +49,94 @@ const X86_64_ACCEPTED: &[RelocationType] = &[
     R_X86_64_PC64,
 ];
 
+/// The relocation types the arm64 loader applies. Type 0 is `R_ARM_NONE`, which the loader
+/// takes as well as `R_AARCH64_NONE`.
+const AARCH64_ACCEPTED: &[RelocationType] = &[
+    RelocationType(0),
+    R_AARCH64_NONE,
+    R_AARCH64_ABS64,
+    R_AARCH64_ABS32,
+    R_AARCH64_ABS16,
+    R_AARCH64_PREL64,
+    R_AARCH64_PREL32,
+    R_AARCH64_PREL16,
+    R_AARCH64_MOVW_UABS_G0_NC,
+    R_AARCH64_MOVW_UABS_G0,
+    R_AARCH64_MOVW_UABS_G1_NC,
+    R_AARCH64_MOVW_UABS_G1,
+    R_AARCH64_MOVW_UABS_G2_NC,
+    R_AARCH64_MOVW_UABS_G2,
+    R_AARCH64_MOVW_UABS_G3,
+    R_AARCH64_MOVW_SABS_G0,
+    R_AARCH64_MOVW_SABS_G1,
+    R_AARCH64_MOVW_SABS_G2,
+    R_AARCH64_MOVW_PREL_G0_NC,
+    R_AARCH64_MOVW_PREL_G0,
+    R_AARCH64_MOVW_PREL_G1_NC,
+    R_AARCH64_MOVW_PREL_G1,
+    R_AARCH64_MOVW_PREL_G2_NC,
+    R_AARCH64_MOVW_PREL_G2,
+    R_AARCH64_MOVW_PREL_G3,
+    R_AARCH64_LD_PREL_LO19,
+    R_AARCH64_ADR_PREL_LO21,
+    R_AARCH64_ADR_PREL_PG_HI21_NC,
+    R_AARCH64_ADR_PREL_PG_HI21,
+    R_AARCH64_ADD_ABS_LO12_NC,
+    R_AARCH64_LDST8_ABS_LO12_NC,
+    R_AARCH64_LDST16_ABS_LO12_NC,
+    R_AARCH64_LDST32_ABS_LO12_NC,
+    R_AARCH64_LDST64_ABS_LO12_NC,
+    R_AARCH64_LDST128_ABS_LO12_NC,
+    R_AARCH64_TSTBR14,
+    R_AARCH64_CONDBR19,
+    R_AARCH64_JUMP26,
+    R_AARCH64_CALL26,
+];
+
+/// The machine of a module, for the machines whose loader's list is here.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Machine {
+    /// A machine whose relocations are not audited yet.
+    #[default]
+    Other,
+    /// x86-64.
+    X86_64,
+    /// arm64.
+    Aarch64,
+}
+
+impl Machine {
+    fn of(arch: object::Architecture) -> Self {
+        match arch {
+            object::Architecture::X86_64 => Self::X86_64,
+            object::Architecture::Aarch64 => Self::Aarch64,
+            _ => Self::Other,
+        }
+    }
+
+    /// The relocation types its loader applies.
+    #[must_use]
+    pub fn accepted(self) -> &'static [RelocationType] {
+        match self {
+            Self::X86_64 => X86_64_ACCEPTED,
+            Self::Aarch64 => AARCH64_ACCEPTED,
+            Self::Other => &[],
+        }
+    }
+
+    /// The name of one of its relocation types.
+    #[must_use]
+    pub fn type_name(self, r_type: RelocationType) -> String {
+        match self {
+            Self::X86_64 => x86_64_name(r_type),
+            Self::Aarch64 => aarch64_name(r_type),
+            Self::Other => format!("type {}", r_type.0),
+        }
+    }
+}
+
 /// The name of an x86-64 relocation type.
-#[must_use]
-pub fn type_name(r_type: RelocationType) -> String {
+fn x86_64_name(r_type: RelocationType) -> String {
     let name = match r_type.0 {
         0 => "NONE",
         1 => "64",
@@ -58,12 +155,60 @@ pub fn type_name(r_type: RelocationType) -> String {
     format!("R_X86_64_{name}")
 }
 
+/// The name of an arm64 relocation type.
+fn aarch64_name(r_type: RelocationType) -> String {
+    let name = match r_type.0 {
+        0 => return "R_ARM_NONE".to_string(),
+        256 => "NONE",
+        257 => "ABS64",
+        258 => "ABS32",
+        259 => "ABS16",
+        260 => "PREL64",
+        261 => "PREL32",
+        262 => "PREL16",
+        263 => "MOVW_UABS_G0",
+        264 => "MOVW_UABS_G0_NC",
+        265 => "MOVW_UABS_G1",
+        266 => "MOVW_UABS_G1_NC",
+        267 => "MOVW_UABS_G2",
+        268 => "MOVW_UABS_G2_NC",
+        269 => "MOVW_UABS_G3",
+        270 => "MOVW_SABS_G0",
+        271 => "MOVW_SABS_G1",
+        272 => "MOVW_SABS_G2",
+        273 => "LD_PREL_LO19",
+        274 => "ADR_PREL_LO21",
+        275 => "ADR_PREL_PG_HI21",
+        276 => "ADR_PREL_PG_HI21_NC",
+        277 => "ADD_ABS_LO12_NC",
+        278 => "LDST8_ABS_LO12_NC",
+        279 => "TSTBR14",
+        280 => "CONDBR19",
+        282 => "JUMP26",
+        283 => "CALL26",
+        284 => "LDST16_ABS_LO12_NC",
+        285 => "LDST32_ABS_LO12_NC",
+        286 => "LDST64_ABS_LO12_NC",
+        287 => "MOVW_PREL_G0",
+        288 => "MOVW_PREL_G0_NC",
+        289 => "MOVW_PREL_G1",
+        290 => "MOVW_PREL_G1_NC",
+        291 => "MOVW_PREL_G2",
+        292 => "MOVW_PREL_G2_NC",
+        293 => "MOVW_PREL_G3",
+        299 => "LDST128_ABS_LO12_NC",
+        311 => "ADR_GOT_PAGE",
+        312 => "LD64_GOT_LO12_NC",
+        n => return format!("R_AARCH64_{n}"),
+    };
+    format!("R_AARCH64_{name}")
+}
+
 /// What one module holds.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Module {
-    /// Whether its relocations are audited, which is when it is x86-64, the only machine whose
-    /// loader's list is here so far.
-    pub audited: bool,
+    /// Its machine, which tells whether its relocations are audited and against which list.
+    pub machine: Machine,
     /// Relocations in allocated sections by type.
     pub relocs: BTreeMap<RelocationType, u64>,
     /// The `vermagic=` string of `.modinfo`.
@@ -95,7 +240,7 @@ fn versions(data: &[u8], wide: bool) -> BTreeMap<String, u64> {
 pub fn read(data: &[u8]) -> Result<Module, String> {
     let file = object::File::parse(data).map_err(|e| e.to_string())?;
     let mut m = Module {
-        audited: file.architecture() == object::Architecture::X86_64,
+        machine: Machine::of(file.architecture()),
         ..Module::default()
     };
     for section in file.sections() {
@@ -121,6 +266,15 @@ pub fn read(data: &[u8]) -> Result<Module, String> {
         }
     }
     Ok(m)
+}
+
+impl Module {
+    /// Whether its relocations are audited, which is when the loader's list of its machine is
+    /// here.
+    #[must_use]
+    pub fn audited(&self) -> bool {
+        self.machine != Machine::Other
+    }
 }
 
 /// A module without its debug information, which the loader never reads.
@@ -342,9 +496,9 @@ fn stripped(data: &[u8], btf: bool) -> Option<Vec<u8>> {
 #[must_use]
 pub fn problems(m: &Module, release: &str, symvers: &BTreeMap<String, Export>) -> Vec<String> {
     let mut out = Vec::new();
-    for (r_type, n) in m.relocs.iter().filter(|_| m.audited) {
-        if !X86_64_ACCEPTED.contains(r_type) {
-            out.push(format!("{n} {} relocations", type_name(*r_type)));
+    for (r_type, n) in m.relocs.iter().filter(|_| m.audited()) {
+        if !m.machine.accepted().contains(r_type) {
+            out.push(format!("{n} {} relocations", m.machine.type_name(*r_type)));
         }
     }
     if m.vermagic.is_empty() {
@@ -395,13 +549,13 @@ pub fn report(audited: &BTreeMap<String, (Module, Vec<String>)>) -> String {
         s.push_str("The build has no modules.\n");
         return s;
     }
-    let mut total: BTreeMap<RelocationType, u64> = BTreeMap::new();
-    for (m, _) in audited.values().filter(|(m, _)| m.audited) {
+    let mut total: BTreeMap<(Machine, RelocationType), u64> = BTreeMap::new();
+    for (m, _) in audited.values().filter(|(m, _)| m.audited()) {
         for (t, n) in &m.relocs {
-            *total.entry(*t).or_default() += n;
+            *total.entry((m.machine, *t)).or_default() += n;
         }
     }
-    let skipped = audited.values().filter(|(m, _)| !m.audited).count();
+    let skipped = audited.values().filter(|(m, _)| !m.audited()).count();
     let bad = audited.values().filter(|(_, p)| !p.is_empty()).count();
     let _ = writeln!(
         s,
@@ -409,13 +563,13 @@ pub fn report(audited: &BTreeMap<String, (Module, Vec<String>)>) -> String {
         audited.len()
     );
     s.push_str("| relocation | count | loader |\n|---|---|---|\n");
-    for (t, n) in &total {
-        let verdict = if X86_64_ACCEPTED.contains(t) {
+    for ((machine, t), n) in &total {
+        let verdict = if machine.accepted().contains(t) {
             "accepted"
         } else {
             "rejected"
         };
-        let _ = writeln!(s, "| {} | {n} | {verdict} |", type_name(*t));
+        let _ = writeln!(s, "| {} | {n} | {verdict} |", machine.type_name(*t));
     }
     if bad > 0 {
         s.push_str("\n| module | problems |\n|---|---|\n");
@@ -558,7 +712,7 @@ mod tests {
     #[test]
     fn a_clean_module_passes() {
         let m = read(&module(R_X86_64_PLT32, "7.2.8 SMP mod_unload", 0x1234_5678)).unwrap();
-        assert!(m.audited);
+        assert_eq!(m.machine, Machine::X86_64);
         assert_eq!(m.relocs[&R_X86_64_PLT32], 1);
         assert_eq!(m.versions["printk"], 0x1234_5678);
         assert!(problems(&m, "7.2.8", &symvers()).is_empty());
@@ -600,9 +754,9 @@ mod tests {
 
     #[test]
     fn the_crcs_of_a_machine_whose_relocations_are_not_audited_are_checked() {
-        for arch in [object::Architecture::Aarch64, object::Architecture::I386] {
+        for arch in [object::Architecture::Riscv64, object::Architecture::I386] {
             let m = read(&imports(arch, 0x1234_5678)).unwrap();
-            assert!(!m.audited, "{arch:?}");
+            assert!(!m.audited(), "{arch:?}");
             assert_eq!(m.versions["printk"], 0x1234_5678, "{arch:?}");
             assert!(problems(&m, "6.12.111", &symvers()).is_empty(), "{arch:?}");
             let m = read(&imports(arch, 0x0bad_c0de)).unwrap();
@@ -613,5 +767,54 @@ mod tests {
                 "{arch:?}: {p:?}"
             );
         }
+    }
+
+    /// An arm64 module that calls a function with `r_type`.
+    fn arm64(r_type: RelocationType) -> Vec<u8> {
+        use object::write::{Object, Relocation, StandardSection, Symbol, SymbolSection};
+        use object::{SectionKind, SymbolFlags, SymbolKind, SymbolScope};
+        let mut obj = Object::new(
+            object::BinaryFormat::Elf,
+            object::Architecture::Aarch64,
+            object::Endianness::Little,
+        );
+        let text = obj.section_id(StandardSection::Text);
+        obj.append_section_data(text, &[0; 8], 4);
+        let f = obj.add_symbol(Symbol {
+            name: b"init_module".to_vec(),
+            value: 0,
+            size: 8,
+            kind: SymbolKind::Text,
+            scope: SymbolScope::Linkage,
+            weak: false,
+            section: SymbolSection::Section(text),
+            flags: SymbolFlags::None,
+        });
+        let reloc = Relocation {
+            offset: 4,
+            symbol: f,
+            addend: 0,
+            flags: object::RelocationFlags::Elf { r_type },
+        };
+        obj.add_relocation(text, reloc).unwrap();
+        let info = obj.add_section(Vec::new(), b".modinfo".to_vec(), SectionKind::Data);
+        obj.append_section_data(info, b"license=GPL\0vermagic=7.3.0 SMP\0", 1);
+        obj.write().unwrap()
+    }
+
+    #[test]
+    fn an_arm64_module_is_audited_against_the_arm64_loader() {
+        let m = read(&arm64(R_AARCH64_CALL26)).unwrap();
+        assert_eq!(m.machine, Machine::Aarch64);
+        assert_eq!(m.relocs[&R_AARCH64_CALL26], 1);
+        assert!(problems(&m, "7.3.0", &symvers()).is_empty());
+        let text = report(&[("a.ko".to_string(), (m, Vec::new()))].into());
+        assert!(
+            text.contains("| R_AARCH64_CALL26 | 1 | accepted |"),
+            "{text}"
+        );
+        let got = read(&arm64(object::elf::R_AARCH64_ADR_GOT_PAGE)).unwrap();
+        let p = problems(&got, "7.3.0", &symvers());
+        assert_eq!(p, ["1 R_AARCH64_ADR_GOT_PAGE relocations"]);
     }
 }
