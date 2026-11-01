@@ -129,16 +129,16 @@ pub fn read(data: &[u8]) -> Result<Option<Counts>, String> {
         object::Architecture::Aarch64 => true,
         _ => return Ok(None),
     };
-    let mut marks: BTreeMap<object::SectionIndex, Vec<(u64, bool)>> = BTreeMap::new();
+    let mut marks: BTreeMap<usize, Vec<(u64, bool)>> = BTreeMap::new();
     if arm64 {
         for sym in file.symbols() {
             let (Some(index), Ok(name)) = (sym.section_index(), sym.name()) else {
                 continue;
             };
             if name == "$d" || name.starts_with("$d.") {
-                marks.entry(index).or_default().push((sym.address(), true));
+                marks.entry(index.0).or_default().push((sym.address(), true));
             } else if name == "$x" || name.starts_with("$x.") {
-                marks.entry(index).or_default().push((sym.address(), false));
+                marks.entry(index.0).or_default().push((sym.address(), false));
             }
         }
         for m in marks.values_mut() {
@@ -150,7 +150,7 @@ pub fn read(data: &[u8]) -> Result<Option<Counts>, String> {
         if section.kind() == object::SectionKind::Text {
             let code = section.data().map_err(|e| e.to_string())?;
             if arm64 {
-                let data = marks.get(&section.index()).map_or(&[][..], Vec::as_slice);
+                let data = marks.get(&section.index().0).map_or(&[][..], Vec::as_slice);
                 count_a64(code, data, &mut counts);
             } else {
                 count_code(code, &mut counts);
