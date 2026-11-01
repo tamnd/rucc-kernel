@@ -13,8 +13,10 @@
 //! no-FPU units on purpose, in the RAID and crypto code and in the FPU code itself, so given a
 //! reference only the counts above the reference's count for the same object are findings.
 //!
-//! Only x86-64 is decoded here. The arm64 FP and SIMD check comes with the arm64 rows at K6, and
-//! an object of any other machine is skipped.
+//! An arm64 object is not decoded to mnemonics. Each 32-bit word of its code is put in a class
+//! by its encoding group: scalar FP and Advanced SIMD data processing, a load or store of an FP
+//! or SIMD register, SVE, or SME. The words a `$d` mapping symbol marks as data are not read. An
+//! object of any other machine is skipped.
 
 use crate::objects;
 use iced_x86::{Decoder, DecoderOptions, Instruction, Register};
@@ -74,22 +76,91 @@ pub fn count_code(code: &[u8], counts: &mut Counts) {
     }
 }
 
-/// The flagged instructions of one object, or `None` when it is not x86-64.
+/// The class of an arm64 instruction that uses the FP and SIMD registers, or `None` when it
+/// does not.
+#[must_use]
+pub fn a64_class(insn: u32) -> Option<&'static str> {
+    let op0 = (insn >> 25) & 0xf;
+    if op0 & 0b0111 == 0b0111 {
+        return Some("fp/simd");
+    }
+    if op0 & 0b0101 == 0b0100 && insn & (1 << 26) != 0 {
+        // The memory copy and set instructions of FEAT_MOPS have bit 26 set and use only the
+        // general registers.
+        let mops = matches!((insn >> 24) & 0x3f, 0b01_1001 | 0b01_1101)
+            && (insn >> 21) & 1 == 0
+            && (insn >> 10) & 0b11 == 0b01;
+        return (!mops).then_some("fp/simd load/store");
+    }
+    if op0 == 0b0010 {
+        return Some("sve");
+    }
+    if op0 == 0 && insn >> 31 == 1 {
+        return Some("sme");
+    }
+    None
+}
+
+/// Count the flagged instructions in arm64 code, past the ranges in `data`, which are sorted
+/// offsets where data starts and code starts again.
+pub fn count_a64(code: &[u8], data: &[(u64, bool)], counts: &mut Counts) {
+    let mut marks = data.iter().peekable();
+    let mut is_data = false;
+    for (i, word) in code.as_chunks::<4>().0.iter().enumerate() {
+        let at = i as u64 * 4;
+        while let Some((_, d)) = marks.next_if(|(o, _)| *o <= at) {
+            is_data = *d;
+        }
+        if is_data {
+            continue;
+        }
+        if let Some(class) = a64_class(u32::from_le_bytes(*word)) {
+            *counts.entry(class.to_string()).or_default() += 1;
+        }
+    }
+}
+
+/// The flagged instructions of one object, or `None` when it is not x86-64 or arm64.
 pub fn read(data: &[u8]) -> Result<Option<Counts>, String> {
+    use object::ObjectSymbol as _;
     let file = object::File::parse(data).map_err(|e| e.to_string())?;
-    if file.architecture() != object::Architecture::X86_64 {
-        return Ok(None);
+    let arm64 = match file.architecture() {
+        object::Architecture::X86_64 => false,
+        object::Architecture::Aarch64 => true,
+        _ => return Ok(None),
+    };
+    let mut marks: BTreeMap<object::SectionIndex, Vec<(u64, bool)>> = BTreeMap::new();
+    if arm64 {
+        for sym in file.symbols() {
+            let (Some(index), Ok(name)) = (sym.section_index(), sym.name()) else {
+                continue;
+            };
+            if name == "$d" || name.starts_with("$d.") {
+                marks.entry(index).or_default().push((sym.address(), true));
+            } else if name == "$x" || name.starts_with("$x.") {
+                marks.entry(index).or_default().push((sym.address(), false));
+            }
+        }
+        for m in marks.values_mut() {
+            m.sort_unstable();
+        }
     }
     let mut counts = Counts::new();
     for section in file.sections() {
         if section.kind() == object::SectionKind::Text {
-            count_code(section.data().map_err(|e| e.to_string())?, &mut counts);
+            let code = section.data().map_err(|e| e.to_string())?;
+            if arm64 {
+                let data = marks.get(&section.index()).map_or(&[][..], Vec::as_slice);
+                count_a64(code, data, &mut counts);
+            } else {
+                count_code(code, &mut counts);
+            }
         }
     }
     Ok(Some(counts))
 }
 
-/// Every no-FPU x86-64 object of a build directory, by its own `.cmd` files.
+/// Every no-FPU x86-64 or arm64 object of a build directory, by its own `.cmd` files.
 pub fn scan(out: &Path) -> Result<Inventory, String> {
     let commands = crate::flags::load(out)?;
     let found = objects::find(out)?;
@@ -205,5 +276,30 @@ mod tests {
         assert_eq!(f["a.o"]["movaps"], 1);
         assert!(findings(&reference, Some(&reference)).is_empty());
         assert!(report(1, &f, true).contains("| a.o | movaps x1 |"));
+    }
+
+    #[test]
+    fn arm64_fp_and_simd_words_are_counted_and_data_is_not() {
+        // add x0, x1, x2; fadd d0, d1, d2; ldr q0, [x1]; ldp x0, x1, [sp]; str d0, [x0];
+        // add z0.d, z1.d, z2.d; cpyp [x0]!, [x2]!, x1!; ret
+        let words: [u32; 8] = [
+            0x8b02_0020,
+            0x1e62_2820,
+            0x3dc0_0020,
+            0xa940_07e0,
+            0xfd00_0000,
+            0x04e2_0020,
+            0x1d02_0420,
+            0xd65f_03c0,
+        ];
+        let code: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        let mut counts = Counts::new();
+        count_a64(&code, &[], &mut counts);
+        let got: Vec<(&str, u64)> = counts.iter().map(|(m, n)| (m.as_str(), *n)).collect();
+        assert_eq!(got, [("fp/simd", 1), ("fp/simd load/store", 2), ("sve", 1)]);
+        let mut counts = Counts::new();
+        count_a64(&code, &[(4, true), (16, false)], &mut counts);
+        let got: Vec<(&str, u64)> = counts.iter().map(|(m, n)| (m.as_str(), *n)).collect();
+        assert_eq!(got, [("fp/simd load/store", 1), ("sve", 1)]);
     }
 }
