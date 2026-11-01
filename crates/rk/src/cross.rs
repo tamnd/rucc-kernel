@@ -420,7 +420,7 @@ mod tests {
 
     fn module(vermagic: &str, versions: &[(&str, u64)]) -> Module {
         Module {
-            audited: true,
+            machine: crate::modules::Machine::X86_64,
             relocs: BTreeMap::from([(R_X86_64_PC32, 4)]),
             vermagic: vermagic.to_string(),
             versions: versions
