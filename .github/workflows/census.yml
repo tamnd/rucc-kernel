@@ -15,8 +15,13 @@
 # that built its image is then booted with rk boot, and boot.json and boot.log go into the artifact.
 #
 # Each build also saves its sections, symbols, vector counts and unit command lines and audits its
-# modules, and the compare job runs the config, probe, flags, sections, symvers, vec and objtool
+# modules, and the compare job runs the config, probe, flags, sections, symvers, vec, objtool and speed
 # differentials of rucc against gcc. They do not fail the run.
+#
+# With the reference input set to second, the reference is the era's second reference, GCC 16 for
+# E11, and rucc claims it with rk build --persona second. Both builds then run in the era container
+# that toolchains.toml names, as in kernel.yml, because no hosted runner has GCC 16. The rk speed
+# step of the compare job then gives the compile time of rucc against GCC 16 on runners of one type.
 
 name: census
 
@@ -39,6 +44,12 @@ on:
         description: A branch, tag or commit of tamnd/rucc to build
         required: false
         default: v0.30.15
+      reference:
+        description: The reference, the era's GCC or its second reference built in the era container
+        required: false
+        default: era
+        type: choice
+        options: [era, second]
       keep:
         description: Paths in each build tree to keep in the record, such as an object a diff names, separated by spaces
         required: false
@@ -61,6 +72,9 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       gcc: ${{ steps.era.outputs.gcc }}
+      image: ${{ steps.era.outputs.second-image }}
+      ref: ${{ steps.ccs.outputs.ref }}
+      other: ${{ steps.ccs.outputs.other }}
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: Swatinem/rust-cache@v2.9.2
@@ -68,6 +82,21 @@ jobs:
         run: cargo run -q --release -p rk -- personas --for "$VERSION" | tee -a "$GITHUB_OUTPUT"
         env:
           VERSION: ${{ inputs.version }}
+      - id: ccs
+        run: |
+          if [ "$REFERENCE" = era ]; then
+            printf 'ref=%s\nother=rucc\n' "$GCC" | tee -a "$GITHUB_OUTPUT"
+          elif [ -n "$SECOND" ]; then
+            printf 'ref=%s\nother=rucc-second\n' "$SECOND" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "::error::$VERSION has no second reference in personas.toml"
+            exit 1
+          fi
+        env:
+          VERSION: ${{ inputs.version }}
+          REFERENCE: ${{ inputs.reference }}
+          GCC: ${{ steps.era.outputs.gcc }}
+          SECOND: ${{ steps.era.outputs.second-gcc }}
 
   census:
     name: ${{ inputs.version }} ${{ matrix.row }} ${{ matrix.config }} with ${{ matrix.cc }}
@@ -79,7 +108,7 @@ jobs:
       matrix:
         row: ${{ fromJSON(inputs.rows) }}
         config: ${{ fromJSON(inputs.configs) }}
-        cc: ["${{ needs.era.outputs.gcc }}", rucc]
+        cc: ["${{ needs.era.outputs.ref }}", "${{ needs.era.outputs.other }}"]
     env:
       OUT: ${{ github.workspace }}/../${{ matrix.row }}-${{ matrix.config }}-${{ matrix.cc }}
     steps:
@@ -92,9 +121,9 @@ jobs:
       - name: kernel build dependencies
         run: |
           sudo apt-get update -q
-          sudo apt-get install -qy --no-install-recommends "$GCC" flex bison bc libelf-dev libssl-dev
+          sudo apt-get install -qy --no-install-recommends ${GCC:+"$GCC"} flex bison bc libelf-dev libssl-dev
         env:
-          GCC: ${{ needs.era.outputs.gcc }}
+          GCC: ${{ inputs.reference == 'era' && needs.era.outputs.gcc || '' }}
       - name: rucc ${{ inputs.rucc }} from source
         run: |
           git clone -q https://github.com/tamnd/rucc "$RUNNER_TEMP/rucc-src"
@@ -112,6 +141,7 @@ jobs:
           key: kernel-archives-${{ inputs.version }}-${{ hashFiles('pins.toml') }}
           restore-keys: kernel-archives-${{ inputs.version }}-
       - name: rk build
+        if: inputs.reference == 'era'
         continue-on-error: true
         run: |
           target/release/rk build "$VERSION" --row "$ROW" --config "$CONFIG" --fragment "$FRAGMENT" \
@@ -122,23 +152,44 @@ jobs:
           CONFIG: ${{ matrix.config }}
           FRAGMENT: ${{ matrix.config == 'allmodconfig' && 'census' || 'test' }}
           CC: ${{ matrix.cc }}
+      # The second reference and rucc claiming it build in the era container, so that the host tools
+      # Kconfig asks about are the same in both builds.
+      - name: rk build in ${{ needs.era.outputs.image }}
+        if: inputs.reference == 'second'
+        continue-on-error: true
+        run: |
+          cc=("$CC")
+          if [ "$CC" = rucc-second ]; then cc=("$(command -v rucc)" --persona second); fi
+          target/release/rk fetch "$VERSION" --no-upstream-check
+          work="$(dirname "$(dirname "$GITHUB_WORKSPACE")")"
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e RK_CACHE \
+            -v "$work:$work" -w "$GITHUB_WORKSPACE" "$IMAGE" \
+            target/release/rk build "$VERSION" --row "$ROW" --config "$CONFIG" --fragment "$FRAGMENT" \
+            --cc "${cc[@]}" --out "$OUT" --keep-going --no-upstream-check
+        env:
+          VERSION: ${{ inputs.version }}
+          ROW: ${{ matrix.row }}
+          CONFIG: ${{ matrix.config }}
+          FRAGMENT: ${{ matrix.config == 'allmodconfig' && 'census' || 'test' }}
+          CC: ${{ matrix.cc }}
+          IMAGE: ${{ needs.era.outputs.image }}
       - name: rk demands
-        if: matrix.cc == 'rucc'
+        if: startsWith(matrix.cc, 'rucc')
         run: |
           target/release/rk demands --builds "$OUT" > "$OUT/demands.md"
           cat "$OUT/demands.md" >> "$GITHUB_STEP_SUMMARY"
       - name: rk asm-inventory
-        if: matrix.cc != 'rucc'
+        if: "!startsWith(matrix.cc, 'rucc')"
         run: |
           target/release/rk asm-inventory --build "$OUT"
           head -1 "$OUT/asm-inventory.md" >> "$GITHUB_STEP_SUMMARY"
       - name: rk syntax
-        if: matrix.cc != 'rucc'
+        if: "!startsWith(matrix.cc, 'rucc')"
         run: |
           target/release/rk syntax --build "$OUT" --cc rucc > "$OUT/syntax.md" || true
           cat "$OUT/syntax.md" >> "$GITHUB_STEP_SUMMARY"
       - name: the kernel-pp corpus
-        if: matrix.cc != 'rucc' && matrix.row == 'X64' && matrix.config == 'defconfig'
+        if: matrix.cc == needs.era.outputs.gcc && inputs.reference == 'era' && matrix.row == 'X64' && matrix.config == 'defconfig'
         run: |
           git clone -q https://github.com/tamnd/rucc-compat "$RUNNER_TEMP/rucc-compat"
           cd "$RUNNER_TEMP/rucc-compat"
@@ -210,7 +261,7 @@ jobs:
           retention-days: 30
 
   compare:
-    name: ${{ inputs.version }} ${{ matrix.row }} ${{ matrix.config }}, rucc against ${{ needs.era.outputs.gcc }}
+    name: ${{ inputs.version }} ${{ matrix.row }} ${{ matrix.config }}, ${{ needs.era.outputs.other }} against ${{ needs.era.outputs.ref }}
     needs: [era, census]
     if: always()
     runs-on: ubuntu-24.04
@@ -221,8 +272,8 @@ jobs:
         row: ${{ fromJSON(inputs.rows) }}
         config: ${{ fromJSON(inputs.configs) }}
     env:
-      REF: records/census-${{ inputs.version }}-${{ matrix.row }}-${{ matrix.config }}-${{ needs.era.outputs.gcc }}
-      OTHER: records/census-${{ inputs.version }}-${{ matrix.row }}-${{ matrix.config }}-rucc
+      REF: records/census-${{ inputs.version }}-${{ matrix.row }}-${{ matrix.config }}-${{ needs.era.outputs.ref }}
+      OTHER: records/census-${{ inputs.version }}-${{ matrix.row }}-${{ matrix.config }}-${{ needs.era.outputs.other }}
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: Swatinem/rust-cache@v2.9.2
@@ -261,3 +312,6 @@ jobs:
       - name: rk objtool-report
         if: always()
         run: target/release/rk objtool-report --reference "$REF" --other "$OTHER" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: rk speed
+        if: always()
+        run: target/release/rk speed --reference "$REF" --other "$OTHER" | tee -a "$GITHUB_STEP_SUMMARY"
