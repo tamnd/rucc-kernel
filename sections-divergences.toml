@@ -3978,3 +3978,40 @@ object = "kernel/bpf/verifier.o"
 only = "either"
 item = '4="kernel/bpf/verifier.c" *'
 reason = "gcc 14.2 counts the lines of verifier.c one short after its include of diagnostics.h when the headers before it have some sizes, such as with the autoconf.h of the arm runner, so the same site has a different line in each build"
+
+# Sites of the 7.3 allmodconfig census of 31 October that only gcc 14 has. Each one was read
+# against the source of the object, and in each the condition cannot hold where rucc removed it.
+[[divergence]]
+what = "__bug_table"
+object = "drivers/gpu/drm/drm*"
+only = "reference"
+item = '4="" 8="drivers/gpu/drm/drm_mm.c" 8d030000'
+reason = "DRM_MM_BUG_ON(hole_start > scan->hit_start) in drm_mm_scan_color_evict. The loop before it breaks only when hole_start <= scan->hit_start, and an exit without the break returns NULL first. Nothing is stored between the break and the check, so rucc uses the value it loaded in the loop and removes the BUG"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/mellanox/mlxsw/*"
+only = "reference"
+item = '4="drivers/net/ethernet/mellanox/mlxsw/item.h" 1d000000'
+reason = "BUG_ON(index && !item->step) in __mlxsw_item_offset. Each item is a static const struct that the MLXSW_ITEM macros define, so after rucc inlines the accessor, index and item->step are known and the condition is false"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/mellanox/mlxsw/*"
+only = "reference"
+item = '4="drivers/net/ethernet/mellanox/mlxsw/reg.h" 1f2d0109'
+reason = "the WARN_ON on the length in mlxsw_reg_mddt_pack. Every caller in core_linecards.c gives MLXSW_REG of mcc, mcda, mcqi or mgir, which are static const structs. The largest length is 0x9c, and with the 16 bytes of header and offset it is 0xac, less than MLXSW_REG_MDDT_LEN, 0x110. Thus the condition is false after inlining"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/proc/page.o"
+only = "reference"
+item = '4="(unsigned long)v & mask" 8="include/linux/instrumented.h" 43000309'
+reason = "the WARN_ON_ONCE((unsigned long)v & mask) of instrument_atomic_check_alignment, which CONFIG_DEBUG_ATOMIC turns on, for the test_bit on const_folio_flags(folio, 1) in stable_page_flags. gcc keeps const_folio_flags out of line and cannot see the pointer it returns. rucc inlines it, and the pointer is &page[1].flags.f in ps, the local struct page_snapshot that snapshot_page fills. A local of that type is aligned to 8 and flags.f is an unsigned long, so v & 7 is zero and rucc removes the WARN"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/mempolicy.o"
+only = "reference"
+item = '4="" 8="include/linux/page-flags.h" 62010000'
+reason = "the first VM_BUG_ON_PGFLAGS(page->compound_info & 1, page) of folio_flags, at line 354. gcc keeps folio_flags(folio, 1) out of line as folio_flags.constprop.0 for folio_set_large_rmappable. rucc inlines it into page_rmappable_folio and its callers, after folio_test_large. That test reads the same compound_info in const_folio_flags and stops in its own VM_BUG_ON_PGFLAGS at line 345 when bit 0 is set. Only a volatile read of the flags comes between the two, so bit 0 is known to be clear and rucc removes the second check. The check at line 355 reads the flags again, and rucc keeps it"
