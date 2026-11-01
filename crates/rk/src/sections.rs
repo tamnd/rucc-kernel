@@ -18,7 +18,11 @@
 //! still shows. The call-site lists that depend on inlining, `__mcount_loc` and the lists objtool
 //! writes, are compared per function, for the functions both objects have. A module whose count
 //! for a function differs only because its members inlined it differently is explained by them.
-//! The strings of `.modinfo` and `__ksymtab_strings` are the same.
+//! The strings of `.modinfo` and `__ksymtab_strings` are the same. The `depends=` of `.modinfo`
+//! is compared as a set, because modpost names the modules in the order it meets their symbols
+//! in the module's symbol table, and that order is the compiler's. A `.ko` is the link of its
+//! object, its `.mod.o` and `.module-common.o`, so it has them as members and is explained by
+//! them the same way.
 //!
 //! Some differences are choices each optimizer makes for itself, such as a constant pool, a cold
 //! section or a check one compiler proves can never fire. `sections-divergences.toml` lists them
@@ -819,6 +823,40 @@ fn list_difference(a: &[String], b: &[String]) -> String {
         .join(" ")
 }
 
+/// The strings of `.modinfo` with the modules of `depends=` sorted.
+fn modinfo(strings: &[String]) -> Vec<String> {
+    strings
+        .iter()
+        .map(|s| match s.strip_prefix("depends=") {
+            Some(list) => {
+                let mut names: Vec<&str> = list.split(',').filter(|n| !n.is_empty()).collect();
+                names.sort_unstable();
+                format!("depends={}", names.join(","))
+            }
+            None => s.clone(),
+        })
+        .collect()
+}
+
+/// The object every `.ko` is linked with since 6.12, which kbuild builds at the top.
+const MODULE_COMMON: &str = ".module-common.o";
+
+/// The members of a `.ko`: the object of the module, its `.mod.o` and `.module-common.o`, of
+/// those the builds have.
+fn ko_members(name: &str, reference: &Inventory, other: &Inventory) -> Vec<String> {
+    let Some(stem) = name.strip_suffix(".ko") else {
+        return Vec::new();
+    };
+    [
+        format!("{stem}.o"),
+        format!("{stem}.mod.o"),
+        MODULE_COMMON.to_string(),
+    ]
+    .into_iter()
+    .filter(|m| reference.contains_key(m) || other.contains_key(m))
+    .collect()
+}
+
 /// A difference with no items, for a comparison that is not between two sets.
 fn plain(object: &str, what: &str, reference: String, other: String) -> Difference {
     Difference {
@@ -891,13 +929,20 @@ fn compare_object(name: &str, r: &Object, o: &Object, out: &mut Vec<Difference>)
             }
         }
     }
-    if r.modinfo != o.modinfo {
-        out.push(plain(
-            name,
-            ".modinfo",
-            list_difference(&r.modinfo, &o.modinfo),
-            list_difference(&o.modinfo, &r.modinfo),
-        ));
+    let (a, b) = (modinfo(&r.modinfo), modinfo(&o.modinfo));
+    if a != b {
+        let (x, y): (BTreeSet<String>, BTreeSet<String>) =
+            (a.iter().cloned().collect(), b.iter().cloned().collect());
+        if x == y {
+            out.push(plain(
+                name,
+                ".modinfo",
+                "the same strings in another order".to_string(),
+                a.join(" "),
+            ));
+        } else {
+            out.push(between(name, ".modinfo", &x, &y));
+        }
     }
     if r.ksymtab_strings != o.ksymtab_strings {
         out.push(plain(
@@ -922,6 +967,10 @@ pub fn compare(reference: &Inventory, other: &Inventory) -> Comparison {
         if !object.members.is_empty() && !c.members.contains_key(name) {
             let members = object.members.iter().map(|m| tidy(m)).collect();
             c.members.insert(name.clone(), members);
+        }
+        let ko = ko_members(name, reference, other);
+        if !ko.is_empty() {
+            c.members.insert(name.clone(), ko);
         }
     }
     for (name, r) in reference {
@@ -1591,6 +1640,56 @@ reason = "checked in a.c"
                 None
             ]
         );
+    }
+
+    /// A `.ko` has its object, its `.mod.o` and `.module-common.o` as members, so a rule for the
+    /// `.modinfo` of the `.mod.o` explains the `.ko`. The modules of `depends=` are a set, and
+    /// another order is no difference.
+    #[test]
+    fn a_ko_is_explained_by_its_mod_o_and_depends_is_a_set() {
+        let with = |modinfo: &str| {
+            let mut b = Builder::new();
+            b.function("f", &[0xc3]);
+            b.section(".modinfo", modinfo.as_bytes());
+            read(&b.bytes()).unwrap()
+        };
+        let build = |depends: &str| -> Inventory {
+            let modinfo = format!("license=GPL\0depends={depends}\0");
+            [
+                ("a.o".to_string(), with("license=GPL\0")),
+                ("a.mod.o".to_string(), with(&modinfo)),
+                ("a.ko".to_string(), with(&modinfo)),
+                (MODULE_COMMON.to_string(), with("")),
+            ]
+            .into()
+        };
+        assert!(compare(&build("b,c"), &build("c,b")).clean());
+
+        let mut c = compare(&build(""), &build("kunit"));
+        assert_eq!(c.members["a.ko"], ["a.o", "a.mod.o", MODULE_COMMON]);
+        let objects: Vec<&str> = c.differences.iter().map(|d| d.object.as_str()).collect();
+        assert_eq!(objects, ["a.ko", "a.mod.o"]);
+        assert!(report(&c, false).contains("| a.ko | .modinfo | depends= | depends=kunit |"));
+        let rules = Divergences::parse(
+            r#"
+[[divergence]]
+what = ".modinfo"
+object = "a.mod.o"
+only = "reference"
+item = "depends="
+reason = "a kunit call only rucc keeps"
+
+[[divergence]]
+what = ".modinfo"
+object = "a.mod.o"
+only = "other"
+item = "depends=kunit"
+reason = "a kunit call only rucc keeps"
+"#,
+        )
+        .unwrap();
+        rules.explain(&mut c);
+        assert!(c.clean());
     }
 
     /// The members are read from the `.mod` file next to a module, leaving out the module itself,
