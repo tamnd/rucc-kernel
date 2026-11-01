@@ -4001,3 +4001,17 @@ object = "drivers/net/ethernet/mellanox/mlxsw/*"
 only = "reference"
 item = '4="drivers/net/ethernet/mellanox/mlxsw/reg.h" 1f2d0109'
 reason = "the WARN_ON on the length in mlxsw_reg_mddt_pack. Every caller in core_linecards.c gives MLXSW_REG of mcc, mcda, mcqi or mgir, which are static const structs. The largest length is 0x9c, and with the 16 bytes of header and offset it is 0xac, less than MLXSW_REG_MDDT_LEN, 0x110. Thus the condition is false after inlining"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/proc/page.o"
+only = "reference"
+item = '4="(unsigned long)v & mask" 8="include/linux/instrumented.h" 43000309'
+reason = "the WARN_ON_ONCE((unsigned long)v & mask) of instrument_atomic_check_alignment, which CONFIG_DEBUG_ATOMIC turns on, for the test_bit on const_folio_flags(folio, 1) in stable_page_flags. gcc keeps const_folio_flags out of line and cannot see the pointer it returns. rucc inlines it, and the pointer is &page[1].flags.f in ps, the local struct page_snapshot that snapshot_page fills. A local of that type is aligned to 8 and flags.f is an unsigned long, so v & 7 is zero and rucc removes the WARN"
+
+[[divergence]]
+what = "__bug_table"
+object = "mm/mempolicy.o"
+only = "reference"
+item = '4="" 8="include/linux/page-flags.h" 62010000'
+reason = "the first VM_BUG_ON_PGFLAGS(page->compound_info & 1, page) of folio_flags, at line 354. gcc keeps folio_flags(folio, 1) out of line as folio_flags.constprop.0 for folio_set_large_rmappable. rucc inlines it into page_rmappable_folio and its callers, after folio_test_large. That test reads the same compound_info in const_folio_flags and stops in its own VM_BUG_ON_PGFLAGS at line 345 when bit 0 is set. Only a volatile read of the flags comes between the two, so bit 0 is known to be clear and rucc removes the second check. The check at line 355 reads the flags again, and rucc keeps it"
