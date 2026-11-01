@@ -26,12 +26,12 @@ use object::elf::{
     R_AARCH64_LDST64_ABS_LO12_NC, R_AARCH64_LDST128_ABS_LO12_NC, R_AARCH64_MOVW_PREL_G0,
     R_AARCH64_MOVW_PREL_G0_NC, R_AARCH64_MOVW_PREL_G1, R_AARCH64_MOVW_PREL_G1_NC,
     R_AARCH64_MOVW_PREL_G2, R_AARCH64_MOVW_PREL_G2_NC, R_AARCH64_MOVW_PREL_G3,
-    R_AARCH64_MOVW_SABS_G0, R_AARCH64_MOVW_SABS_G1, R_AARCH64_MOVW_SABS_G2,
-    R_AARCH64_MOVW_UABS_G0, R_AARCH64_MOVW_UABS_G0_NC, R_AARCH64_MOVW_UABS_G1,
-    R_AARCH64_MOVW_UABS_G1_NC, R_AARCH64_MOVW_UABS_G2, R_AARCH64_MOVW_UABS_G2_NC,
-    R_AARCH64_MOVW_UABS_G3, R_AARCH64_NONE, R_AARCH64_PREL16, R_AARCH64_PREL32, R_AARCH64_PREL64,
-    R_AARCH64_TSTBR14, R_X86_64_32, R_X86_64_32S, R_X86_64_64, R_X86_64_NONE, R_X86_64_PC32,
-    R_X86_64_PC64, R_X86_64_PLT32, RelocationType,
+    R_AARCH64_MOVW_SABS_G0, R_AARCH64_MOVW_SABS_G1, R_AARCH64_MOVW_SABS_G2, R_AARCH64_MOVW_UABS_G0,
+    R_AARCH64_MOVW_UABS_G0_NC, R_AARCH64_MOVW_UABS_G1, R_AARCH64_MOVW_UABS_G1_NC,
+    R_AARCH64_MOVW_UABS_G2, R_AARCH64_MOVW_UABS_G2_NC, R_AARCH64_MOVW_UABS_G3, R_AARCH64_NONE,
+    R_AARCH64_PREL16, R_AARCH64_PREL32, R_AARCH64_PREL64, R_AARCH64_TSTBR14, R_X86_64_32,
+    R_X86_64_32S, R_X86_64_64, R_X86_64_NONE, R_X86_64_PC32, R_X86_64_PC64, R_X86_64_PLT32,
+    RelocationType,
 };
 use object::{Object as _, ObjectSection as _, RelocationFlags, SectionFlags};
 use std::collections::BTreeMap;
@@ -809,7 +809,10 @@ mod tests {
         assert_eq!(m.relocs[&R_AARCH64_CALL26], 1);
         assert!(problems(&m, "7.3.0", &symvers()).is_empty());
         let text = report(&[("a.ko".to_string(), (m, Vec::new()))].into());
-        assert!(text.contains("| R_AARCH64_CALL26 | 1 | accepted |"), "{text}");
+        assert!(
+            text.contains("| R_AARCH64_CALL26 | 1 | accepted |"),
+            "{text}"
+        );
         let got = read(&arm64(object::elf::R_AARCH64_ADR_GOT_PAGE)).unwrap();
         let p = problems(&got, "7.3.0", &symvers());
         assert_eq!(p, ["1 R_AARCH64_ADR_GOT_PAGE relocations"]);

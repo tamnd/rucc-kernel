@@ -136,9 +136,15 @@ pub fn read(data: &[u8]) -> Result<Option<Counts>, String> {
                 continue;
             };
             if name == "$d" || name.starts_with("$d.") {
-                marks.entry(index.0).or_default().push((sym.address(), true));
+                marks
+                    .entry(index.0)
+                    .or_default()
+                    .push((sym.address(), true));
             } else if name == "$x" || name.starts_with("$x.") {
-                marks.entry(index.0).or_default().push((sym.address(), false));
+                marks
+                    .entry(index.0)
+                    .or_default()
+                    .push((sym.address(), false));
             }
         }
         for m in marks.values_mut() {
