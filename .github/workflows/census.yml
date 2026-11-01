@@ -22,6 +22,10 @@
 # E11, and rucc claims it with rk build --persona second. Both builds then run in the era container
 # that toolchains.toml names, as in kernel.yml, because no hosted runner has GCC 16. The rk speed
 # step of the compare job then gives the compile time of rucc against GCC 16 on runners of one type.
+#
+# Each build makes only the row's image by default. With the modules input set, it also makes the
+# modules target, so that rk modules-audit reads every module of an allmodconfig build. This takes
+# more time, so it is not the default.
 
 name: census
 
@@ -50,6 +54,11 @@ on:
         default: era
         type: choice
         options: [era, second]
+      modules:
+        description: Also build the modules, so that rk modules-audit has modules to read
+        required: false
+        default: false
+        type: boolean
       keep:
         description: Paths in each build tree to keep in the record, such as an object a diff names, separated by spaces
         required: false
@@ -145,8 +154,9 @@ jobs:
         continue-on-error: true
         run: |
           target/release/rk build "$VERSION" --row "$ROW" --config "$CONFIG" --fragment "$FRAGMENT" \
-            --cc "$CC" --out "$OUT" --keep-going
+            --cc "$CC" --out "$OUT" --keep-going --targets "$TARGETS"
         env:
+          TARGETS: ${{ (matrix.row == 'A64' || matrix.row == 'R64') && 'Image' || 'bzImage' }}${{ inputs.modules && ' modules' || '' }}
           VERSION: ${{ inputs.version }}
           ROW: ${{ matrix.row }}
           CONFIG: ${{ matrix.config }}
@@ -165,8 +175,9 @@ jobs:
           docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e RK_CACHE \
             -v "$work:$work" -w "$GITHUB_WORKSPACE" "$IMAGE" \
             target/release/rk build "$VERSION" --row "$ROW" --config "$CONFIG" --fragment "$FRAGMENT" \
-            --cc "${cc[@]}" --out "$OUT" --keep-going --no-upstream-check
+            --cc "${cc[@]}" --out "$OUT" --keep-going --no-upstream-check --targets "$TARGETS"
         env:
+          TARGETS: ${{ (matrix.row == 'A64' || matrix.row == 'R64') && 'Image' || 'bzImage' }}${{ inputs.modules && ' modules' || '' }}
           VERSION: ${{ inputs.version }}
           ROW: ${{ matrix.row }}
           CONFIG: ${{ matrix.config }}
