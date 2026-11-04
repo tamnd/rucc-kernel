@@ -15,6 +15,7 @@
 #define _GNU_SOURCE
 #include <fcntl.h>
 #include <linux/futex.h>
+#include <sched.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -94,12 +95,24 @@ static void stat_loop(long n)
 			fail("stat");
 }
 
-/* One byte to the child and one back, through two pipes or one socket pair. */
+/*
+ * One byte to the child and one back, through two pipes or one socket pair, with both on the
+ * first CPU. Left to the scheduler the two land on one CPU in some boots and on two in others,
+ * and on two every byte is a wakeup of an idle vCPU, which is the host's scheduler and not the
+ * kernel's code. In the nightly that put the 95% interval of both ratios about 0.6 wide whatever
+ * either kernel did. On one CPU each byte is a write, a read and a switch to the other process.
+ */
 static void ping_pong(long n, int unix_socket)
 {
 	int there[2], back[2];
 	char c = 0;
 	pid_t child;
+	cpu_set_t one;
+
+	CPU_ZERO(&one);
+	CPU_SET(0, &one);
+	if (sched_setaffinity(0, sizeof(one), &one))
+		fail("sched_setaffinity");
 
 	if (unix_socket) {
 		if (socketpair(AF_UNIX, SOCK_STREAM, 0, there))
