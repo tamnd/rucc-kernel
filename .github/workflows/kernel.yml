@@ -79,7 +79,7 @@ jobs:
       ccs: ${{ steps.ccs.outputs.ccs }}
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: Swatinem/rust-cache@v2.9.3
       - id: era
         run: cargo run -q --release -p rk -- personas --for "$VERSION" | tee -a "$GITHUB_OUTPUT"
         env:
@@ -108,7 +108,7 @@ jobs:
         config: [tinyconfig, defconfig]
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: Swatinem/rust-cache@v2.9.3
       - name: kernel build dependencies
         run: |
           sudo apt-get update -q
@@ -201,7 +201,7 @@ jobs:
             "$GITHUB_WORKSPACE/record/" 2>/dev/null || true
           if [ -f compile.jsonl ]; then gzip -c compile.jsonl > "$GITHUB_WORKSPACE/record/compile.jsonl.gz"; fi
           find . -path ./rk-bin -prune -o -name '.*.o.cmd' -print | tar -czf "$GITHUB_WORKSPACE/record/cmd.tar.gz" -T -
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: X64-${{ matrix.config }}-${{ matrix.cc }}
@@ -223,8 +223,8 @@ jobs:
         config: [tinyconfig, defconfig]
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: Swatinem/rust-cache@v2.9.2
-      - uses: actions/download-artifact@v8.0.1
+      - uses: Swatinem/rust-cache@v2.9.3
+      - uses: actions/download-artifact@v8.0.2
         with:
           pattern: X64-${{ matrix.config }}-*
           path: records
@@ -294,8 +294,8 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: Swatinem/rust-cache@v2.9.2
-      - uses: actions/download-artifact@v8.0.1
+      - uses: Swatinem/rust-cache@v2.9.3
+      - uses: actions/download-artifact@v8.0.2
         with:
           pattern: X64-*-rucc
           path: records
