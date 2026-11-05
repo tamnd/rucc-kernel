@@ -291,6 +291,12 @@ const RACY: &[&str] = &[
 /// switch event come about 5 us apart. On the 7.3 arm64 Fedora night, each kernel passed it with
 /// its own modules and failed it in both crossed boots with two reactions. The suite fails with
 /// the case, so it is in the list too.
+///
+/// `perf_event_open02` opens more hardware counters than the CPU has, so the kernel multiplexes
+/// them, and checks that the scaled counts come close to those of a counter that ran alone. Under
+/// KVM the host decides when the guest's counters run. On the 7.2.8 x86-64 nightly of rucc #4071
+/// the rucc kernel failed it, and `rk mixed` found that a kernel of only reference objects fails it
+/// too.
 const TIMING: &[&str] = &[
     "kselftest:arm64:pac",
     "kselftest:seccomp:seccomp_benchmark",
@@ -302,6 +308,7 @@ const TIMING: &[&str] = &[
     "ltp:syscalls:fcntl14_64",
     "ltp:syscalls:futex_cmp_requeue01",
     "ltp:syscalls:getrusage04",
+    "ltp:syscalls:perf_event_open02",
 ];
 
 /// KUnit units the test itself expects to fail, which are reported and not graded, because
