@@ -134,6 +134,7 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
                 "no-fuel",
             ],
         ),
+        "mix" => (false, &["reference", "other", "objects", "jobs", "out"]),
         "cross-modules" => (
             false,
             &[
@@ -201,6 +202,7 @@ usage:
           [--out DIR]
   rk mixed --reference DIR --other DIR --unit UNIT [--row X64] [--cpu NAME] [--timeout 600]
           [--no-fuel] [--selftests DIR] [--ltp DIR]
+  rk mix --reference DIR --other DIR --objects \"lib/maple_tree.o mm/\" --out DIR [--jobs N]
   rk cross-modules --reference DIR --other DIR [--row X64] [--cpu NAME] [--runs 1]
           [--timeout 600] [--jobs N] [--busybox PATH] [--out DIR]
   rk selftests --build DIR [--cc COMPILER] [--collections timers,size] [--jobs N] [--out DIR]
