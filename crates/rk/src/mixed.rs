@@ -582,6 +582,90 @@ impl Trials<'_> {
     }
 }
 
+/// Link a copy of the reference with some of the rucc build's objects, for `rk mix`.
+///
+/// A path names one object, `lib/maple_tree.o`, or with a slash at the end every object under a
+/// directory that differs between the builds, `mm/`. The objects are written over the reference's
+/// in a copy of its build directory, which its own make command then links again, as a trial of
+/// `rk mixed` is. `rk bench` can boot the copy as the other kernel, so the time a few objects cost
+/// shows apart from the rest of the build. The objects swapped in are returned.
+pub fn mix(
+    reference: &Path,
+    other: &Path,
+    row: &Row,
+    paths: &[String],
+    jobs: usize,
+    out: &Path,
+) -> Result<Vec<String>, String> {
+    let built = outcome_of(reference)?;
+    let log = other.join("compile.jsonl");
+    let (records, _) =
+        rk_shim::record::read_log(&log).map_err(|e| format!("reading {}: {e}", log.display()))?;
+    let chosen: Vec<String> = candidates(reference, other, &records)
+        .into_iter()
+        .map(|(path, _)| path)
+        .filter(|path| {
+            paths.iter().any(|want| {
+                if want.ends_with('/') {
+                    path.starts_with(want.as_str())
+                } else {
+                    path == want
+                }
+            })
+        })
+        .collect();
+    if chosen.is_empty() {
+        return Err(format!(
+            "no object under {} differs between the builds",
+            paths.join(" ")
+        ));
+    }
+    if out.exists() {
+        std::fs::remove_dir_all(out).map_err(|e| format!("clearing {}: {e}", out.display()))?;
+    }
+    copy_tree(reference, out)?;
+    for path in &chosen {
+        let target = out.join(path);
+        let _ = std::fs::remove_file(&target);
+        std::fs::write(&target, read(&other.join(path))?)
+            .map_err(|e| format!("writing {}: {e}", target.display()))?;
+    }
+    let shim = reference.join("rk-bin").join("rk-cc");
+    let cc = std::iter::once(shim.display().to_string())
+        .chain(built.persona.iter().cloned())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut make = build::make_in(
+        &built.source,
+        out,
+        row,
+        &built.kcflags,
+        &cc,
+        &built.targets,
+        jobs,
+    );
+    // The shim logs the link into the reference's compile log, which is put back as it was.
+    let compile = reference.join("compile.jsonl");
+    let before = std::fs::read(&compile).ok();
+    let log = out.join("mix.make.log");
+    let file =
+        std::fs::File::create(&log).map_err(|e| format!("creating {}: {e}", log.display()))?;
+    let err = file.try_clone().map_err(|e| e.to_string())?;
+    let status = make
+        .stdout(file)
+        .stderr(err)
+        .status()
+        .map_err(|e| format!("running make: {e}"))?;
+    if let Some(bytes) = before {
+        std::fs::write(&compile, bytes)
+            .map_err(|e| format!("writing {}: {e}", compile.display()))?;
+    }
+    if !status.success() {
+        return Err(format!("the link failed, see {}", log.display()));
+    }
+    Ok(chosen)
+}
+
 /// Read a file whole.
 fn read(path: &Path) -> Result<Vec<u8>, String> {
     std::fs::read(path).map_err(|e| format!("reading {}: {e}", path.display()))

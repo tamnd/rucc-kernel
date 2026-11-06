@@ -81,6 +81,7 @@ fn main() -> ExitCode {
             "boot" => boot_command(&repo, &args),
             "test" => test_command(&repo, &args),
             "mixed" => mixed_command(&repo, &args),
+            "mix" => mix_command(&repo, &args),
             "cross-modules" => cross_modules(&repo, &args),
             "selftests" => selftests_command(&repo, &args),
             "ltp" => ltp_command(&repo, &args),
@@ -1280,6 +1281,43 @@ fn cross_modules(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
 }
 
 /// Find the rucc objects, and then the transformation, that make one unit fail.
+fn mix_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+    let dir = |name: &str| -> Result<std::path::PathBuf, String> {
+        let path = args
+            .get(name)
+            .ok_or_else(|| format!("rk mix needs --{name}, a build directory"))?;
+        std::fs::canonicalize(path).map_err(|e| format!("resolving {path}: {e}"))
+    };
+    let reference = dir("reference")?;
+    let other = dir("other")?;
+    let paths: Vec<String> = args
+        .get("objects")
+        .ok_or("rk mix needs --objects, as \"lib/maple_tree.o mm/\"")?
+        .split_whitespace()
+        .map(str::to_string)
+        .collect();
+    let out = std::path::PathBuf::from(args.get("out").ok_or("rk mix needs --out, a directory")?);
+    let built = outcome_of(&reference)?;
+    let rows = personas::Rows::load(&repo.file("rows.toml"))?;
+    let row = rows.get(&built.row)?.clone();
+    let jobs = match args.get("jobs") {
+        Some(n) => n
+            .parse()
+            .map_err(|_| format!("--jobs {n} is not a number"))?,
+        None => std::thread::available_parallelism().map_or(1, std::num::NonZero::get),
+    };
+    let chosen = mixed::mix(&reference, &other, &row, &paths, jobs, &out)?;
+    for path in &chosen {
+        println!("{path}");
+    }
+    println!(
+        "linked {} with {} rucc object(s)",
+        out.display(),
+        chosen.len()
+    );
+    Ok(ExitCode::SUCCESS)
+}
+
 fn mixed_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     let dir = |name: &str| -> Result<std::path::PathBuf, String> {
         let path = args
