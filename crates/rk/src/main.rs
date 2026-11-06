@@ -1310,7 +1310,11 @@ fn mix_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     for path in &chosen {
         println!("{path}");
     }
-    println!("linked {} with {} rucc object(s)", out.display(), chosen.len());
+    println!(
+        "linked {} with {} rucc object(s)",
+        out.display(),
+        chosen.len()
+    );
     Ok(ExitCode::SUCCESS)
 }
 
