@@ -3,12 +3,19 @@
 # Written by `rk sets --write` from the rules in sets.toml and kernel.org's releases.json, with the
 # hashes taken from the sha256sums.asc of each directory. `rk fetch` checks the hash on every use.
 
-default = "7.3"
+default = "7.3.3"
+
+[[pin]]
+version = "7.3.3"
+moniker = "stable"
+sets = ["current"]
+url = "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.3.3.tar.xz"
+sha256 = "79c66dde66cd96877fcde8f7d36aec946b1f423d2b97b5a7b1751b75c764f3d1"
 
 [[pin]]
 version = "7.3"
 moniker = "mainline"
-sets = ["current", "distro"]
+sets = ["distro"]
 url = "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.3.tar.xz"
 sha256 = "87363c24f10e06321eb362765521094e94471f6bff8bce2d6b3e40f39f004953"
 
