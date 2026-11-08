@@ -399,10 +399,13 @@ jobs:
           import mmap, struct, sys
           with open(sys.argv[1], 'rb') as f:
               d = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-          shoff, = struct.unpack_from('<Q', d, 0x28)
-          size, count, names = struct.unpack_from('<HHH', d, 0x3a)
+          # X32 links an ELF32 vmlinux, whose header and section entries have 32 bit fields.
+          wide = d[4] == 2
+          shoff, = struct.unpack_from('<Q' if wide else '<I', d, 0x28 if wide else 0x20)
+          size, count, names = struct.unpack_from('<HHH', d, 0x3a if wide else 0x2e)
+          entry = '<IIQQQQIIQQ' if wide else '<IIIIIIIIII'
           def section(i):
-              return struct.unpack_from('<IIQQQQIIQQ', d, shoff + i * size)
+              return struct.unpack_from(entry, d, shoff + i * size)
           base = section(names)[4]
           for i in range(count):
               s = section(i)
