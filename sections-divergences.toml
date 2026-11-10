@@ -121,6 +121,27 @@ reason = "the same netmem_to_page WARN on 7.2 arm64, where a bug entry has no 4 
 
 [[divergence]]
 what = "__bug_table"
+object = "drivers/iio/imu/bno055/bno055*"
+only = "reference"
+item = '4="attr->vals[i * 2] > *'
+reason = "the two WARN_ONs in bno055_set_regmask on 7.3, which every caller reaches with one of the static const attrs. The even entries of bno055_acc_lpf_vals are at most 1000 and those of bno055_gyr_scale_vals at most 2000, so neither test against 2147 or 4294 can hold. rucc inlines the call into _bno055_write_raw and folds the loads from the tables, gcc keeps the loop"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/netronome/nfp/*"
+only = "reference"
+item = '4="__size < 0" 8="drivers/net/ethernet/netronome/nfp/bpf/*'
+reason = "the WARN_ON in BPF_LDST_BYTES, checked at jit.c:4098 and verifier.c:432 on 7.3. BPF_SIZE is code & 0x18 and bpf_size_to_bytes maps all four of its values to a size, so the -EINVAL branch is dead and rucc removes the test. The memcpy WARN rucc keeps in nfp_bpf_prog_trim compares p_size with p_size_field, which are the same value on both arms of the alloc tag static branch"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/core/filter.o"
+only = "reference"
+item = '4="__size < 0" 8="net/core/filter.c" *'
+reason = "the same BPF_LDST_BYTES WARN_ON in sock_addr_convert_ctx_access, at filter.c:10771 on 7.3, which can never hold for the reason given for nfp"
+
+[[divergence]]
+what = "__bug_table"
 object = "drivers/infiniband/core/uverbs_std_types_*"
 only = "reference"
 item = '4="arch/arm64/include/asm/irqflags.h" 3f000309'
