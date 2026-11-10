@@ -241,6 +241,8 @@ jobs:
           target/release/rk vec-audit --build "$OUT" --save "$OUT/vec.json" > "$OUT/vec-audit.md" || true
           target/release/rk modules-audit --build "$OUT" > "$OUT/modules-audit.md" || true
           cat "$OUT/vec-audit.md" "$OUT/modules-audit.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          # The log keeps the module audit too, since the summary cannot be read through the API.
+          cat "$OUT/modules-audit.md" 2>/dev/null || true
       - name: keep the record
         if: always()
         run: |
