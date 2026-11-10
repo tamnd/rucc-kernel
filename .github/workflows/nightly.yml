@@ -37,6 +37,10 @@
 # still has more to boot than one job has time for, so a manual run can name the kinds rk test
 # grades and split a night in two, one run with kunit, which rk cross-modules needs as well, and one
 # with the selftests and LTP.
+#
+# A manual X64 run with against set to second makes gcc-16 the reference rk test grades against in
+# place of the era's GCC, so the kselftest and LTP half of a distro night can be graded against
+# gcc-16 too. The job has no time for a third build, so that run builds no separate second reference.
 
 name: nightly
 
@@ -73,6 +77,10 @@ on:
         description: The kinds rk test grades, as boot,smoke,kunit,kselftest,ltp, or empty for every one there is
         required: false
         default: ""
+      against:
+        description: The reference rk test grades against, first for the era's GCC or second for gcc-16 on X64
+        required: false
+        default: first
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
@@ -90,6 +98,7 @@ env:
   ROW: ${{ inputs.row || 'X64' }}
   CPU: ${{ inputs.cpu }}
   KINDS: ${{ inputs.kinds }}
+  AGAINST: ${{ inputs.against || 'first' }}
   JOBS: ${{ (inputs.row == 'A64' || inputs.row == 'R64') && '4' || '' }}
   TARGETS: ${{ (inputs.row == 'A64' || inputs.row == 'R64') && 'Image modules' || 'bzImage modules' }}
 
@@ -147,6 +156,13 @@ jobs:
           if [ "$ROW" = R64 ]; then
             echo "REFERENCE=riscv64-linux-gnu-$gcc" >> "$GITHUB_ENV"
             echo "EXTRA=$gcc-riscv64-linux-gnu binutils-riscv64-linux-gnu opensbi" >> "$GITHUB_ENV"
+          elif [ "$AGAINST" = second ]; then
+            second=$(sed -n 's/^second-gcc=//p' "$RUNNER_TEMP/era")
+            if [ -z "$second" ] || [ "$ROW" != X64 ]; then
+              echo "against second needs an X64 row and an era with a second reference" >&2
+              exit 1
+            fi
+            echo "REFERENCE=$second" >> "$GITHUB_ENV"
           else
             echo "REFERENCE=$gcc" >> "$GITHUB_ENV"
           fi
@@ -213,10 +229,20 @@ jobs:
           path: ${{ env.RK_CACHE }}/archives
           key: kernel-archives-${{ matrix.version }}-${{ hashFiles('pins.toml') }}
           restore-keys: kernel-archives-${{ matrix.version }}-
+      # Against the second reference, the reference is gcc-16, which only the era container has.
       - name: rk build with the era's GCC
         run: |
-          target/release/rk build ${{ matrix.version }} --row "$ROW" --config "$CONFIG" --fragment test \
-            --cc "$REFERENCE" --targets "$TARGETS" --out "$RUNNER_TEMP/gcc" --stack-usage
+          if [ "$AGAINST" = second ]; then
+            target/release/rk fetch ${{ matrix.version }} --no-upstream-check
+            work="$(dirname "$(dirname "$GITHUB_WORKSPACE")")"
+            docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e RK_CACHE \
+              -v "$work:$work" -w "$GITHUB_WORKSPACE" "$SECOND_IMAGE" \
+              target/release/rk build ${{ matrix.version }} --row "$ROW" --config "$CONFIG" --fragment test \
+              --cc "$REFERENCE" --targets "$TARGETS" --out "$RUNNER_TEMP/gcc" --stack-usage --no-upstream-check
+          else
+            target/release/rk build ${{ matrix.version }} --row "$ROW" --config "$CONFIG" --fragment test \
+              --cc "$REFERENCE" --targets "$TARGETS" --out "$RUNNER_TEMP/gcc" --stack-usage
+          fi
       - name: rk build with rucc
         continue-on-error: true
         run: |
@@ -229,7 +255,7 @@ jobs:
       # does not build it, since that grade cannot run and the build takes more than an hour.
       - name: rk build with the second reference
         id: second
-        if: env.SECOND != '' && env.ROW == 'X64' && (env.KINDS == '' || contains(env.KINDS, 'kunit'))
+        if: env.SECOND != '' && env.ROW == 'X64' && env.AGAINST != 'second' && (env.KINDS == '' || contains(env.KINDS, 'kunit'))
         continue-on-error: true
         run: |
           target/release/rk fetch ${{ matrix.version }} --no-upstream-check
@@ -481,7 +507,8 @@ jobs:
         run: |
           import json, os, pathlib
           row = os.environ["ROW"]
-          lines = [f"### nightly, {row}", "", "| version | graded | failed | splats | verdict | objtool | frames | btf | bench | gcc-16 |", "|---|---|---|---|---|---|---|---|---|---|"]
+          against = ", graded against gcc-16" if os.environ["AGAINST"] == "second" else ""
+          lines = [f"### nightly, {row}{against}", "", "| version | graded | failed | splats | verdict | objtool | frames | btf | bench | gcc-16 |", "|---|---|---|---|---|---|---|---|---|---|"]
           for record in sorted(pathlib.Path("records").iterdir()):
               version = record.name.removeprefix("nightly-").removesuffix(f"-{row}")
               path = record / "test" / "test.json"
