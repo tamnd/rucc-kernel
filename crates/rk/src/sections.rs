@@ -1051,10 +1051,12 @@ fn copies(
 /// How many rows of a long list the report shows.
 const ROWS: usize = 60;
 
-fn cell(s: &str) -> String {
+/// A cell of the report, cut to 120 bytes unless the report lists everything, so that `--all`
+/// gives each WARN's file, line and flags in full.
+fn cell(s: &str, all: bool) -> String {
     let s = if s.is_empty() { "nothing" } else { s };
     let s = s.replace('|', "\\|");
-    if s.len() > 120 {
+    if !all && s.len() > 120 {
         let mut end = 117;
         while !s.is_char_boundary(end) {
             end -= 1;
@@ -1066,7 +1068,7 @@ fn cell(s: &str) -> String {
 }
 
 /// The comparison as markdown, unexplained differences first, with the first 60 of each kind or,
-/// with `all`, every one.
+/// with `all`, every one and in full.
 #[must_use]
 pub fn report(c: &Comparison, all: bool) -> String {
     let rows = if all { usize::MAX } else { ROWS };
@@ -1113,9 +1115,9 @@ pub fn report(c: &Comparison, all: bool) -> String {
                 s,
                 "| {} | {} | {} | {} |",
                 d.object,
-                cell(&d.what),
-                cell(&d.reference),
-                cell(&d.other)
+                cell(&d.what, all),
+                cell(&d.reference, all),
+                cell(&d.other, all)
             );
         }
         more(&mut s, unexplained.len());
@@ -1127,9 +1129,9 @@ pub fn report(c: &Comparison, all: bool) -> String {
                 s,
                 "| {} | {} | {} | {} | {} |",
                 d.object,
-                cell(&d.what),
-                cell(&d.reference),
-                cell(&d.other),
+                cell(&d.what, all),
+                cell(&d.reference, all),
+                cell(&d.other, all),
                 d.reason.as_deref().unwrap_or_default().replace('|', "\\|")
             );
         }
@@ -1253,6 +1255,13 @@ mod tests {
         assert_eq!(what, ["__jump_table", "__mcount_loc in f", ".modinfo"]);
         assert!(report(&c, false).contains("| a.o | __mcount_loc in f | 1 | 3 |"));
         assert!(report(&c, false).contains("| a.o | __jump_table | 8=key1+0 | nothing |"));
+    }
+
+    #[test]
+    fn a_long_cell_is_cut_unless_the_report_lists_everything() {
+        let long = "x".repeat(200);
+        assert_eq!(cell(&long, false), format!("{}...", &long[..117]));
+        assert_eq!(cell(&long, true), long);
     }
 
     /// Two copies of one site, as when a function with a static branch is inlined twice.
