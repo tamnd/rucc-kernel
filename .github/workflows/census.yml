@@ -311,11 +311,15 @@ jobs:
       - name: rk flags-diff
         if: always()
         run: target/release/rk flags-diff --reference "$REF" --other "$OTHER" | tee -a "$GITHUB_STEP_SUMMARY"
+      # The summary keeps the first 60 rows of each list. The log gets every difference that no rule
+      # explains, in full, since a WARN's line and flags come at the end of a long cell.
       - name: rk sections-diff
         if: always()
         run: |
           target/release/rk sections-diff --reference "$REF"/sections.json \
-            --other "$OTHER"/sections.json | tee -a "$GITHUB_STEP_SUMMARY"
+            --other "$OTHER"/sections.json >> "$GITHUB_STEP_SUMMARY" || true
+          target/release/rk sections-diff --reference "$REF"/sections.json \
+            --other "$OTHER"/sections.json --all | sed '/^Explained:/q'
       - name: rk symvers-diff
         if: always()
         run: target/release/rk symvers-diff --reference "$REF" --other "$OTHER" | tee -a "$GITHUB_STEP_SUMMARY"
