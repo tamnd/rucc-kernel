@@ -181,7 +181,7 @@ jobs:
         if: "!startsWith(matrix.cc, 'rucc')"
         run: |
           target/release/rk syntax --build "$RUNNER_TEMP/out" --cc rucc > "$RUNNER_TEMP/out/syntax.md" || true
-          cat "$RUNNER_TEMP/out/syntax.md" >> "$GITHUB_STEP_SUMMARY"
+          tee -a "$GITHUB_STEP_SUMMARY" < "$RUNNER_TEMP/out/syntax.md"
       - name: rk object audits
         if: always()
         run: |
@@ -191,6 +191,8 @@ jobs:
           target/release/rk modules-audit --build "$out" > "$out/modules-audit.md" || true
           target/release/rk frames --reference "$out" --save "$out/frames.json" || true
           cat "$out/vec-audit.md" "$out/modules-audit.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          # The log keeps the module audit too, since the summary cannot be read through the API.
+          cat "$out/modules-audit.md" 2>/dev/null || true
       - name: keep the record
         if: always()
         run: |

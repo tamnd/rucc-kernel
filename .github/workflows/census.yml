@@ -189,16 +189,18 @@ jobs:
         run: |
           target/release/rk demands --builds "$OUT" > "$OUT/demands.md"
           cat "$OUT/demands.md" >> "$GITHUB_STEP_SUMMARY"
+      # rk syntax goes before rk asm-inventory, which took more than two hours on one 7.3
+      # allmodconfig night and left rk syntax cut off by the job's time limit.
+      - name: rk syntax
+        if: "!startsWith(matrix.cc, 'rucc')"
+        run: |
+          target/release/rk syntax --build "$OUT" --cc rucc > "$OUT/syntax.md" || true
+          tee -a "$GITHUB_STEP_SUMMARY" < "$OUT/syntax.md"
       - name: rk asm-inventory
         if: "!startsWith(matrix.cc, 'rucc')"
         run: |
           target/release/rk asm-inventory --build "$OUT"
           head -1 "$OUT/asm-inventory.md" >> "$GITHUB_STEP_SUMMARY"
-      - name: rk syntax
-        if: "!startsWith(matrix.cc, 'rucc')"
-        run: |
-          target/release/rk syntax --build "$OUT" --cc rucc > "$OUT/syntax.md" || true
-          cat "$OUT/syntax.md" >> "$GITHUB_STEP_SUMMARY"
       - name: the kernel-pp corpus
         if: matrix.cc == needs.era.outputs.gcc && inputs.reference == 'era' && matrix.row == 'X64' && matrix.config == 'defconfig'
         run: |
