@@ -208,6 +208,22 @@ pub fn splats(console: &str) -> BTreeSet<String> {
     found
 }
 
+/// The lines of a console log from the first one that gives `splat`, at most `count` of them. A
+/// splat that no line gives on its own, as a KASAN report put under its KUnit case, has none.
+#[must_use]
+pub fn context<'a>(console: &'a str, splat: &str, count: usize) -> Vec<&'a str> {
+    let mut lines = console.lines().map(|line| line.trim_end_matches('\r'));
+    while let Some(line) = lines.next() {
+        let text = crate::boot::strip_timestamp(line).trim();
+        if is_splat(text) && normalize(text) == splat {
+            return std::iter::once(line)
+                .chain(lines.take(count.saturating_sub(1)))
+                .collect();
+        }
+    }
+    Vec::new()
+}
+
 /// The KUnit case of a KTAP result line, as `kmalloc_oob_right` in `ok 1 kmalloc_oob_right`.
 fn case_of(text: &str) -> Option<&str> {
     let rest = text
@@ -223,6 +239,23 @@ fn case_of(text: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_context_of_a_splat_starts_at_the_line_that_gives_it() {
+        let console = "[    1.000000] Run /init as init process\r\n\
+                       [   61.000000] rcu: INFO: rcu_preempt detected stalls on CPUs/tasks:\r\n\
+                       [   61.000001] rcu: \t1-...!: (0 ticks this GP)\r\n\
+                       [   61.000002] Sending NMI from CPU 0 to CPUs 1:\r\n";
+        let splat = splats(console).into_iter().next().unwrap();
+        assert_eq!(
+            context(console, &splat, 2),
+            [
+                "[   61.000000] rcu: INFO: rcu_preempt detected stalls on CPUs/tasks:",
+                "[   61.000001] rcu: \t1-...!: (0 ticks this GP)",
+            ]
+        );
+        assert!(context(console, "BUG: KASAN: slab-out-of-bounds in case x", 2).is_empty());
+    }
 
     #[test]
     fn a_splat_is_known_by_its_first_line_without_what_changes() {

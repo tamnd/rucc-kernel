@@ -691,6 +691,44 @@ fn wrong_clock(console: &str) -> bool {
             .any(|line| line.contains("tsc: Using PIT calibration value"))
 }
 
+/// Print the boot that gave each splat only the rucc kernel has, with the console lines from the
+/// splat on. The consoles stay in the run directory, but a job log is often all there is to read,
+/// and an RCU stall or a lockup says little without the suite and the trace.
+fn show_splats(out: &Path, splats: &BTreeSet<String>) {
+    if splats.is_empty() {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(out) else {
+        return;
+    };
+    let mut logs: Vec<PathBuf> = entries
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| {
+            path.extension().is_some_and(|extension| extension == "log")
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("other-"))
+        })
+        .collect();
+    logs.sort();
+    for splat in splats {
+        for log in &logs {
+            let Ok(console) = std::fs::read_to_string(log) else {
+                continue;
+            };
+            let lines = crate::dmesg::context(&console, splat, 40);
+            if lines.is_empty() {
+                continue;
+            }
+            eprintln!("rk: {splat}, in {}:", log.display());
+            for line in lines {
+                eprintln!("rk:   {line}");
+            }
+        }
+    }
+}
+
 /// The splats of both kernels over every run.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -821,6 +859,7 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
         other_splats.push(o_splats);
     }
     let splats = sort_splats(reference_splats, &other_splats);
+    show_splats(&plan.out, &splats.other_only);
     let mut outcome = Outcome {
         reference: plan.reference.clone(),
         other: plan.other.clone(),
