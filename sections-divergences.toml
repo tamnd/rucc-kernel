@@ -4075,3 +4075,625 @@ object = "lib/tests/bitfield_kunit.mod.o"
 only = "other"
 item = "depends=kunit"
 reason = "the kunit dependency of the bitfield_kunit rule above, on the rucc side"
+
+# The 7.3 X64 allmodconfig census against gcc 16 of 12 November.
+#
+# Fortify WARNs for field-spanning writes that only gcc 16 keeps. memcpy and memmove in
+# fortify-string.h warn only when the size of the destination field is known, differs from the size
+# of the whole destination, and is smaller than the length. In each of these the destination is a
+# local or a whole object, a flexible array with no known size, or a field the length is first
+# clamped to, so the WARN cannot fire. gcc 14 removes every one of them as rucc does, since its
+# census of 7.3 has no such site, and a sample of each kind was read in the source.
+
+[[divergence]]
+what = "__bug_table"
+object = "arch/x86/kernel/head64.o"
+only = "reference"
+item = '4="" 8="arch/x86/include/asm/bootparam_utils.h" 53001309'
+reason = "the fortify field-spanning WARN of the memcpy at bootparam_utils.h:83, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "crypto/cts.o"
+only = "reference"
+item = '4="" 8="crypto/cts.c" d0001309'
+reason = "the fortify field-spanning WARN of the memcpy at cts.c:208, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/i2c/busses/i2c-mlxbf.o"
+only = "reference"
+item = '4="" 8="drivers/i2c/busses/i2c-mlxbf.c" f3021309'
+reason = "the fortify field-spanning WARN of the memcpy at i2c-mlxbf.c:755, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/infiniband/core/sa_query.o"
+only = "reference"
+item = '4="" 8="drivers/infiniband/core/sa_query.c" 2b061309'
+reason = "the fortify field-spanning WARN of the memcpy at sa_query.c:1579, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/media/dvb-frontends/tc90522.o"
+only = "reference"
+item = '4="" 8="drivers/media/dvb-frontends/tc90522.c" aa021309'
+reason = "the fortify field-spanning WARN of the memcpy at tc90522.c:682, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/media/usb/ttusb-dec/ttusb_dec.o"
+only = "reference"
+item = '4="" 8="drivers/media/usb/ttusb-dec/ttusb_dec.c" 66051309'
+reason = "the fortify field-spanning WARN of the memcpy at ttusb_dec.c:1382, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/misc/cb710/sgbuf2.o"
+only = "reference"
+item = '4="" 8="drivers/misc/cb710/sgbuf2.c" 21001309'
+reason = "the fortify field-spanning WARN of the memcpy at sgbuf2.c:33, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/mtd/chips/cfi_cmdset_0001.o"
+only = "reference"
+item = '4="" 8="include/linux/mtd/map.h" 60011309'
+reason = "the fortify field-spanning WARN of the memcpy at map.h:352, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/mtd/chips/cfi_cmdset_0002.o"
+only = "reference"
+item = '4="" 8="include/linux/mtd/map.h" 60011309'
+reason = "the fortify field-spanning WARN of the memcpy at map.h:352, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/mtd/lpddr/lpddr_cmds.o"
+only = "reference"
+item = '4="" 8="include/linux/mtd/map.h" 60011309'
+reason = "the fortify field-spanning WARN of the memcpy at map.h:352, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/mtd/devices/mtd_dataflash.o"
+only = "reference"
+item = '4="" 8="drivers/mtd/devices/mtd_dataflash.c" 35021309'
+reason = "the fortify field-spanning WARN of the memcpy at mtd_dataflash.c:565, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/mtd/devices/mtd_intel_dg.o"
+only = "reference"
+item = '4="" 8="drivers/mtd/devices/mtd_intel_dg.c" e2001309'
+reason = "the fortify field-spanning WARN of the memcpy at mtd_intel_dg.c:226, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/can/dev/netlink.o"
+only = "reference"
+item = '4="" 8="drivers/net/can/dev/netlink.c" 00021309'
+reason = "the fortify field-spanning WARN of the memcpy at netlink.c:512, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/can/usb/peak_usb/pcan_usb_core.o"
+only = "reference"
+item = '4="" 8="drivers/net/can/usb/peak_usb/pcan_usb_core.c" 6e031309'
+reason = "the fortify field-spanning WARN of the memcpy at pcan_usb_core.c:878, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/chelsio/cxgb4vf/t4vf_hw.o"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/chelsio/cxgb4vf/t4vf_hw.c" 07071309'
+reason = "the fortify field-spanning WARN of the memcpy at t4vf_hw.c:1799, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/chelsio/cxgb4vf/t4vf_hw.o"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/chelsio/cxgb4vf/t4vf_hw.c" 1b061309'
+reason = "the fortify field-spanning WARN of the memcpy at t4vf_hw.c:1563, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/chelsio/cxgb4vf/t4vf_hw.o"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/chelsio/cxgb4vf/t4vf_hw.c" 6f061309'
+reason = "the fortify field-spanning WARN of the memcpy at t4vf_hw.c:1647, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/intel/ice/ice_flow.o"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/intel/ice/ice_flow.c" da051309'
+reason = "the fortify field-spanning WARN of the memcpy at ice_flow.c:1498, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/intel/ice/ice.o"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/intel/ice/ice_switch.c" 29141309'
+reason = "the fortify field-spanning WARN of the memcpy at ice_switch.c:5161, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/marvell/mvneta.o"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/marvell/mvneta.c" e7131309'
+reason = "the fortify field-spanning WARN of the memcpy at mvneta.c:5095, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/micrel/ksz884x.o"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/micrel/ksz884x.c" 28171309'
+reason = "the fortify field-spanning WARN of the memcpy at ksz884x.c:5928, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/netronome/nfp/nfp_net_ethtool.o"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/netronome/nfp/nfp_net_ethtool.c" c1091309'
+reason = "the fortify field-spanning WARN of the memcpy at nfp_net_ethtool.c:2497, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/sfc/siena/rx_common.o"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/sfc/siena/rx_common.c" ad031309'
+reason = "the fortify field-spanning WARN of the memcpy at rx_common.c:941, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/sfc/siena/rx_common.o"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/sfc/siena/rx_common.c" af031309'
+reason = "the fortify field-spanning WARN of the memcpy at rx_common.c:943, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/sfc/siena/siena_sriov.o"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/sfc/siena/siena_sriov.c" 16011309'
+reason = "the fortify field-spanning WARN of the memcpy at siena_sriov.c:278, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/virtio_net.o"
+only = "reference"
+item = '4="" 8="drivers/net/virtio_net.c" de151309'
+reason = "the fortify field-spanning WARN of the memcpy at virtio_net.c:5598, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/ath/ath10k/ath10k_core.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/ath/ath10k/coredump.c" 27061309'
+reason = "the fortify field-spanning WARN of the memcpy at coredump.c:1575, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/ath/ath10k/ath10k_core.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/ath/ath10k/coredump.c" 33061309'
+reason = "the fortify field-spanning WARN of the memcpy at coredump.c:1587, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/ath/ath10k/wow.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/ath/ath10k/wow.c" 6a001309'
+reason = "the fortify field-spanning WARN of the memcpy at wow.c:106, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/ath/ath10k/wow.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/ath/ath10k/wow.c" 6c001309'
+reason = "the fortify field-spanning WARN of the memcpy at wow.c:108, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/ath/ath11k/ath11k.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/ath/ath11k/mac.c" 2f281309'
+reason = "the fortify field-spanning WARN of the memcpy at mac.c:10287, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/ath/ath11k/wow.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/ath/ath11k/wow.c" b9001309'
+reason = "the fortify field-spanning WARN of the memcpy at wow.c:185, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/ath/ath11k/wow.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/ath/ath11k/wow.c" bb001309'
+reason = "the fortify field-spanning WARN of the memcpy at wow.c:187, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/ath/ath6kl/cfg80211.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/ath/ath6kl/cfg80211.c" 9e041309'
+reason = "the fortify field-spanning WARN of the memcpy at cfg80211.c:1182, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c" 5e131309'
+reason = "the fortify field-spanning WARN of the memcpy at cfg80211.c:4958, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/broadcom/brcm80211/brcmsmac/main.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/broadcom/brcm80211/brcmsmac/main.c" 2b151309'
+reason = "the fortify field-spanning WARN of the memcpy at main.c:5419, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/intel/ipw2x00/ipw2100.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/intel/ipw2x00/ipw2100.c" 211b1309'
+reason = "the fortify field-spanning WARN of the memcpy at ipw2100.c:6945, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/intel/ipw2x00/ipw2200.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/intel/ipw2x00/ipw2200.c" 09231309'
+reason = "the fortify field-spanning WARN of the memcpy at ipw2200.c:8969, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/intel/ipw2x00/ipw2200.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/intel/ipw2x00/ipw2200.c" ca241309'
+reason = "the fortify field-spanning WARN of the memcpy at ipw2200.c:9418, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/intel/iwlwifi/mvm/ftm-responder.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/intel/iwlwifi/mvm/ftm-responder.c" e0001309'
+reason = "the fortify field-spanning WARN of the memcpy at ftm-responder.c:224, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/mediatek/mt76/mt7615/mac.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/mediatek/mt76/mt7615/mac.c" 26091309'
+reason = "the fortify field-spanning WARN of the memcpy at mac.c:2342, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/mediatek/mt76/mt7921/mac.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/mediatek/mt76/mt7921/mac.c" ed021309'
+reason = "the fortify field-spanning WARN of the memcpy at mac.c:749, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/mediatek/mt76/mt7925/mac.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/mediatek/mt76/mt7925/mac.c" 47061309'
+reason = "the fortify field-spanning WARN of the memcpy at mac.c:1607, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/realtek/rtw89/fw.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/realtek/rtw89/fw.c" 650d1309'
+reason = "the fortify field-spanning WARN of the memcpy at fw.c:3429, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/realtek/rtw89/fw.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/realtek/rtw89/fw.c" 680d1309'
+reason = "the fortify field-spanning WARN of the memcpy at fw.c:3432, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/ti/wlcore/main.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/ti/wlcore/main.c" d90f1309'
+reason = "the fortify field-spanning WARN of the memcpy at main.c:4057, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/wireless/ti/wlcore/main.o"
+only = "reference"
+item = '4="" 8="drivers/net/wireless/ti/wlcore/main.c" dd0f1309'
+reason = "the fortify field-spanning WARN of the memcpy at main.c:4061, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/remoteproc/mtk_scp_ipi.o"
+only = "reference"
+item = '4="" 8="drivers/remoteproc/mtk_scp_ipi.c" 60001309'
+reason = "the fortify field-spanning WARN of the memcpy at mtk_scp_ipi.c:96, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/scsi/aic7xxx/aic7xxx_osm.o"
+only = "reference"
+item = '4="" 8="drivers/scsi/aic7xxx/aic7xxx_osm.c" db051309'
+reason = "the fortify field-spanning WARN of the memcpy at aic7xxx_osm.c:1499, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/scsi/csiostor/csio_mb.o"
+only = "reference"
+item = '4="" 8="drivers/scsi/csiostor/csio_mb.c" 2d041309'
+reason = "the fortify field-spanning WARN of the memcpy at csio_mb.c:1069, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/scsi/qla2xxx/qla_sup.o"
+only = "reference"
+item = '4="" 8="drivers/scsi/qla2xxx/qla_sup.c" bc081309'
+reason = "the fortify field-spanning WARN of the memcpy at qla_sup.c:2236, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/usb/misc/emi26.o"
+only = "reference"
+item = '4="" 8="drivers/usb/misc/emi26.c" 88001309'
+reason = "the fortify field-spanning WARN of the memcpy at emi26.c:136, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/usb/misc/emi62.o"
+only = "reference"
+item = '4="" 8="drivers/usb/misc/emi62.c" 8f001309'
+reason = "the fortify field-spanning WARN of the memcpy at emi62.c:143, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ceph/mds_client.o"
+only = "reference"
+item = '4="" 8="fs/ceph/mds_client.c" 7e0b1309'
+reason = "the fortify field-spanning WARN of the memcpy at mds_client.c:2942, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ceph/mds_client.o"
+only = "reference"
+item = '4="" 8="fs/ceph/mds_client.c" a50b1309'
+reason = "the fortify field-spanning WARN of the memcpy at mds_client.c:2981, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/nfs/fscache.o"
+only = "reference"
+item = '4="" 8="fs/nfs/fscache.c" 7c001309'
+reason = "the fortify field-spanning WARN of the memcpy at fscache.c:124, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ocfs2/xattr.o"
+only = "reference"
+item = '4="" 8="fs/ocfs2/xattr.c" 2b121309'
+reason = "the fortify field-spanning WARN of the memcpy at xattr.c:4651, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/ocfs2/xattr.o"
+only = "reference"
+item = '4="" 8="fs/ocfs2/xattr.c" 56121309'
+reason = "the fortify field-spanning WARN of the memmove at xattr.c:4694, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/xfs/xfs_handle.o"
+only = "reference"
+item = '4="" 8="fs/xfs/xfs_handle.c" 6f011309'
+reason = "the fortify field-spanning WARN of the memcpy at xfs_handle.c:367, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/bluetooth/bluetooth.o"
+only = "reference"
+item = '4="" 8="net/bluetooth/hci_event.c" ba181309'
+reason = "the fortify field-spanning WARN of the memcpy at hci_event.c:6330, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/bluetooth/hci_sync.o"
+only = "reference"
+item = '4="" 8="net/bluetooth/hci_sync.c" 29071309'
+reason = "the fortify field-spanning WARN of the memcpy at hci_sync.c:1833, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/bluetooth/bluetooth.o"
+only = "reference"
+item = '4="" 8="net/bluetooth/msft.c" 29021309'
+reason = "the fortify field-spanning WARN of the memcpy at msft.c:553, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/ipv4/ip_tunnel_core.o"
+only = "reference"
+item = '4="" 8="net/ipv4/ip_tunnel_core.c" 12021309'
+reason = "the fortify field-spanning WARN of the memcpy at ip_tunnel_core.c:530, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/wireless/scan.o"
+only = "reference"
+item = '4="" 8="net/wireless/scan.c" 9a0c1309'
+reason = "the fortify field-spanning WARN of the memcpy at scan.c:3226, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "net/wireless/scan.o"
+only = "reference"
+item = '4="" 8="net/wireless/scan.c" a80c1309'
+reason = "the fortify field-spanning WARN of the memcpy at scan.c:3240, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "security/integrity/ima/ima_template_lib.o"
+only = "reference"
+item = '4="" 8="security/integrity/ima/ima_template_lib.c" 42011309'
+reason = "the fortify field-spanning WARN of the memcpy at ima_template_lib.c:322, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "sound/core/oss/linear.o"
+only = "reference"
+item = '4="" 8="sound/core/oss/linear.c" 21001309'
+reason = "the fortify field-spanning WARN of the memcpy at linear.c:33, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "sound/core/oss/mulaw.o"
+only = "reference"
+item = '4="" 8="sound/core/oss/mulaw.c" c0001309'
+reason = "the fortify field-spanning WARN of the memcpy at mulaw.c:192, which gcc 14 also removes"
+
+[[divergence]]
+what = "__bug_table"
+object = "sound/hda/common/auto_parser.o"
+only = "reference"
+item = '4="" 8="sound/hda/common/auto_parser.c" 6b011309'
+reason = "the fortify field-spanning WARN of the memmove at auto_parser.c:363, which gcc 14 also removes"
+
+# Other sites only gcc 16 has, each read against the source of the object.
+
+[[divergence]]
+what = "__bug_table"
+object = "arch/x86/kvm/vmx/tdx.o"
+only = "reference"
+item = '4="" 8="arch/x86/kvm/vmx/tdx.c" a8040309'
+reason = "the WARN_ON_ONCE(kvm_is_valid_map_gpa_range_ret(hypercall_ret)) in the default case of tdx_complete_vmcall_map_gpa. The cases before it take 0, EAGAIN and EINVAL, the only values for which the helper is true, so the condition cannot hold"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/hwmon/ina2xx.o"
+only = "reference"
+item = '4="" 8="drivers/hwmon/ina2xx.c" 4c010309'
+reason = "the default WARN_ON_ONCE in ina2xx_get_value, whose callers pass only the bus and shunt voltage, power and current registers"
+
+[[divergence]]
+what = "__bug_table"
+object = "drivers/net/ethernet/netronome/nfp/nfp.o"
+only = "reference"
+item = '4="" 8="drivers/net/ethernet/netronome/nfp/flower/main.c" a5010109'
+reason = "the WARN_ON(repr_type == NFP_REPR_TYPE_PF && i) in nfp_flower_spawn_vnic_reprs. The only call with NFP_REPR_TYPE_PF passes a count of 1, so i is 0 whenever the type is the PF"
+
+[[divergence]]
+what = "__bug_table"
+object = "fs/smb/smbdirect/accept.o"
+only = "reference"
+item = '4="" 8="fs/smb/smbdirect/accept.c" 7c000309'
+reason = "the WARN_ON_ONCE(sc->status != SMBDIRECT_SOCKET_RDMA_CONNECT_NEEDED) in smbdirect_accept_connect_request. The status is stored a few lines above and only the local conn_param and ird_ord_hdr are written in between, so the load reads the stored value"
+
+# hweight alternatives only rucc keeps.
+
+[[divergence]]
+what = ".altinstructions"
+object = "fs/proc/task_mmu.o"
+only = "other"
+item = "97000000"
+reason = "the popcnt alternative of hweight64 in vma_flags_count, which the VM_WARN_ON_ONCE in vma_flags_test_single_mask calls on a constant mask. gcc 16 sees the constant in __builtin_constant_p and counts the bits when it compiles, while rucc, like gcc 14, counts them with the alternative"
+
+[[divergence]]
+what = ".altinstructions"
+object = "mm/gup.o"
+only = "other"
+item = "97000000"
+reason = "the popcnt alternative of hweight64 in vma_flags_count, which the VM_WARN_ON_ONCE in vma_flags_test_single_mask calls on a constant mask. gcc 16 sees the constant in __builtin_constant_p and counts the bits when it compiles, while rucc, like gcc 14, counts them with the alternative"
+
+[[divergence]]
+what = ".altinstructions"
+object = "mm/huge_memory.o"
+only = "other"
+item = "97000000"
+reason = "the popcnt alternative of hweight64 in vma_flags_count, which the VM_WARN_ON_ONCE in vma_flags_test_single_mask calls on a constant mask. gcc 16 sees the constant in __builtin_constant_p and counts the bits when it compiles, while rucc, like gcc 14, counts them with the alternative"
+
+[[divergence]]
+what = ".altinstructions"
+object = "mm/hugetlb.o"
+only = "other"
+item = "97000000"
+reason = "the popcnt alternative of hweight64 in vma_flags_count, which the VM_WARN_ON_ONCE in vma_flags_test_single_mask calls on a constant mask. gcc 16 sees the constant in __builtin_constant_p and counts the bits when it compiles, while rucc, like gcc 14, counts them with the alternative"
+
+[[divergence]]
+what = ".altinstructions"
+object = "mm/ksm.o"
+only = "other"
+item = "97000000"
+reason = "the popcnt alternative of hweight64 in vma_flags_count, which the VM_WARN_ON_ONCE in vma_flags_test_single_mask calls on a constant mask. gcc 16 sees the constant in __builtin_constant_p and counts the bits when it compiles, while rucc, like gcc 14, counts them with the alternative"
+
+[[divergence]]
+what = ".altinstructions"
+object = "mm/memory.o"
+only = "other"
+item = "97000000"
+reason = "the popcnt alternative of hweight64 in vma_flags_count, which the VM_WARN_ON_ONCE in vma_flags_test_single_mask calls on a constant mask. gcc 16 sees the constant in __builtin_constant_p and counts the bits when it compiles, while rucc, like gcc 14, counts them with the alternative"
+
+[[divergence]]
+what = ".altinstructions"
+object = "mm/migrate.o"
+only = "other"
+item = "97000000"
+reason = "the popcnt alternative of hweight64 in vma_flags_count, which the VM_WARN_ON_ONCE in vma_flags_test_single_mask calls on a constant mask. gcc 16 sees the constant in __builtin_constant_p and counts the bits when it compiles, while rucc, like gcc 14, counts them with the alternative"
+
+[[divergence]]
+what = ".altinstructions"
+object = "mm/mlock.o"
+only = "other"
+item = "97000000"
+reason = "the popcnt alternative of hweight64 in vma_flags_count, which the VM_WARN_ON_ONCE in vma_flags_test_single_mask calls on a constant mask. gcc 16 sees the constant in __builtin_constant_p and counts the bits when it compiles, while rucc, like gcc 14, counts them with the alternative"
+
+[[divergence]]
+what = ".altinstructions"
+object = "mm/mmap.o"
+only = "other"
+item = "97000000"
+reason = "the popcnt alternative of hweight64 in vma_flags_count, which the VM_WARN_ON_ONCE in vma_flags_test_single_mask calls on a constant mask. gcc 16 sees the constant in __builtin_constant_p and counts the bits when it compiles, while rucc, like gcc 14, counts them with the alternative"
+
+[[divergence]]
+what = ".altinstructions"
+object = "mm/mprotect.o"
+only = "other"
+item = "97000000"
+reason = "the popcnt alternative of hweight64 in vma_flags_count, which the VM_WARN_ON_ONCE in vma_flags_test_single_mask calls on a constant mask. gcc 16 sees the constant in __builtin_constant_p and counts the bits when it compiles, while rucc, like gcc 14, counts them with the alternative"
+
+[[divergence]]
+what = ".altinstructions"
+object = "mm/mremap.o"
+only = "other"
+item = "97000000"
+reason = "the popcnt alternative of hweight64 in vma_flags_count, which the VM_WARN_ON_ONCE in vma_flags_test_single_mask calls on a constant mask. gcc 16 sees the constant in __builtin_constant_p and counts the bits when it compiles, while rucc, like gcc 14, counts them with the alternative"
+
+[[divergence]]
+what = ".altinstructions"
+object = "mm/swapfile.o"
+only = "other"
+item = "97000000"
+reason = "the popcnt alternative of hweight64 in vma_flags_count, which the VM_WARN_ON_ONCE in vma_flags_test_single_mask calls on a constant mask. gcc 16 sees the constant in __builtin_constant_p and counts the bits when it compiles, while rucc, like gcc 14, counts them with the alternative"
+
+[[divergence]]
+what = ".altinstructions"
+object = "mm/userfaultfd.o"
+only = "other"
+item = "97000000"
+reason = "the popcnt alternative of hweight64 in vma_flags_count, which the VM_WARN_ON_ONCE in vma_flags_test_single_mask calls on a constant mask. gcc 16 sees the constant in __builtin_constant_p and counts the bits when it compiles, while rucc, like gcc 14, counts them with the alternative"
+
+[[divergence]]
+what = ".altinstructions"
+object = "mm/vma.o"
+only = "other"
+item = "97000000"
+reason = "the popcnt alternative of hweight64 in vma_flags_count, which the VM_WARN_ON_ONCE in vma_flags_test_single_mask calls on a constant mask. gcc 16 sees the constant in __builtin_constant_p and counts the bits when it compiles, while rucc, like gcc 14, counts them with the alternative"
