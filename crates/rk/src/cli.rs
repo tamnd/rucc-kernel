@@ -93,7 +93,7 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
         "sets" => (false, &["releases", "write"]),
         "build" => (true, BUILD),
         "config-diff" => (false, &["reference", "other", "why", "source"]),
-        "probes" | "flags-diff" | "symvers-diff" | "objtool-report" | "speed" => {
+        "probes" | "flags-diff" | "symvers-diff" | "warnings-diff" | "objtool-report" | "speed" => {
             (false, &["reference", "other"])
         }
         "sections-diff" => (false, &["reference", "other", "save", "all"]),
@@ -187,6 +187,7 @@ usage:
   rk probes --reference DIR --other DIR
   rk sections-diff --reference DIR|FILE [--other DIR|FILE] [--save FILE] [--all]
   rk symvers-diff --reference DIR --other DIR
+  rk warnings-diff --reference DIR --other DIR
   rk vec-audit --build DIR|FILE [--reference DIR|FILE] [--save FILE]
   rk modules-audit --build DIR
   rk objtool-report --reference DIR|LOG --other DIR|LOG

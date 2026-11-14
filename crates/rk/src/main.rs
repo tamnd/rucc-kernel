@@ -36,6 +36,7 @@ mod tap;
 mod testrun;
 mod toolchains;
 mod vec;
+mod warnings;
 mod why;
 
 use cli::Args;
@@ -71,6 +72,7 @@ fn main() -> ExitCode {
             "syntax" => syntax_command(&repo, &args),
             "sections-diff" => sections_diff(&repo, &args),
             "symvers-diff" => symvers_diff(&args),
+            "warnings-diff" => warnings_diff(&args),
             "vec-audit" => vec_audit(&args),
             "modules-audit" => modules_audit(&args),
             "objtool-report" => objtool_report(&args),
@@ -588,6 +590,26 @@ fn symvers_diff(args: &Args) -> Result<ExitCode, String> {
         .all(|d| symvers::trims(std::path::Path::new(d)));
     let comparison = symvers::compare((&rs, &rm), (&os, &om), trimmed);
     print!("{}", symvers::report(&comparison));
+    Ok(verdict(comparison.clean()))
+}
+
+/// Compare the warnings of every unit in two builds.
+fn warnings_diff(args: &Args) -> Result<ExitCode, String> {
+    let side = |name: &str| -> Result<warnings::Warnings, String> {
+        let dir = args
+            .get(name)
+            .ok_or_else(|| format!("rk warnings-diff needs --{name}"))?;
+        let path = std::path::Path::new(dir).join("compile.jsonl");
+        let (records, _) = rk_shim::record::read_log(&path)
+            .map_err(|e| format!("reading {}: {e}", path.display()))?;
+        Ok(warnings::collect(&records))
+    };
+    let reference = side("reference")?;
+    if reference.is_empty() {
+        return Err("the reference has no units in its compile.jsonl; was it built?".to_string());
+    }
+    let comparison = warnings::compare(&reference, &side("other")?);
+    print!("{}", warnings::report(&comparison));
     Ok(verdict(comparison.clean()))
 }
 
