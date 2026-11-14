@@ -289,11 +289,15 @@ pub fn count(records: &[CompileRecord], unreadable: usize) -> Calls {
 #[must_use]
 pub fn error_key(stderr: &str) -> Option<String> {
     let line = stderr.lines().find(|l| l.contains("error"))?;
-    let message = line
-        .split_once("error: ")
-        .map_or(line, |(_, m)| m)
-        .trim()
-        .to_string();
+    let message = line.split_once("error: ").map_or(line, |(_, m)| m);
+    Some(shape(message))
+}
+
+/// A compiler's message with the things that change from unit to unit taken out: quoted names
+/// become `'_'` and each run of digits `N`. Cut to 160 characters.
+#[must_use]
+pub fn shape(message: &str) -> String {
+    let message = message.trim();
     let mut out = String::new();
     let mut quote: Option<char> = None;
     for c in message.chars() {
@@ -312,7 +316,7 @@ pub fn error_key(stderr: &str) -> Option<String> {
             (None, c) => out.push(c),
         }
     }
-    Some(out.chars().take(160).collect())
+    out.chars().take(160).collect()
 }
 
 /// The error keys of failed units, most common first.

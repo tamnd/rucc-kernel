@@ -323,6 +323,9 @@ jobs:
       - name: rk symvers-diff
         if: always()
         run: target/release/rk symvers-diff --reference "$REF" --other "$OTHER" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: rk warnings-diff
+        if: always()
+        run: target/release/rk warnings-diff --reference "$REF" --other "$OTHER" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: rk vec-audit
         if: always()
         run: |
