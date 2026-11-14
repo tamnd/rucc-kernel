@@ -31,8 +31,8 @@ jobs:
     name: format, lints and house style
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2.9.3
       - name: cargo fmt
         run: cargo fmt --all --check
       - name: cargo clippy
@@ -57,7 +57,7 @@ jobs:
           - name: macos arm64
             os: macos-26
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2.9.3
       - name: cargo test
         run: cargo test --workspace
