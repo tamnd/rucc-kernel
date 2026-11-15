@@ -130,8 +130,13 @@ fn sets_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         None => kernelorg::fetch_text(kernelorg::RELEASES_URL)?,
     };
     let releases = kernelorg::parse_releases(&text)?;
+    let path = repo.file("pins.toml");
+    let old = pins::Pins::load(&path).ok();
     let mut cache: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
     let new = sets::pins_for(&sets, &releases, &mut |version| {
+        if kernelorg::is_rc(version) {
+            return rc_sums(old.as_ref(), version);
+        }
         let dir = kernelorg::major_dir(version);
         if let Some(sums) = cache.get(&dir) {
             return Ok(sums.clone());
@@ -140,8 +145,6 @@ fn sets_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         cache.insert(dir, sums.clone());
         Ok(sums)
     })?;
-    let path = repo.file("pins.toml");
-    let old = pins::Pins::load(&path).ok();
     let lines = sets::describe(old.as_ref(), &new);
     if lines.is_empty() {
         println!("pins.toml matches the sets");
@@ -155,6 +158,24 @@ fn sets_command(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         println!("wrote {}", path.display());
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// The hash of an rc's tarball, which no list on kernel.org has. The tarball is downloaded into
+/// the cache, where `rk fetch` finds it again, and hashed. A pin already in `pins.toml` for the rc
+/// keeps its hash, so that a second run does not download it again.
+fn rc_sums(old: Option<&pins::Pins>, version: &str) -> Result<sets::Sums, String> {
+    let name = kernelorg::tarball_name(version);
+    let pinned = old.and_then(|o| o.pins.iter().find(|p| p.version == version));
+    if let Some(pin) = pinned {
+        return Ok([(name, pin.sha256.clone())].into());
+    }
+    let archive = pins::archive_of(version);
+    if !archive.is_file() {
+        kernelorg::download(&kernelorg::tarball_url(version), &archive)?;
+    }
+    let hash = rk_shim::digest::sha256_file(&archive)
+        .map_err(|e| format!("hashing {}: {e}", archive.display()))?;
+    Ok([(name, hash)].into())
 }
 
 /// List every pin with its era and persona, which fails when a pin falls in no era or in two,

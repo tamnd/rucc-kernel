@@ -1,6 +1,6 @@
-# The nightly: every pin in the current set on X64, built with the GCC of its era and with rucc from
-# tinyconfig and the test fragment, and graded by rk test on boot, smoke, KUnit, the selftests and
-# LTP, which are built with gcc-14 and with rucc.
+# The nightly: every pin in the current and next sets on X64, built with the GCC of its era and
+# with rucc from tinyconfig and the test fragment, and graded by rk test on boot, smoke, KUnit, the
+# selftests and LTP, which are built with gcc-14 and with rucc.
 #
 # The era's GCC is the one personas.toml names, gcc-14 for 7.2 and gcc-12 for 6.12 and 6.1, as in
 # kernel.yml and the census, since that is the release rucc claims to be for the version. With
@@ -104,7 +104,7 @@ env:
 
 jobs:
   set:
-    name: the current set
+    name: the current and next sets
     runs-on: ubuntu-24.04
     outputs:
       versions: ${{ steps.pins.outputs.versions }}
@@ -117,7 +117,8 @@ jobs:
           import json, os, tomllib
           with open("pins.toml", "rb") as f:
               pins = tomllib.load(f)["pin"]
-          versions = [p["version"] for p in pins if "current" in p.get("sets", [])]
+          wanted = {"current", "next"}
+          versions = [p["version"] for p in pins if wanted & set(p.get("sets", []))]
           if os.environ["ASKED"]:
               versions = json.loads(os.environ["ASKED"])
           with open(os.environ["GITHUB_OUTPUT"], "a") as out:

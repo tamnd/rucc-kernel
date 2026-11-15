@@ -3,7 +3,8 @@
 //! A pin is a version, a tarball URL and its SHA-256. The hash is checked every time the tarball
 //! is used, including when it comes out of the cache, so a cache that somebody edited or a
 //! download that was cut short can never become a build. Unless `--no-upstream-check` is given,
-//! `sha256sums.asc` from kernel.org is fetched as well and has to agree with the pin.
+//! `sha256sums.asc` from kernel.org is fetched as well and has to agree with the pin. An rc is not
+//! in any such list, so its pin is the only hash it is held to.
 
 use crate::kernelorg;
 use crate::repo::cache_dir;
@@ -99,9 +100,7 @@ impl Pin {
     /// The tarball in the cache.
     #[must_use]
     pub fn archive(&self) -> PathBuf {
-        cache_dir()
-            .join("archives")
-            .join(format!("linux-{}.tar.xz", self.version))
+        archive_of(&self.version)
     }
 
     /// The unpacked tree in the cache.
@@ -113,15 +112,23 @@ impl Pin {
     }
 }
 
+/// Where the tarball of a version is kept in the cache.
+#[must_use]
+pub fn archive_of(version: &str) -> PathBuf {
+    cache_dir()
+        .join("archives")
+        .join(kernelorg::tarball_name(version))
+}
+
 /// The marker `rk fetch` leaves in a tree it finished unpacking, holding the tarball's hash.
 const MARKER: &str = ".rk-sha256";
 
 /// Download, verify and unpack a pin, and return the tree. Work already done is not repeated.
 pub fn fetch(pin: &Pin, upstream_check: bool) -> Result<PathBuf, String> {
-    if upstream_check {
+    if upstream_check && !kernelorg::is_rc(&pin.version) {
         let sums =
             kernelorg::parse_sums(&kernelorg::fetch_text(&kernelorg::sums_url(&pin.version))?);
-        let name = format!("linux-{}.tar.xz", pin.version);
+        let name = kernelorg::tarball_name(&pin.version);
         match sums.get(&name) {
             Some(hash) if *hash == pin.sha256 => {}
             Some(hash) => {
@@ -158,8 +165,9 @@ pub fn fetch(pin: &Pin, upstream_check: bool) -> Result<PathBuf, String> {
     if tree.exists() {
         std::fs::remove_dir_all(&tree).map_err(|e| format!("removing {}: {e}", tree.display()))?;
     }
+    // tar finds the compression itself, which is xz on the CDN and gzip for an rc.
     let status = Command::new("tar")
-        .arg("-xJf")
+        .arg("-xf")
         .arg(&archive)
         .arg("-C")
         .arg(parent)

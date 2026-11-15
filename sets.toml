@@ -4,13 +4,19 @@
 # `rk sets --write` writes it. The later sets (releases, last points, museum) arrive with the
 # milestones that grade them.
 
-# The default pin, used when a command is not told which tree, is the newest final mainline release, or the newest stable release when kernel.org lists an rc as mainline.
+# The default pin, used when a command is not told which tree, is the newest final mainline release, or the newest stable release when kernel.org lists an rc as mainline. An rc is never the default.
 default-monikers = ["mainline", "stable"]
 
-# Every line kernel.org still maintains: the mainline release, the stable line and each longterm line, at its latest point release. A mainline rc is not kept, because its tarball is not on the CDN. This is the set the nightly run grades.
+# Every line kernel.org still maintains: the mainline release, the stable line and each longterm line, at its latest point release. A mainline rc is not in this set, the next set below takes it. This is the set the nightly run grades.
 [[set]]
 name = "current"
 monikers = ["mainline", "stable", "longterm"]
+
+# The newest mainline rc, while kernel.org lists one. Its tarball is the snapshot git.kernel.org makes of the tag, and its hash is the one `rk sets --write` computes on the first download, since no list on kernel.org has one. The nightly grades it on X64 next to the current set, so that what the next release breaks is seen before it is out.
+[[set]]
+name = "next"
+monikers = ["mainline"]
+include-rc = true
 
 # The versions a pinned distribution config in configs/distro/distros.toml belongs to. They stay pinned after their line moves on, so the distribution builds can still be repeated.
 [[set]]

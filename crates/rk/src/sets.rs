@@ -38,8 +38,9 @@ pub struct Set {
     /// Whether lines kernel.org has marked end of life are kept.
     #[serde(default)]
     pub include_eol: bool,
-    /// Whether release candidates are kept. kernel.org lists an rc as mainline, but its tarball is
-    /// not on the CDN and `sha256sums.asc` does not list it, so a set can only pin a final release.
+    /// Whether release candidates are kept. kernel.org lists an rc as mainline. Its tarball is not
+    /// on the CDN and `sha256sums.asc` does not list it, so it comes from git.kernel.org and its
+    /// hash is the one `rk sets` computes.
     #[serde(default)]
     pub include_rc: bool,
 }
@@ -63,7 +64,7 @@ impl Sets {
                 .filter(|set| {
                     set.monikers.contains(&release.moniker)
                         && (set.include_eol || !release.iseol)
-                        && (set.include_rc || !release.version.contains("-rc"))
+                        && (set.include_rc || !kernelorg::is_rc(&release.version))
                 })
                 .map(|set| set.name.clone())
                 .collect();
@@ -83,13 +84,14 @@ impl Sets {
     }
 
     /// The default pin among the expanded releases: the first with the first default moniker
-    /// that any release has.
+    /// that any release has. An rc is never the default, since nothing should be graded against
+    /// a kernel that is still changing.
     #[must_use]
     pub fn default_of(&self, expanded: &[(String, String, Vec<String>)]) -> Option<String> {
         self.default_monikers.iter().find_map(|wanted| {
             expanded
                 .iter()
-                .find(|(_, moniker, _)| moniker == wanted)
+                .find(|(version, moniker, _)| moniker == wanted && !kernelorg::is_rc(version))
                 .map(|(version, _, _)| version.clone())
         })
     }
@@ -114,7 +116,7 @@ pub fn pins_for(
     })?;
     let mut pins = Vec::new();
     for (version, moniker, in_sets) in expanded {
-        let name = format!("linux-{version}.tar.xz");
+        let name = kernelorg::tarball_name(&version);
         let sums = sums_for(&version)?;
         let sha256 = sums
             .get(&name)
@@ -191,7 +193,7 @@ versions = ["7.2.8", "6.12.100"]
 
     #[allow(clippy::unnecessary_wraps)]
     fn sums(version: &str) -> Result<Sums, String> {
-        Ok([(format!("linux-{version}.tar.xz"), "a".repeat(64))].into())
+        Ok([(kernelorg::tarball_name(version), "a".repeat(64))].into())
     }
 
     #[test]
@@ -216,6 +218,22 @@ versions = ["7.2.8", "6.12.100"]
         let versions: Vec<&str> = pins.pins.iter().map(|p| p.version.as_str()).collect();
         assert_eq!(versions, ["7.2.8", "6.12.111", "6.12.100"]);
         assert_eq!(pins.default, "7.2.8");
+    }
+
+    #[test]
+    fn a_set_that_takes_rcs_pins_the_snapshot() {
+        let text = format!(
+            "{SETS}\n[[set]]\nname = \"next\"\nmonikers = [\"mainline\"]\ninclude-rc = true\n"
+        );
+        let sets: Sets = toml::from_str(&text).unwrap();
+        let pins = pins_for(&sets, &releases(), &mut sums).unwrap();
+        let rc = pins.pins.iter().find(|p| p.version == "7.3-rc5").unwrap();
+        assert_eq!(rc.sets, ["next"]);
+        assert_eq!(
+            rc.url,
+            "https://git.kernel.org/torvalds/t/linux-7.3-rc5.tar.gz"
+        );
+        assert_eq!(pins.default, "7.2.8", "an rc is never the default");
     }
 
     #[test]
