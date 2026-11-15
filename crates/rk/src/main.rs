@@ -1471,6 +1471,15 @@ fn asm_inventory(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
     std::fs::write(&path, &report).map_err(|e| format!("writing {}: {e}", path.display()))?;
     println!("{}", report.lines().next().unwrap_or_default());
     println!("wrote {}", path.display());
+    // A build made in a container replays only there, where its compiler is. Out of it every unit
+    // fails the same way, which is worth an error rather than an empty table.
+    if inventory.units == 0
+        && let Some((unit, why)) = inventory.failed.first()
+    {
+        return Err(format!(
+            "no unit was replayed, and the first one, {unit}, gave: {why}"
+        ));
+    }
     Ok(ExitCode::SUCCESS)
 }
 

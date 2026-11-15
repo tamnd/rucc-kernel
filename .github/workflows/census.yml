@@ -196,11 +196,6 @@ jobs:
         run: |
           target/release/rk syntax --build "$OUT" --cc rucc > "$OUT/syntax.md" || true
           tee -a "$GITHUB_STEP_SUMMARY" < "$OUT/syntax.md"
-      - name: rk asm-inventory
-        if: "!startsWith(matrix.cc, 'rucc')"
-        run: |
-          target/release/rk asm-inventory --build "$OUT"
-          head -1 "$OUT/asm-inventory.md" >> "$GITHUB_STEP_SUMMARY"
       - name: the kernel-pp corpus
         if: matrix.cc == needs.era.outputs.gcc && inputs.reference == 'era' && matrix.row == 'X64' && matrix.config == 'defconfig'
         run: |
@@ -234,6 +229,23 @@ jobs:
           target/release/rk boot --build "$OUT" --row "$ROW" --timeout 1500 "${busybox[@]}"
         env:
           ROW: ${{ matrix.row }}
+      # rk asm-inventory runs each unit again with the compiler that built it, so a build made in
+      # the container is replayed in the container. It fails when no unit could be replayed, so it
+      # goes after rk boot, which it would otherwise skip, and runs whether or not rk boot passed.
+      - name: rk asm-inventory
+        if: "!cancelled() && !startsWith(matrix.cc, 'rucc')"
+        run: |
+          run=()
+          if [ "$REFERENCE" = second ]; then
+            work="$(dirname "$(dirname "$GITHUB_WORKSPACE")")"
+            run=(docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e RK_CACHE \
+              -v "$work:$work" -w "$GITHUB_WORKSPACE" "$IMAGE")
+          fi
+          "${run[@]}" target/release/rk asm-inventory --build "$OUT"
+          head -1 "$OUT/asm-inventory.md" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          REFERENCE: ${{ inputs.reference }}
+          IMAGE: ${{ needs.era.outputs.image }}
       # The object audits run here, since the objects do not go to the compare job. rk vec-audit
       # saves the counts it compares there, and rk modules-audit reads the modules of this build.
       - name: rk object audits

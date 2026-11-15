@@ -174,14 +174,26 @@ jobs:
           IMAGE: ${{ needs.era.outputs.second-image }}
       - name: rk boot
         run: target/release/rk boot --build "$RUNNER_TEMP/out" --timeout 600
-      - name: rk asm-inventory
-        if: "!startsWith(matrix.cc, 'rucc')"
-        run: target/release/rk asm-inventory --build "$RUNNER_TEMP/out"
       - name: rk syntax
         if: "!startsWith(matrix.cc, 'rucc')"
         run: |
           target/release/rk syntax --build "$RUNNER_TEMP/out" --cc rucc > "$RUNNER_TEMP/out/syntax.md" || true
           tee -a "$GITHUB_STEP_SUMMARY" < "$RUNNER_TEMP/out/syntax.md"
+      # rk asm-inventory runs each unit again with the compiler that built it, so a build made in
+      # the container is replayed in the container. It fails when no unit could be replayed, so it
+      # goes after rk syntax, which it would otherwise skip, and runs whether or not rk boot passed.
+      - name: rk asm-inventory
+        if: "!cancelled() && !startsWith(matrix.cc, 'rucc')"
+        run: |
+          run=()
+          if [ -n "$IMAGE" ]; then
+            work="$(dirname "$(dirname "$GITHUB_WORKSPACE")")"
+            run=(docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e RK_CACHE \
+              -v "$work:$work" -w "$GITHUB_WORKSPACE" "$IMAGE")
+          fi
+          "${run[@]}" target/release/rk asm-inventory --build "$RUNNER_TEMP/out"
+        env:
+          IMAGE: ${{ matrix.cc == needs.era.outputs.second-gcc && needs.era.outputs.second-image || '' }}
       - name: rk object audits
         if: always()
         run: |
