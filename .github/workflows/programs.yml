@@ -1,0 +1,214 @@
+name: programs
+
+# Ordinary programs on the rucc kernel and on the gcc kernel of the same distro config, booted with
+# a Fedora Cloud userspace under systemd and compared (programs/). Both kernels build in the era
+# container of the version's second reference: one with that GCC, one with rucc claiming it. Each
+# suite job prepares one disk on the gcc kernel, installing what the steps need, then boots each
+# kernel on a copy of it, and compare.py fails the job when the rucc kernel does worse.
+#
+# A run can take the kernels of an earlier run instead of building them, which is how a change to
+# the steps is tried without two builds of the distro config.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The kernel version, from pins.toml
+        required: false
+        default: 7.4-rc2
+      config:
+        description: The distro config, from configs/distro/distros.toml
+        required: false
+        default: fedora-46-7.4
+      rucc:
+        description: A branch or commit of tamnd/rucc
+        required: false
+        default: main
+      suites:
+        description: The suites as a JSON list, apps and stress
+        required: false
+        default: '["apps", "stress"]'
+      kernels:
+        description: The ID of an earlier programs run whose kernels to use, or empty to build them
+        required: false
+        default: ""
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RK_CACHE: ${{ github.workspace }}/../rk-cache
+  FEDORA_URL: https://dl.fedoraproject.org/pub/fedora/linux/releases/45/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-45-1.4.x86_64.qcow2
+  FEDORA_SHA256: 50bdc5e70f6a24f540932d15411c1c6ae9fcfa40fb990d876d83c5cc823b2ad0
+
+jobs:
+  era:
+    name: the second reference for the version
+    if: inputs.kernels == ''
+    runs-on: ubuntu-24.04
+    outputs:
+      second-gcc: ${{ steps.era.outputs.second-gcc }}
+      second-image: ${{ steps.era.outputs.second-image }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: Swatinem/rust-cache@v2.9.2
+      - id: era
+        run: |
+          cargo run -q --release -p rk -- personas --for "$VERSION" | tee -a "$GITHUB_OUTPUT" > "$RUNNER_TEMP/era"
+          if ! grep -q '^second-gcc=.' "$RUNNER_TEMP/era"; then
+            echo "the era of $VERSION has no second reference" >&2
+            exit 1
+          fi
+        env:
+          VERSION: ${{ inputs.version }}
+
+  build:
+    name: ${{ inputs.config }} with ${{ matrix.cc }}
+    needs: era
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, rucc]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: room for the build tree
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - name: rucc ${{ inputs.rucc }} from source
+        if: matrix.cc == 'rucc'
+        run: |
+          git clone -q https://github.com/tamnd/rucc "$RUNNER_TEMP/rucc-src"
+          git -C "$RUNNER_TEMP/rucc-src" checkout -q "$REF"
+          cargo build --release --manifest-path "$RUNNER_TEMP/rucc-src/Cargo.toml" -p rucc
+          echo "$RUNNER_TEMP/rucc-src/target/release" >> "$GITHUB_PATH"
+          echo "rucc built from $(git -C "$RUNNER_TEMP/rucc-src" rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          REF: ${{ inputs.rucc }}
+      - name: build rk
+        run: cargo build --release --workspace
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ${{ env.RK_CACHE }}/archives
+          key: kernel-archives-${{ inputs.version }}-${{ hashFiles('pins.toml') }}
+          restore-keys: kernel-archives-${{ inputs.version }}-
+      - name: rk build in ${{ needs.era.outputs.second-image }}
+        run: |
+          cc=("$SECOND")
+          if [ "$COMPILER" = rucc ]; then cc=("$(command -v rucc)" --persona second); fi
+          target/release/rk fetch "$VERSION" --no-upstream-check
+          work="$(dirname "$(dirname "$GITHUB_WORKSPACE")")"
+          run=(docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e RK_CACHE
+            -v "$work:$work" -w "$GITHUB_WORKSPACE" "$IMAGE")
+          "${run[@]}" target/release/rk build "$VERSION" --row X64 --config "$CONFIG" \
+            --cc "${cc[@]}" --targets "bzImage modules" --out "$RUNNER_TEMP/out" --no-upstream-check
+          modules=$("${run[@]}" target/release/rk modules-install --build "$RUNNER_TEMP/out" \
+            --to "$RUNNER_TEMP/install")
+          mkdir -p "$RUNNER_TEMP/kernel"
+          cp "$RUNNER_TEMP/out/arch/x86/boot/bzImage" "$RUNNER_TEMP/out/build.json" "$RUNNER_TEMP/kernel/"
+          tar -cf "$RUNNER_TEMP/kernel/modules.tar" -C "$(dirname "$modules")" "$(basename "$modules")"
+          ls -l "$RUNNER_TEMP/kernel"
+        env:
+          VERSION: ${{ inputs.version }}
+          CONFIG: ${{ inputs.config }}
+          COMPILER: ${{ matrix.cc }}
+          SECOND: ${{ needs.era.outputs.second-gcc }}
+          IMAGE: ${{ needs.era.outputs.second-image }}
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: programs-kernel-${{ matrix.cc }}
+          path: ${{ runner.temp }}/kernel
+          retention-days: 14
+
+  suite:
+    name: ${{ matrix.suite }}
+    needs: build
+    if: "!cancelled() && (needs.build.result == 'success' || inputs.kernels != '')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: ${{ fromJSON(inputs.suites) }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: QEMU, busybox and ab
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -qy --no-install-recommends qemu-system-x86 qemu-utils busybox-static \
+            apache2-utils cpio
+      - name: let the runner user open /dev/kvm
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: programs-kernel-*
+          path: ${{ runner.temp }}/kernels
+          run-id: ${{ inputs.kernels || github.run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ${{ runner.temp }}/fedora
+          key: fedora-45-cloud-1.4
+      - name: the Fedora Cloud image
+        run: |
+          mkdir -p "$RUNNER_TEMP/fedora"
+          base="$RUNNER_TEMP/fedora/base.qcow2"
+          if [ ! -f "$base" ]; then curl -fsSLo "$base" "$FEDORA_URL"; fi
+          echo "$FEDORA_SHA256  $base" | sha256sum -c -
+      - name: the modules of each kernel
+        run: |
+          for cc in gcc rucc; do
+            mkdir -p "$RUNNER_TEMP/modules-$cc"
+            tar -xf "$RUNNER_TEMP/kernels/programs-kernel-$cc/modules.tar" -C "$RUNNER_TEMP/modules-$cc"
+            ls "$RUNNER_TEMP/modules-$cc"
+          done
+      - name: prepare the disk on the gcc kernel
+        run: |
+          qemu-img create -q -f qcow2 -b "$RUNNER_TEMP/fedora/base.qcow2" -F qcow2 "$RUNNER_TEMP/prepared.qcow2" 40G
+          programs/run.sh "$RUNNER_TEMP/kernels/programs-kernel-gcc/bzImage" \
+            "$RUNNER_TEMP"/modules-gcc/* "$RUNNER_TEMP/prepared.qcow2" "$RUNNER_TEMP/results/prepare" prepare
+      - name: the steps on each kernel
+        run: |
+          case "$SUITE" in
+            apps) steps=(systemd git nginx pgbench fs podman) ;;
+            stress) steps=(systemd stress) ;;
+            *) echo "no suite $SUITE" >&2; exit 1 ;;
+          esac
+          for cc in rucc gcc; do
+            qemu-img create -q -f qcow2 -b "$RUNNER_TEMP/prepared.qcow2" -F qcow2 "$RUNNER_TEMP/$cc.qcow2"
+            programs/run.sh "$RUNNER_TEMP/kernels/programs-kernel-$cc/bzImage" \
+              "$RUNNER_TEMP"/modules-$cc/* "$RUNNER_TEMP/$cc.qcow2" "$RUNNER_TEMP/results/$cc" \
+              "${steps[@]}" || echo "some step failed on the $cc kernel"
+            rm -f "$RUNNER_TEMP/$cc.qcow2"
+          done
+        env:
+          SUITE: ${{ matrix.suite }}
+      - name: compare
+        run: |
+          {
+            echo "## $SUITE"
+            echo
+            python3 programs/compare.py "$RUNNER_TEMP/results/gcc" "$RUNNER_TEMP/results/rucc"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          exit "${PIPESTATUS[0]}"
+        env:
+          SUITE: ${{ matrix.suite }}
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: programs-${{ matrix.suite }}
+          path: ${{ runner.temp }}/results
+          retention-days: 14

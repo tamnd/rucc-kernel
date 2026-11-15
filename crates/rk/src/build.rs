@@ -439,6 +439,53 @@ pub fn make_in(
     command
 }
 
+/// Install the modules of a build under `to`, stripped, the way `make modules_install` does,
+/// and return the kernel release they went under. Make runs with the shim and persona the build
+/// was made with, so kbuild finds nothing to compile again, and the build's compile log is put
+/// back as it was in case the shim logged anything.
+pub fn modules_install(
+    dir: &Path,
+    built: &Outcome,
+    row: &Row,
+    to: &Path,
+    jobs: usize,
+) -> Result<String, String> {
+    let shim = dir.join("rk-bin").join("rk-cc");
+    let cc = std::iter::once(shim.display().to_string())
+        .chain(built.persona.iter().cloned())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let targets = ["modules_install".to_string()];
+    let mut make = make_in(&built.source, dir, row, &built.kcflags, &cc, &targets, jobs);
+    make.arg(format!("INSTALL_MOD_PATH={}", to.display()))
+        .arg("INSTALL_MOD_STRIP=1");
+    let compile = dir.join("compile.jsonl");
+    let before = std::fs::read(&compile).ok();
+    let log = dir.join("modules-install.log");
+    let file =
+        std::fs::File::create(&log).map_err(|e| format!("creating {}: {e}", log.display()))?;
+    let err = file.try_clone().map_err(|e| e.to_string())?;
+    let status = make
+        .stdout(file)
+        .stderr(err)
+        .status()
+        .map_err(|e| format!("running make: {e}"))?;
+    if let Some(bytes) = before {
+        std::fs::write(&compile, bytes)
+            .map_err(|e| format!("writing {}: {e}", compile.display()))?;
+    }
+    if !status.success() {
+        return Err(format!(
+            "make modules_install failed, see {}",
+            log.display()
+        ));
+    }
+    let path = dir.join("include").join("config").join("kernel.release");
+    let release =
+        std::fs::read_to_string(&path).map_err(|e| format!("reading {}: {e}", path.display()))?;
+    Ok(release.trim().to_string())
+}
+
 /// Whether the machine we run on is the row's architecture.
 pub fn host_is(arch: &str) -> bool {
     matches!(

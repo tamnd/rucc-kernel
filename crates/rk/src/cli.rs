@@ -149,6 +149,7 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
             ],
         ),
         "initramfs" => (false, &["out", "busybox"]),
+        "modules-install" => (false, &["build", "to", "jobs"]),
         "bench" => (false, BENCH),
         "asm-inventory" => (false, &["build", "jobs"]),
         "baseline" => (
@@ -208,6 +209,7 @@ usage:
   rk selftests --build DIR [--cc COMPILER] [--collections timers,size] [--jobs N] [--out DIR]
   rk ltp --build DIR [--cc COMPILER] [--runtests syscalls,mm] [--jobs N] [--out DIR]
   rk initramfs --out FILE [--busybox PATH]
+  rk modules-install --build DIR --to DIR [--jobs N]
   rk bench --reference DIR --other DIR [--row X64] [--cpu NAME] [--runs 11] [--timeout 900]
            [--bench PATH | --cc gcc] [--busybox PATH] [--out DIR]
   rk baseline [VERSION] --cc COMPILER [--row X64] [--config defconfig] [--fragment test]
