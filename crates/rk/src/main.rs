@@ -171,7 +171,8 @@ fn rc_sums(old: Option<&pins::Pins>, version: &str) -> Result<sets::Sums, String
     }
     let archive = pins::archive_of(version);
     if !archive.is_file() {
-        kernelorg::download(&kernelorg::tarball_url(version), &archive)?;
+        let urls = kernelorg::mirrors(version, &kernelorg::tarball_url(version));
+        kernelorg::download_any(&urls, &archive)?;
     }
     let hash = rk_shim::digest::sha256_file(&archive)
         .map_err(|e| format!("hashing {}: {e}", archive.display()))?;
