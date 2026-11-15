@@ -786,6 +786,14 @@ pub fn summary(o: &Outcome) -> String {
             let _ = writeln!(s, "| {n} | `{}` |", message.replace('|', "\\|"));
         }
     }
+    // A handful of failed units is named, so a log is enough to find them. Thousands are a
+    // compiler that does not work yet, and the list is in build.json.
+    if !o.failed_units.is_empty() && o.failed_units.len() <= 40 {
+        let _ = writeln!(s, "\nThe failed units:\n");
+        for unit in &o.failed_units {
+            let _ = writeln!(s, "- `{unit}`");
+        }
+    }
     if let Some((log, lines)) = &o.stopped {
         let _ = writeln!(s, "\nThe end of {log}:\n\n```\n{}\n```", lines.join("\n"));
     }
