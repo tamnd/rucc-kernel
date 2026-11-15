@@ -88,6 +88,7 @@ fn main() -> ExitCode {
             "selftests" => selftests_command(&repo, &args),
             "ltp" => ltp_command(&repo, &args),
             "asm-inventory" => asm_inventory(&repo, &args),
+            "asm-diff" => asm_diff(&args),
             "baseline" => baseline_command(&repo, &args),
             "initramfs" => initramfs_command(&args).map(|_| ExitCode::SUCCESS),
             "bench" => bench_command(&repo, &args),
@@ -1480,6 +1481,29 @@ fn asm_inventory(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
             "no unit was replayed, and the first one, {unit}, gave: {why}"
         ));
     }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The instructions one asm inventory has and another does not. Each side is an
+/// `asm-inventory.md` or the build directory it was written to.
+fn asm_diff(args: &Args) -> Result<ExitCode, String> {
+    let side = |name: &str| -> Result<_, String> {
+        let given = args
+            .get(name)
+            .ok_or_else(|| format!("rk asm-diff needs --{name}"))?;
+        let mut path = std::path::PathBuf::from(given);
+        if path.is_dir() {
+            path.push("asm-inventory.md");
+        }
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| format!("reading {}: {e}", path.display()))?;
+        let shapes = asm::read_report(&text);
+        if shapes.is_empty() {
+            return Err(format!("{} lists no shape", path.display()));
+        }
+        Ok(shapes)
+    };
+    print!("{}", asm::diff_report(&side("reference")?, &side("other")?));
     Ok(ExitCode::SUCCESS)
 }
 
