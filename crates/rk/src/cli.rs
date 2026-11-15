@@ -93,9 +93,8 @@ fn accepted(command: &str) -> Option<(bool, &'static [&'static str])> {
         "sets" => (false, &["releases", "write"]),
         "build" => (true, BUILD),
         "config-diff" => (false, &["reference", "other", "why", "source"]),
-        "probes" | "flags-diff" | "symvers-diff" | "warnings-diff" | "objtool-report" | "speed" => {
-            (false, &["reference", "other"])
-        }
+        "probes" | "flags-diff" | "symvers-diff" | "warnings-diff" | "objtool-report" | "speed"
+        | "asm-diff" => (false, &["reference", "other"]),
         "sections-diff" => (false, &["reference", "other", "save", "all"]),
         "frames" | "btf" => (false, &["reference", "other", "save"]),
         "vec-audit" => (false, &["build", "reference", "save"]),
@@ -214,6 +213,7 @@ usage:
   rk baseline [VERSION] --cc COMPILER [--row X64] [--config defconfig] [--fragment test]
               [--runs 3] [--timeout 600] [--stack-usage]
   rk asm-inventory --build DIR [--jobs N]
+  rk asm-diff --reference FILE|DIR --other FILE|DIR
   rk demands --builds \"DIR DIR ...\" [--limit 40]
   rk build [VERSION] --cc COMPILER [--row X64] [--config defconfig] [--out DIR] [--jobs N]
            [--fragment test] (--config also takes a name in configs/distro/distros.toml)

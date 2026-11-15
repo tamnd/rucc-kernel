@@ -6,6 +6,10 @@
 //! `#NO_APP` markers, which are the inline asm templates with their operands filled in, and an
 //! assembly unit with `-E`, which is the text gas saw. Each statement is reduced to its mnemonic
 //! and, on x86, the shape of its operands, and the shapes are counted by unit.
+//!
+//! `rk asm-diff` reads two of those reports back, say of the last release and of the next rc,
+//! and lists the mnemonics and shapes only one of them has, so that an instruction a new kernel
+//! starts to write reaches rucc's assembler before the release does.
 
 use crate::build::is_unit;
 use rk_shim::record::CompileRecord;
@@ -308,8 +312,7 @@ impl Inventory {
     pub fn mnemonics(&self) -> BTreeMap<String, BTreeSet<String>> {
         let mut out: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         for (shape, (_, units)) in &self.shapes {
-            let mnemonic = shape.split(' ').find(|w| !PREFIXES.contains(w));
-            out.entry(mnemonic.unwrap_or(shape).to_string())
+            out.entry(mnemonic(shape).to_string())
                 .or_default()
                 .extend(units.iter().cloned());
         }
@@ -365,6 +368,108 @@ impl Inventory {
         }
         s
     }
+}
+
+/// The mnemonic of a shape, past its prefixes.
+fn mnemonic(shape: &str) -> &str {
+    shape
+        .split(' ')
+        .find(|w| !PREFIXES.contains(w))
+        .unwrap_or(shape)
+}
+
+/// The shapes of an inventory read back from its report: each shape with the number of units it
+/// is in and the first of them.
+pub type Shapes = BTreeMap<String, (usize, String)>;
+
+/// Read the shapes back from a report.
+#[must_use]
+pub fn read_report(text: &str) -> Shapes {
+    let mut shapes = BTreeMap::new();
+    let mut in_shapes = false;
+    for line in text.lines() {
+        if let Some(heading) = line.strip_prefix("## ") {
+            in_shapes = heading == "Shapes";
+            continue;
+        }
+        let Some(row) = line.strip_prefix("| `").filter(|_| in_shapes) else {
+            continue;
+        };
+        let Some((shape, rest)) = row.split_once("` | ") else {
+            continue;
+        };
+        let cells: Vec<&str> = rest.split(" | ").collect();
+        let [_, units, example] = cells[..] else {
+            continue;
+        };
+        let Ok(units) = units.parse() else {
+            continue;
+        };
+        let example = example.trim_end_matches(" |").trim_matches('`').to_string();
+        shapes.insert(shape.replace("\\|", "|"), (units, example));
+    }
+    shapes
+}
+
+/// What the other inventory has that the reference does not, and the other way round, as
+/// Markdown.
+#[must_use]
+pub fn diff_report(reference: &Shapes, other: &Shapes) -> String {
+    fn only<'a>(a: &'a Shapes, b: &Shapes) -> Vec<(&'a String, &'a (usize, String))> {
+        let mut rows: Vec<_> = a
+            .iter()
+            .filter(|(shape, _)| !b.contains_key(*shape))
+            .collect();
+        rows.sort_by(|x, y| y.1.0.cmp(&x.1.0).then(x.0.cmp(y.0)));
+        rows
+    }
+    let mnemonics = |shapes: &Shapes| -> BTreeSet<String> {
+        shapes.keys().map(|s| mnemonic(s).to_string()).collect()
+    };
+    let (new, gone) = (only(other, reference), only(reference, other));
+    let (theirs, ours) = (mnemonics(reference), mnemonics(other));
+    let mut s = String::new();
+    let _ = writeln!(
+        s,
+        "{} shapes in the reference and {} in the other: {} new and {} gone. {} new mnemonics \
+         and {} gone.",
+        reference.len(),
+        other.len(),
+        new.len(),
+        gone.len(),
+        ours.difference(&theirs).count(),
+        theirs.difference(&ours).count()
+    );
+    for (title, mine, others, rows) in [
+        ("New", &ours, &theirs, &new),
+        ("Gone", &theirs, &ours, &gone),
+    ] {
+        let fresh: Vec<&String> = mine.difference(others).collect();
+        if !fresh.is_empty() {
+            let _ = writeln!(
+                s,
+                "\n## {title} mnemonics\n\n| mnemonic | shape | units | first |"
+            );
+            let _ = writeln!(s, "|---|---|---|---|");
+            for m in fresh {
+                for (shape, (units, first)) in rows.iter().filter(|(sh, _)| mnemonic(sh) == m) {
+                    let shape = shape.replace('|', "\\|");
+                    let _ = writeln!(s, "| `{m}` | `{shape}` | {units} | `{first}` |");
+                }
+            }
+        }
+        if !rows.is_empty() {
+            let _ = writeln!(
+                s,
+                "\n## {title} shapes\n\n| shape | units | first |\n|---|---|---|"
+            );
+            for (shape, (units, first)) in rows {
+                let shape = shape.replace('|', "\\|");
+                let _ = writeln!(s, "| `{shape}` | {units} | `{first}` |");
+            }
+        }
+    }
+    s
 }
 
 /// Replay every successful unit of a log and build the inventory, `jobs` units at a time.
@@ -489,6 +594,37 @@ SYM_CODE_START(entry)
         let (source, args) = replay_args(&records[0]).unwrap();
         assert_eq!(source, Source::Inline);
         assert_eq!(args, ["-O2", "/s/kernel/fork.c", "-S", "-o", "-"]);
+    }
+
+    #[test]
+    fn a_report_reads_back_and_the_new_shapes_are_listed() {
+        let mut old = Inventory::default();
+        old.add("a.S", Source::Assembly, &["movq %cr,%r64".to_string()]);
+        old.add("b.c", Source::Inline, &["lock xaddl %r32,(b)".to_string()]);
+        let mut new = Inventory::default();
+        new.add("a.S", Source::Assembly, &["movq %cr,%r64".to_string()]);
+        new.add("c.c", Source::Inline, &["lock xaddq %r64,(b)".to_string()]);
+        new.add(
+            "d.c",
+            Source::Inline,
+            &["wrmsrns".to_string(), "movq %r64,%cr".to_string()],
+        );
+        let (old, new) = (read_report(&old.report()), read_report(&new.report()));
+        assert_eq!(old["lock xaddl %r32,(b)"], (1, "b.c".to_string()));
+        assert_eq!(new.len(), 4);
+        let d = diff_report(&old, &new);
+        assert!(
+            d.starts_with("2 shapes in the reference and 4 in the other: 3 new and 1 gone."),
+            "{d}"
+        );
+        assert!(d.contains("2 new mnemonics and 1 gone."), "{d}");
+        assert!(d.contains("| `wrmsrns` | `wrmsrns` | 1 | `d.c` |"), "{d}");
+        assert!(
+            d.contains("| `xaddl` | `lock xaddl %r32,(b)` | 1 | `b.c` |"),
+            "{d}"
+        );
+        assert!(d.contains("## New shapes"), "{d}");
+        assert!(d.contains("| `movq %r64,%cr` | 1 | `d.c` |"), "{d}");
     }
 
     #[test]

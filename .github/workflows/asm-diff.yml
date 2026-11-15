@@ -1,0 +1,62 @@
+# The instructions one census run's gcc build hands the assembler that another's does not.
+#
+# Each census run of a gcc build keeps the asm-inventory.md that rk asm-inventory wrote. This takes
+# two runs, say of the last release and of the next rc, finds the gcc build of the row and config
+# asked for in each, and runs rk asm-diff over the two. The list goes to the step summary, so that
+# a new instruction can be tried on rucc's assembler before the release comes out.
+
+name: asm-diff
+
+on:
+  workflow_dispatch:
+    inputs:
+      reference:
+        description: The census run ID of the older version
+        required: true
+      other:
+        description: The census run ID of the newer version
+        required: true
+      row:
+        description: The row
+        default: X64
+      config:
+        description: The config
+        default: defconfig
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  diff:
+    name: ${{ inputs.row }} ${{ inputs.config }}, run ${{ inputs.other }} against ${{ inputs.reference }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: census-*-${{ inputs.row }}-${{ inputs.config }}-gcc-*
+          run-id: ${{ inputs.reference }}
+          github-token: ${{ github.token }}
+          merge-multiple: true
+          path: reference
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: census-*-${{ inputs.row }}-${{ inputs.config }}-gcc-*
+          run-id: ${{ inputs.other }}
+          github-token: ${{ github.token }}
+          merge-multiple: true
+          path: other
+      - name: build rk
+        run: cargo build --release -p rk
+      - name: rk asm-diff
+        run: |
+          head -1 reference/asm-inventory.md other/asm-inventory.md
+          target/release/rk asm-diff --reference reference --other other > asm-diff.md
+          tee -a "$GITHUB_STEP_SUMMARY" < asm-diff.md
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: asm-diff-${{ inputs.row }}-${{ inputs.config }}
+          path: asm-diff.md
+          retention-days: 30
