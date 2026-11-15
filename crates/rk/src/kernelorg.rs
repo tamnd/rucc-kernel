@@ -7,7 +7,9 @@
 //!
 //! A release candidate is not on the CDN and no list has its hash. git.kernel.org makes a tarball
 //! of any tag of Linus's tree when asked, and gives the same bytes each time, so an rc is pinned
-//! by the hash of that tarball the first time `rk sets` downloads it.
+//! by the hash of that tarball the first time `rk sets` downloads it. GitHub's copy of the tree
+//! gives the same bytes for the tag, and some runners cannot reach git.kernel.org, so an rc that
+//! does not come from the first is taken from the second.
 
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -22,6 +24,35 @@ pub const CDN: &str = "https://cdn.kernel.org/pub/linux/kernel";
 
 /// Where git.kernel.org makes a tarball of a tag of Linus's tree, which is where an rc comes from.
 pub const SNAPSHOTS: &str = "https://git.kernel.org/torvalds/t";
+
+/// GitHub's copy of Linus's tree. Its tarball of a tag is the same file git.kernel.org makes.
+pub const GITHUB: &str = "https://github.com/torvalds/linux/archive/refs/tags";
+
+/// Every URL the tarball of a version can come from, the pinned one first.
+#[must_use]
+pub fn mirrors(version: &str, url: &str) -> Vec<String> {
+    let mut out = vec![url.to_string()];
+    let github = format!("{GITHUB}/v{version}.tar.gz");
+    if is_rc(version) && github != url {
+        out.push(github);
+    }
+    out
+}
+
+/// Download from the first of `urls` that gives the file. The caller checks its hash.
+pub fn download_any(urls: &[String], to: &Path) -> Result<(), String> {
+    let mut failed = Vec::new();
+    for url in urls {
+        match download(url, to) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                eprintln!("rk: {e}");
+                failed.push(e);
+            }
+        }
+    }
+    Err(failed.join(", then "))
+}
 
 /// Whether a version is a release candidate, as in `7.4-rc2`.
 #[must_use]
@@ -106,7 +137,7 @@ pub fn download(url: &str, to: &Path) -> Result<(), String> {
     }
     let partial = to.with_extension("part");
     let status = Command::new("curl")
-        .args(["-fsSL", "--retry", "3", "-o"])
+        .args(["-fsSL", "--retry", "3", "--connect-timeout", "30", "-o"])
         .arg(&partial)
         .arg(url)
         .status()
@@ -151,6 +182,15 @@ mod tests {
         assert!(is_rc("7.4-rc2"));
         assert!(!is_rc("7.4"));
         assert_eq!(tarball_name("7.4-rc2"), "linux-7.4-rc2.tar.gz");
+        let url = tarball_url("7.4-rc2");
+        assert_eq!(
+            mirrors("7.4-rc2", &url),
+            [
+                url.clone(),
+                "https://github.com/torvalds/linux/archive/refs/tags/v7.4-rc2.tar.gz".to_string()
+            ]
+        );
+        assert_eq!(mirrors("7.3.4", &tarball_url("7.3.4")).len(), 1);
         assert_eq!(
             tarball_url("7.4-rc2"),
             "https://git.kernel.org/torvalds/t/linux-7.4-rc2.tar.gz"

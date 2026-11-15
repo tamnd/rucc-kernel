@@ -148,7 +148,7 @@ pub fn fetch(pin: &Pin, upstream_check: bool) -> Result<PathBuf, String> {
 
     let archive = pin.archive();
     if !archive.is_file() {
-        kernelorg::download(&pin.url, &archive)?;
+        kernelorg::download_any(&kernelorg::mirrors(&pin.version, &pin.url), &archive)?;
     }
     let got = sha256_file(&archive).map_err(|e| format!("hashing {}: {e}", archive.display()))?;
     if got != pin.sha256 {
