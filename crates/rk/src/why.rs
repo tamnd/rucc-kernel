@@ -1,7 +1,7 @@
 //! `rk config-diff --why`: the Kconfig expressions and compiler probes behind each difference.
 //!
-//! For every symbol that differs, this reads what Kconfig says decides it (`depends on`, `def_bool`
-//! and `def_tristate`, `default ... if`, the `if` blocks around it and the `select` lines that
+//! For every symbol that differs, this reads what Kconfig says decides it (`depends on`, `def_bool`,
+//! `def_tristate` and `def_string`, `default ... if`, the `if` blocks around it and the `select` lines that
 //! name it) and follows the symbols those name, a few levels deep, collecting the calls to
 //! `$(cc-option,...)`, `$(as-instr,...)`, `$(success,...)` and the rest. Each call is matched to
 //! the probes the two builds answered differently. A difference whose own expressions lead to such
@@ -12,7 +12,8 @@
 //! macro of a macro is matched only by the flags written in the call itself. It keeps every
 //! definition of a symbol it finds in the tree, apart from other architectures' directories, and
 //! reads `menu` blocks and `choice` groups as if they were not there. A call matches a probe when
-//! the probe's question contains every flag the call names, or for `as-instr` and the other calls
+//! the probe's question contains every flag the call names, with a `-Wno-` flag looked for as the
+//! `-W` one that `cc-probe` asks about since 7.4, or for `as-instr` and the other calls
 //! that feed standard input, when the input contains the call's text. That is loose on purpose: a
 //! false match shows up as a probe next to a symbol, and a missed one as a symbol with no reason.
 
@@ -91,7 +92,10 @@ pub fn parse_into(text: &str, symbols: &mut Symbols) {
                         symbols.entry(symbol.clone()).or_default(),
                         format!("depends on {}", expr.trim()),
                     );
-                } else if matches!(word, "def_bool" | "def_tristate" | "default") {
+                } else if matches!(
+                    word,
+                    "def_bool" | "def_tristate" | "def_string" | "def_int" | "def_hex" | "default"
+                ) {
                     push(
                         symbols.entry(symbol.clone()).or_default(),
                         format!("{word} {rest}"),
@@ -245,7 +249,13 @@ pub fn matches(name: &str, args: &str, question: &str) -> bool {
         .filter(|w| w.starts_with('-') && w.len() > 1 && *w != "-o")
         .collect();
     let asked: BTreeSet<&str> = words.split_whitespace().collect();
-    !flags.is_empty() && flags.iter().all(|f| asked.contains(f))
+    // Since 7.4 `cc-probe` asks about `-Wfoo` when the call names `-Wno-foo`.
+    let asked_for = |f: &&str| {
+        asked.contains(f)
+            || f.strip_prefix("-Wno-")
+                .is_some_and(|w| asked.contains(format!("-W{w}").as_str()))
+    };
+    !flags.is_empty() && flags.iter().all(asked_for)
 }
 
 /// A difference explained.
@@ -414,6 +424,9 @@ endif
 config AS_WRUSS
 	def_bool $(as-instr64,wrussq %rax$(comma)(%rbx))
 
+config CC_OPT_ZERO_INIT_PADDING_BITS
+	def_string "$(cc-option-str,-fzero-init-padding-bits=all)"
+
 config STACKPROTECTOR
 	bool "Stack Protector buffer overflow detection"
 	depends on HAVE_STACKPROTECTOR
@@ -464,6 +477,23 @@ config STACKPROTECTOR
             ["selected by STACKPROTECTOR if X86_64"]
         );
         assert!(!symbols.contains_key("NOTHING_HERE"));
+        assert_eq!(
+            symbols["CC_OPT_ZERO_INIT_PADDING_BITS"].expressions,
+            ["def_string \"$(cc-option-str,-fzero-init-padding-bits=all)\""]
+        );
+    }
+
+    #[test]
+    fn a_probe_of_7_4_is_matched() {
+        let probe = "gcc -Werror -fzero-init-padding-bits=all -c -x c /dev/null -o .tmp_9/tmp.o";
+        assert!(matches(
+            "cc-option-str",
+            "-fzero-init-padding-bits=all",
+            probe
+        ));
+        let probe = "gcc -Werror -Wstringop-overflow -c -x c /dev/null -o .tmp_9/tmp.o";
+        assert!(matches("cc-option", "-Wno-stringop-overflow", probe));
+        assert!(!matches("cc-option", "-Wno-array-bounds", probe));
     }
 
     #[test]
