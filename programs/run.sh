@@ -10,7 +10,8 @@
 # dmesg, and results.tsv with a line `step key value` for each result and each step's status.
 #
 # A step can have a part on the host: after nginx, ab loads the guest's nginx through the
-# forwarded port, which crosses the virtio network.
+# forwarded port, which crosses the virtio network. Those rates are kept to look at, while the
+# ones compare.py holds the kernels to come from the rates step inside the guest.
 
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
@@ -114,13 +115,13 @@ for step in "$@"; do
         for round in 1 2 3; do
             ab -q -n 20000 -c 32 http://127.0.0.1:8080/rk/small.html > "$work/ab" 2>&1
             cat "$work/ab" >> "$out/nginx.log"
-            record nginx nginx-rps "$(awk '/^Requests per second/ { print $4 }' "$work/ab")"
+            record nginx nginx-virtio-rps "$(awk '/^Requests per second/ { print $4 }' "$work/ab")"
             bad=$(awk '/^Failed requests/ { f = $3 } /^Non-2xx responses/ { n = $3 }
                 END { print f + n }' "$work/ab")
             [ "$bad" = 0 ] || { record nginx failed "ab-round-$round"; status=1; }
             ab -q -n 400 -c 8 http://127.0.0.1:8080/rk/big > "$work/ab" 2>&1
             cat "$work/ab" >> "$out/nginx.log"
-            record nginx nginx-big-rps "$(awk '/^Requests per second/ { print $4 }' "$work/ab")"
+            record nginx nginx-virtio-big-rps "$(awk '/^Requests per second/ { print $4 }' "$work/ab")"
         done
     fi
     record "$step" status "$status"
