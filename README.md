@@ -42,7 +42,7 @@ A row is an architecture with a QEMU machine and a reference toolchain. X64 is x
 
 ## Using rk
 
-`rk fetch 7.2.8` downloads a pinned tree into `~/.cache/rk` (or `RK_CACHE`), checks its SHA-256 and unpacks it. `rk sets` compares `pins.toml` with what kernel.org lists today and rewrites it with `--write`. `rk personas` prints the era, the GCC version rucc claims and the reference toolchain for every pin.
+`rk fetch 7.2.8` downloads a pinned tree into `~/.cache/rk` (or `RK_CACHE`), checks its SHA-256 and unpacks it. `rk sets` compares `pins.toml` with what kernel.org lists today and rewrites it with `--write`. A mainline rc is pinned too, in the `next` set, from the tarball git.kernel.org makes of its tag and by the hash `rk sets` computes when it first downloads it. `rk personas` prints the era, the GCC version rucc claims and the reference toolchain for every pin.
 
 The reference compilers live in era containers built from `provision/eras` and pinned in `toolchains.toml`. `rk personas check` runs each one and fails when its GCC or binutils is not the version `personas.toml` names for the era, or when GCC finds plugin headers, which would turn on `GCC_PLUGINS` for the reference and never for rucc. An era can name a second reference, a newer GCC that its builds are also compared with on everything but `.config`. E11 has GCC 16.2 and binutils 2.47 from Debian forky in `rk-era-forky`. `--container` checks only the references in one container.
 

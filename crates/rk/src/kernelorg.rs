@@ -4,6 +4,10 @@
 //! point release. `sha256sums.asc` in each major directory lists the hash of every tarball there.
 //! The list is signed, and the signature is checked by `gpg` when a machine has the kernel.org
 //! keys; the hash in `pins.toml` is what every fetch is held to either way.
+//!
+//! A release candidate is not on the CDN and no list has its hash. git.kernel.org makes a tarball
+//! of any tag of Linus's tree when asked, and gives the same bytes each time, so an rc is pinned
+//! by the hash of that tarball the first time `rk sets` downloads it.
 
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -15,6 +19,22 @@ pub const RELEASES_URL: &str = "https://www.kernel.org/releases.json";
 
 /// The base of every tarball URL.
 pub const CDN: &str = "https://cdn.kernel.org/pub/linux/kernel";
+
+/// Where git.kernel.org makes a tarball of a tag of Linus's tree, which is where an rc comes from.
+pub const SNAPSHOTS: &str = "https://git.kernel.org/torvalds/t";
+
+/// Whether a version is a release candidate, as in `7.4-rc2`.
+#[must_use]
+pub fn is_rc(version: &str) -> bool {
+    version.contains("-rc")
+}
+
+/// The file name of a release's tarball: `.tar.xz` on the CDN, `.tar.gz` for an rc snapshot.
+#[must_use]
+pub fn tarball_name(version: &str) -> String {
+    let compression = if is_rc(version) { "gz" } else { "xz" };
+    format!("linux-{version}.tar.{compression}")
+}
 
 /// One entry of `releases.json`.
 #[derive(Debug, Clone, Deserialize)]
@@ -54,7 +74,10 @@ pub fn major_dir(version: &str) -> String {
 /// The tarball URL of a release.
 #[must_use]
 pub fn tarball_url(version: &str) -> String {
-    format!("{CDN}/{}/linux-{version}.tar.xz", major_dir(version))
+    if is_rc(version) {
+        return format!("{SNAPSHOTS}/{}", tarball_name(version));
+    }
+    format!("{CDN}/{}/{}", major_dir(version), tarball_name(version))
 }
 
 /// The SHA-256 list for the directory a version is in.
@@ -120,6 +143,17 @@ mod tests {
         assert_eq!(
             tarball_url("6.1.188"),
             "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.1.188.tar.xz"
+        );
+    }
+
+    #[test]
+    fn an_rc_comes_from_the_snapshots() {
+        assert!(is_rc("7.4-rc2"));
+        assert!(!is_rc("7.4"));
+        assert_eq!(tarball_name("7.4-rc2"), "linux-7.4-rc2.tar.gz");
+        assert_eq!(
+            tarball_url("7.4-rc2"),
+            "https://git.kernel.org/torvalds/t/linux-7.4-rc2.tar.gz"
         );
     }
 
