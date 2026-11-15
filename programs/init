@@ -1,0 +1,61 @@
+#!/bin/busybox sh
+# The first program of a programs guest. It finds the Fedora root on the first virtio disk, puts
+# the kernel's modules, the host's ssh key and a network profile into it, and hands over to
+# systemd. Everything it needs is next to it in the initramfs that run.sh packs.
+
+/bin/busybox --install -s /bin
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+
+say() { echo "RK-INIT $*" > /dev/console; }
+
+# Fedora Cloud keeps its root in the btrfs subvolume root. Any other file system is tried as a
+# whole, so that an image laid out another way still boots.
+root=
+tries=0
+while [ -z "$root" ] && [ "$tries" -lt 30 ]; do
+    for dev in /dev/vda*; do
+        [ -b "$dev" ] || continue
+        if mount -t btrfs -o subvol=root "$dev" /sysroot 2>/dev/null \
+            || mount "$dev" /sysroot 2>/dev/null; then
+            if [ -x /sysroot/usr/lib/systemd/systemd ]; then
+                root=$dev
+                break
+            fi
+            umount /sysroot
+        fi
+    done
+    [ -n "$root" ] || sleep 1
+    tries=$((tries + 1))
+done
+if [ -z "$root" ]; then
+    say "no root with systemd on /dev/vda"
+    poweroff -f
+fi
+say "root on $root"
+
+release=$(cat /release)
+rm -rf "/sysroot/usr/lib/modules/$release"
+mkdir -p /sysroot/usr/lib/modules
+tar -xf /modules.tar -C /sysroot/usr/lib/modules
+chroot /sysroot /usr/sbin/depmod -a "$release" || say "depmod failed"
+say "modules for $release in place"
+
+mkdir -p /sysroot/root/.ssh
+cp /authorized_keys /sysroot/root/.ssh/authorized_keys
+chmod 700 /sysroot/root/.ssh
+chmod 600 /sysroot/root/.ssh/authorized_keys
+# A locked root (a password field starting with !) can still take a key, but * says so plainly.
+sed -i 's/^root:[^:]*:/root:*:/' /sysroot/etc/shadow
+
+# There is no cloud to ask for a configuration, and cloud-init would wait for one at every boot.
+mkdir -p /sysroot/etc/cloud
+touch /sysroot/etc/cloud/cloud-init.disabled
+mkdir -p /sysroot/etc/NetworkManager/system-connections
+cp /rk.nmconnection /sysroot/etc/NetworkManager/system-connections/rk.nmconnection
+chmod 600 /sysroot/etc/NetworkManager/system-connections/rk.nmconnection
+
+umount /proc /sys
+mount --move /dev /sysroot/dev
+exec switch_root /sysroot /usr/lib/systemd/systemd

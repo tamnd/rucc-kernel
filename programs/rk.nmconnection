@@ -1,0 +1,10 @@
+[connection]
+id=rk
+type=ethernet
+autoconnect=true
+
+[ipv4]
+method=auto
+
+[ipv6]
+method=ignore

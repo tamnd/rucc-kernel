@@ -91,6 +91,7 @@ fn main() -> ExitCode {
             "asm-diff" => asm_diff(&args),
             "baseline" => baseline_command(&repo, &args),
             "initramfs" => initramfs_command(&args).map(|_| ExitCode::SUCCESS),
+            "modules-install" => modules_install(&repo, &args),
             "bench" => bench_command(&repo, &args),
             _ => unreachable!("the parser only accepts known commands"),
         }
@@ -880,6 +881,30 @@ fn initramfs_command(args: &Args) -> Result<std::path::PathBuf, String> {
     write_initramfs(&out, args.get("busybox"))?;
     println!("{}", out.display());
     Ok(out)
+}
+
+/// Install the modules of a build under a directory, and print where they went.
+fn modules_install(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
+    let dir = std::path::PathBuf::from(
+        args.get("build")
+            .ok_or("rk modules-install needs --build")?,
+    );
+    let dir =
+        std::fs::canonicalize(&dir).map_err(|e| format!("resolving {}: {e}", dir.display()))?;
+    let to = std::path::PathBuf::from(args.get("to").ok_or("rk modules-install needs --to")?);
+    std::fs::create_dir_all(&to).map_err(|e| format!("creating {}: {e}", to.display()))?;
+    let to = std::fs::canonicalize(&to).map_err(|e| format!("resolving {}: {e}", to.display()))?;
+    let jobs = match args.get("jobs") {
+        Some(n) => n
+            .parse()
+            .map_err(|_| format!("--jobs takes a number, not {n}"))?,
+        None => std::thread::available_parallelism().map_or(1, std::num::NonZero::get),
+    };
+    let built = outcome_of(&dir)?;
+    let rows = personas::Rows::load(&repo.file("rows.toml"))?;
+    let release = build::modules_install(&dir, &built, rows.get(&built.row)?, &to, jobs)?;
+    println!("{}", to.join("lib").join("modules").join(release).display());
+    Ok(ExitCode::SUCCESS)
 }
 
 /// Write the initramfs for a busybox, `/bin/busybox` by default, which must be static.
