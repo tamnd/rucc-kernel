@@ -2,14 +2,17 @@
 
     python3 compare.py REFERENCE_DIR OTHER_DIR
 
-Each directory is the OUT of run.sh. The other kernel fails the comparison when a step that
-passed on the reference did not pass on it, when a set key has a value the reference does not
-have (a failed unit, test or stressor), when its dmesg has a kind of bad line the reference's
-does not, or when the median of a rate is more than 5% under the reference's, the one-ratio
-limit of rk bench. The report goes to standard output as Markdown, and the exit status is 1
-when the comparison fails.
+Each directory is the OUT of run.sh, and the OUT of each boot that ran only the rates step is
+a directory rates-N inside it, whose results count with the others. The other kernel fails the
+comparison when a step that passed on the reference did not pass on it, when a set key has a
+value the reference does not have (a failed unit, test or stressor), when its dmesg has a kind
+of bad line the reference's does not, or when a rate is slower the way rk bench means it: the
+median is more than 5% under the reference's, the one-ratio limit of rk bench, and the 95%
+bootstrap interval of the ratio is under 1 too. The report goes to standard output as Markdown,
+and the exit status is 1 when the comparison fails.
 """
 
+import random
 import re
 import statistics
 import sys
@@ -33,6 +36,9 @@ RATES = {"nginx-rps", "nginx-big-rps", "pgbench-tps"}
 # The most a rate can be under the reference's, as a ratio.
 LIMIT = 1.05
 
+# How many times the bootstrap draws the samples again.
+DRAWS = 2000
+
 # The dmesg lines that are trouble, whatever the kernel.
 BAD = re.compile(
     r"BUG:|Oops|WARNING:|general protection|soft lockup|hard LOCKUP|blocked for more than"
@@ -40,23 +46,31 @@ BAD = re.compile(
 )
 
 
+def runs(directory):
+    """The OUT of the main boot and of each rates boot."""
+    return [Path(directory)] + sorted(Path(directory).glob("rates-*"))
+
+
 def load(directory):
-    """The results of one run, as {step: {key: [values]}}."""
+    """The results of every boot, as {step: {key: [values]}}."""
     results = defaultdict(lambda: defaultdict(list))
-    path = Path(directory) / "results.tsv"
-    if path.exists():
-        for line in path.read_text().splitlines():
-            parts = line.split("\t", 2)
-            if len(parts) == 3:
-                results[parts[0]][parts[1]].append(parts[2])
+    for run in runs(directory):
+        path = run / "results.tsv"
+        if path.exists():
+            for line in path.read_text().splitlines():
+                parts = line.split("\t", 2)
+                if len(parts) == 3:
+                    results[parts[0]][parts[1]].append(parts[2])
     return results
 
 
 def bad_lines(directory):
     """The kinds of bad dmesg lines, with times, numbers and addresses taken out."""
-    path = Path(directory) / "dmesg.txt"
     kinds = set()
-    if path.exists():
+    for run in runs(directory):
+        path = run / "dmesg.txt"
+        if not path.exists():
+            continue
         for line in path.read_text(errors="replace").splitlines():
             line = re.sub(r"^\[[ 0-9.]*\] ", "", line)
             if BAD.search(line):
@@ -64,14 +78,29 @@ def bad_lines(directory):
     return kinds
 
 
-def rate(values):
-    numbers = []
+def numbers(values):
+    found = []
     for value in values:
         try:
-            numbers.append(float(value))
+            found.append(float(value))
         except ValueError:
             pass
-    return statistics.median(numbers) if numbers else None
+    return found
+
+
+def interval(reference, other):
+    """The 95% bootstrap interval of the ratio of the medians, other over reference."""
+    draw = random.Random(0)
+    ratios = []
+    for _ in range(DRAWS):
+        x = statistics.median(draw.choices(reference, k=len(reference)))
+        y = statistics.median(draw.choices(other, k=len(other)))
+        if x:
+            ratios.append(y / x)
+    ratios.sort()
+    if not ratios:
+        return None
+    return ratios[int(len(ratios) * 0.025)], ratios[int(len(ratios) * 0.975) - 1]
 
 
 def main():
@@ -84,7 +113,8 @@ def main():
         for key in list(dict.fromkeys(list(a) + list(b))):
             left, right = a.get(key, []), b.get(key, [])
             if key == "status":
-                fine = right == ["0"] or left != ["0"]
+                passed = bool(left) and all(v == "0" for v in left)
+                fine = not passed or (bool(right) and all(v == "0" for v in right))
                 rows.append((step, key, " ".join(left), " ".join(right), fine))
                 if not fine:
                     problems.append(f"{step} passed on the reference and ended {right} here")
@@ -94,10 +124,18 @@ def main():
                 if new:
                     problems.append(f"{step} {key} only here: {', '.join(new)}")
             elif key in RATES:
-                x, y = rate(left), rate(right)
-                fine = x is None or (y is not None and y * LIMIT >= x)
-                ratio = f" ({y / x:.3f})" if x and y else ""
-                rows.append((step, key, x, f"{y}{ratio}", fine))
+                xs, ys = numbers(left), numbers(right)
+                x = statistics.median(xs) if xs else None
+                y = statistics.median(ys) if ys else None
+                if not x:
+                    fine, note = True, ""
+                elif not y:
+                    fine, note = False, ""
+                else:
+                    low, high = interval(xs, ys)
+                    fine = y * LIMIT >= x or high >= 1
+                    note = f" ({y / x:.3f}, {low:.3f} to {high:.3f})"
+                rows.append((step, key, f"{x} n={len(xs)}", f"{y} n={len(ys)}{note}", fine))
                 if not fine:
                     problems.append(f"{step} {key} median {y} against {x}")
             else:

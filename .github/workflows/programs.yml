@@ -196,6 +196,18 @@ jobs:
           done
         env:
           SUITE: ${{ matrix.suite }}
+      - name: the rates, on fresh boots of each kernel in turn
+        if: matrix.suite == 'apps'
+        run: |
+          for round in 1 2 3; do
+            for cc in rucc gcc; do
+              qemu-img create -q -f qcow2 -b "$RUNNER_TEMP/prepared.qcow2" -F qcow2 "$RUNNER_TEMP/$cc.qcow2"
+              programs/run.sh "$RUNNER_TEMP/kernels/programs-kernel-$cc/bzImage" \
+                "$RUNNER_TEMP"/modules-$cc/* "$RUNNER_TEMP/$cc.qcow2" "$RUNNER_TEMP/results/$cc/rates-$round" \
+                rates || echo "the rates failed on the $cc kernel"
+              rm -f "$RUNNER_TEMP/$cc.qcow2"
+            done
+          done
       - name: compare
         run: |
           {

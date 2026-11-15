@@ -14,10 +14,10 @@ GIT_VERSION=2.56.1
 GIT_SHA256=f0b0bf89264b9bd2e1c640363e7529643989da76281600473c50745cd34a607f
 
 # Every package a step uses. prepare installs them once, on the gcc kernel, and both kernels
-# then boot copies of that disk.
+# then boot copies of that disk. Git 2.56 builds a part of itself in Rust, hence cargo.
 PACKAGES="gcc make tar xz zlib-devel openssl-devel libcurl-devel expat-devel perl
 perl-Test-Harness diffutils nginx httpd-tools postgresql-server postgresql-contrib stress-ng
-podman e2fsprogs btrfs-progs xfsprogs fio cloud-utils-growpart"
+podman e2fsprogs btrfs-progs xfsprogs fio cloud-utils-growpart cargo"
 
 # The container images, none from Docker Hub, whose pull limit hosted runners share.
 ALPINE=quay.io/libpod/alpine:latest
@@ -113,7 +113,7 @@ pgbench)
         cat /tmp/pgbench.out
         tps=$(sed -n 's/^tps = \([0-9.]*\).*/\1/p' /tmp/pgbench.out)
         failed=$(sed -n 's/^number of failed transactions: \([0-9]*\).*/\1/p' /tmp/pgbench.out)
-        result pgbench-tps "${tps:-0}"
+        result pgbench-step-tps "${tps:-0}"
         [ "$status" -eq 0 ] && [ "${failed:-1}" = 0 ] || bad=1
     done
     exit $bad
@@ -121,7 +121,9 @@ pgbench)
 
 fs)
     # Each file system on the scratch disk: a verified fio run, a copy of /usr/lib64 read back
-    # after a remount, and the file system's own check once it is unmounted.
+    # after a remount, and the file system's own check once it is unmounted. fio uses psync,
+    # which is built in, as Fedora ships libaio as a package of its own. The copy has symlinks
+    # that point nowhere, so diff compares the links and does not follow them.
     scratch=/dev/vdb
     mkdir -p /mnt/rk
     bad=0
@@ -137,18 +139,21 @@ fs)
             continue
         fi
         fio --name=verify --directory=/mnt/rk --size=256M --numjobs=2 --rw=randwrite --bs=4k \
-            --ioengine=libaio --iodepth=16 --direct=1 --verify=crc32c --group_reporting \
-            > "/tmp/fio-$fs.log" 2>&1 || { result fs-failed "$fs-fio"; bad=1; }
+            --ioengine=psync --direct=1 --verify=crc32c --group_reporting \
+            > "/tmp/fio-$fs.log" 2>&1 \
+            || { result fs-failed "$fs-fio"; tail -n 30 "/tmp/fio-$fs.log"; bad=1; }
         cp -a /usr/lib64 /mnt/rk/lib64 || { result fs-failed "$fs-copy"; bad=1; }
         umount /mnt/rk
         mount -t "$fs" "$scratch" /mnt/rk
-        diff -r /usr/lib64 /mnt/rk/lib64 > /dev/null 2>&1 || { result fs-failed "$fs-diff"; bad=1; }
+        diff -r --no-dereference /usr/lib64 /mnt/rk/lib64 > "/tmp/diff-$fs.log" 2>&1 \
+            || { result fs-failed "$fs-diff"; head -n 30 "/tmp/diff-$fs.log"; bad=1; }
         umount /mnt/rk
         case $fs in
         ext4) e2fsck -fn "$scratch" ;;
         btrfs) btrfs check --readonly "$scratch" ;;
         xfs) xfs_repair -n "$scratch" ;;
-        esac > "/tmp/check-$fs.log" 2>&1 || { result fs-failed "$fs-check"; bad=1; }
+        esac > "/tmp/check-$fs.log" 2>&1 \
+            || { result fs-failed "$fs-check"; tail -n 30 "/tmp/check-$fs.log"; bad=1; }
         result fs-done "$fs"
     done
     exit $bad
@@ -187,6 +192,29 @@ podman)
         | grep '^test_' | while read -r t; do result python-failed "$t"; done
     grep -q '^Result: ' /tmp/python.log || bad=1
     exit $bad
+    ;;
+
+rates)
+    # The rates that are compared, measured inside the guest so that the virtio network and the
+    # host's load stay out of them: ab on nginx over loopback and pgbench, three rounds each.
+    # The workflow boots each kernel a few times, one after the other, and runs this step alone
+    # on each boot, so the step sets up what it needs whatever ran before it.
+    mkdir -p /usr/share/nginx/html/rk
+    echo small > /usr/share/nginx/html/rk/small.html
+    systemctl start nginx || exit 1
+    [ -f /var/lib/pgsql/data/PG_VERSION ] || postgresql-setup --initdb > /dev/null || exit 1
+    systemctl start postgresql || exit 1
+    runuser -u postgres -- pgbench -i -q -s 20 postgres > /dev/null 2>&1 || exit 1
+    bad=0
+    for _ in 1 2 3; do
+        ab -q -n 50000 -c 32 http://127.0.0.1/rk/small.html > /tmp/ab.out 2>&1
+        result nginx-rps "$(awk '/^Requests per second/ { print $4 }' /tmp/ab.out)"
+        awk '/^Failed requests/ { f = $3 } /^Non-2xx responses/ { n = $3 }
+            END { exit f + n > 0 }' /tmp/ab.out || bad=1
+        runuser -u postgres -- pgbench -n -c 8 -j 4 -T 20 postgres > /tmp/pgbench.out 2>&1 || bad=1
+        result pgbench-tps "$(sed -n 's/^tps = \([0-9.]*\).*/\1/p' /tmp/pgbench.out)"
+    done
+    [ "$bad" = 0 ] || { cat /tmp/ab.out /tmp/pgbench.out; exit 1; }
     ;;
 
 stress)
