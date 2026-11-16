@@ -130,23 +130,41 @@ pub fn parse_sums(text: &str) -> BTreeMap<String, String> {
         .collect()
 }
 
+/// How many times a download that came back empty is tried.
+const EMPTY_TRIES: u64 = 4;
+
 /// Download a URL to a file with curl, failing on any HTTP error.
+///
+/// git.kernel.org answers a snapshot it is still making with an empty body and status 200, so
+/// two jobs that ask for the same rc at once can get nothing. An empty file is tried again after
+/// a pause that grows each time.
 pub fn download(url: &str, to: &Path) -> Result<(), String> {
     if let Some(dir) = to.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("creating {}: {e}", dir.display()))?;
     }
     let partial = to.with_extension("part");
-    let status = Command::new("curl")
-        .args(["-fsSL", "--retry", "3", "--connect-timeout", "30", "-o"])
-        .arg(&partial)
-        .arg(url)
-        .status()
-        .map_err(|e| format!("running curl: {e}"))?;
-    if !status.success() {
+    for attempt in 1..=EMPTY_TRIES {
+        let status = Command::new("curl")
+            .args(["-fsSL", "--retry", "3", "--connect-timeout", "30", "-o"])
+            .arg(&partial)
+            .arg(url)
+            .status()
+            .map_err(|e| format!("running curl: {e}"))?;
+        if !status.success() {
+            let _ = std::fs::remove_file(&partial);
+            return Err(format!("downloading {url} failed"));
+        }
+        if std::fs::metadata(&partial).is_ok_and(|m| m.len() > 0) {
+            return std::fs::rename(&partial, to)
+                .map_err(|e| format!("moving {}: {e}", partial.display()));
+        }
         let _ = std::fs::remove_file(&partial);
-        return Err(format!("downloading {url} failed"));
+        if attempt < EMPTY_TRIES {
+            eprintln!("rk: {url} came back empty, trying again");
+            std::thread::sleep(std::time::Duration::from_secs(30 * attempt));
+        }
     }
-    std::fs::rename(&partial, to).map_err(|e| format!("moving {}: {e}", partial.display()))
+    Err(format!("{url} came back empty {EMPTY_TRIES} times"))
 }
 
 /// Download a URL and return its text.
