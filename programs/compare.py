@@ -147,6 +147,14 @@ def main():
     for step, key, x, y, fine in rows:
         print(f"| {step} | {key} | {x} | {y} | {'' if fine else 'worse'} |")
     print()
+    # Every kind of bad line on either kernel, and not only the ones the rucc kernel adds, so that a
+    # run that should have none says so whichever kernel the line came from.
+    for name, directory in (("gcc", reference), ("rucc", other)):
+        kinds = sorted(bad_lines(directory))
+        print(f"Kinds of bad dmesg line on the {name} kernel: {len(kinds)}")
+        for kind in kinds[:20]:
+            print(f"    {kind}")
+    print()
     if problems:
         print("The rucc kernel does worse than the gcc kernel:\n")
         for problem in problems:
