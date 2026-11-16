@@ -219,7 +219,7 @@ rates)
 
 stress)
     # An hour of stress-ng: four stressors at a time, each of the classes in turn, 15 seconds
-    # each. A stressor that fails is listed, and the dmesg check in run.sh catches the rest.
+    # each. A stressor that fails is listed, and the dmesg check in compare.py catches the rest.
     mkdir -p /var/tmp/rk
     start=$(date +%s)
     stress-ng --sequential 4 --timeout 15s --class cpu,memory,filesystem,scheduler,network \
