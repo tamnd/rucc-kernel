@@ -663,11 +663,14 @@ fn uncondition(item: &str) -> Option<String> {
 /// A bug entry names the file of its WARN or BUG. One that names `fs/btrfs/volumes.c` was compiled
 /// into `fs/btrfs/volumes.o`, so in `fs/btrfs/btrfs.o` it is the same site, linked in with `ld -r`,
 /// and the rule written for the member holds for the module. An entry that names a header could
-/// have come from any member, so it gets no such help and needs a rule of its own.
+/// have come from any member, so it gets no such help and needs a rule of its own. The file is
+/// read from the site without its condition text, which would otherwise be taken for the file.
 fn linked(object: &str, item: &str) -> bool {
     let Some(stem) = object.strip_suffix(".o") else {
         return false;
     };
+    let bare = uncondition(item);
+    let item = bare.as_deref().unwrap_or(item);
     let Some(file) = item.split('"').skip(1).step_by(2).find(|s| !s.is_empty()) else {
         return false;
     };
@@ -1517,6 +1520,38 @@ reason = "checked in the member"
         let reasons: Vec<Option<&str>> =
             c.differences.iter().map(|d| d.reason.as_deref()).collect();
         assert_eq!(reasons, [Some("checked"), Some("checked"), None, None]);
+    }
+
+    /// With `DEBUG_BUGVERBOSE_DETAILED` a site carries the text of its WARN before its file, and the
+    /// rule for the member, written without it, still follows the site into the module.
+    #[test]
+    fn a_site_with_its_warn_text_follows_the_member_rule_into_the_module() {
+        let bare = r#"4="" 8="fs/ntfs/named_stream.c" dc061309"#;
+        let site =
+            r#"4="memcpy: detected field-spanning write" 8="fs/ntfs/named_stream.c" dc061309"#;
+        let names = |n: &str| -> BTreeSet<String> { [n.to_string()].into() };
+        let mut c = Comparison {
+            differences: vec![between(
+                "fs/ntfs/ntfs.o",
+                "__bug_table",
+                &names(site),
+                &BTreeSet::new(),
+            )],
+            ..Comparison::default()
+        };
+        let rules = Divergences::parse(&format!(
+            r#"
+[[divergence]]
+what = "__bug_table"
+object = "fs/ntfs/named_stream.o"
+only = "reference"
+item = '{bare}'
+reason = "checked"
+"#
+        ))
+        .unwrap();
+        rules.explain(&mut c);
+        assert_eq!(c.differences[0].reason.as_deref(), Some("checked"));
     }
 
     #[test]
