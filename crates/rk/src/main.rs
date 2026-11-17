@@ -1341,6 +1341,7 @@ fn cross_modules(repo: &Repo, args: &Args) -> Result<ExitCode, String> {
         timeout: number("timeout", 600)?,
         jobs: boot_jobs(args)?,
         out,
+        tested: args.get("tested").map(std::path::PathBuf::from),
     };
     let outcome = cross::run(&plan)?;
     let summary = cross::summary(&outcome);

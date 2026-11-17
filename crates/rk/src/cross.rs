@@ -49,6 +49,10 @@ pub struct Plan {
     pub jobs: usize,
     /// The run directory.
     pub out: PathBuf,
+    /// An `rk test` run directory of the same reference build. Its kunit boots of the reference
+    /// kernel are the first cell's boots, so a run that has one is taken from there and not
+    /// booted again.
+    pub tested: Option<PathBuf>,
 }
 
 /// The three boots: which kernel, whose modules, and the name in the run directory.
@@ -276,6 +280,20 @@ fn boot_cell(
     ))
 }
 
+/// The reference kernel's kunit boot with its own modules in run `run` of the `rk test` run
+/// directory `dir`, as units and splats, when that run kept the boot's outcome and console.
+fn tested_reference(dir: &Path, run: usize) -> Option<(Units, BTreeSet<String>)> {
+    let stem = dir.join(format!("reference-kunit-{run}"));
+    let json = std::fs::read_to_string(stem.with_extension("json")).ok()?;
+    let outcome: boot::Outcome = serde_json::from_str(&json).ok()?;
+    let console = std::fs::read_to_string(stem.with_extension("log")).ok()?;
+    eprintln!("rk: reference-{run} from {}", stem.display());
+    Some((
+        testrun::units_of("kunit", &[Kind::Boot, Kind::Kunit], &outcome, &console),
+        crate::dmesg::splats(&console),
+    ))
+}
+
 /// Check both ways, boot the three cells, grade, and write `cross-modules.json` and
 /// `summary.md`.
 pub fn run(plan: &Plan) -> Result<Outcome, String> {
@@ -296,7 +314,12 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
     let mut own = BTreeSet::new();
     let mut crossed = BTreeSet::new();
     for run in 0..plan.runs {
-        let tasks = CELLS
+        let tested = plan
+            .tested
+            .as_deref()
+            .and_then(|dir| tested_reference(dir, run + 1));
+        let first = usize::from(tested.is_some());
+        let tasks = CELLS[first..]
             .iter()
             .map(|&(kernel, modules, name)| -> crate::pool::Task<'_, _> {
                 Box::new(move || {
@@ -305,7 +328,9 @@ pub fn run(plan: &Plan) -> Result<Outcome, String> {
                 })
             })
             .collect();
-        for (i, booted) in crate::pool::run(plan.jobs, tasks).into_iter().enumerate() {
+        let mut results: Vec<_> = tested.into_iter().map(Ok).collect();
+        results.extend(crate::pool::run(plan.jobs, tasks));
+        for (i, booted) in results.into_iter().enumerate() {
             let (units, found) = booted?;
             testrun::add_run(&mut cells[i], run, &units);
             if i == 0 {
@@ -431,6 +456,30 @@ mod tests {
     }
 
     const MAGIC: &str = "7.2.8 SMP preempt mod_unload ";
+
+    #[test]
+    fn the_reference_boot_of_an_rk_test_run_stands_in_for_the_first_cell() {
+        let dir = std::env::temp_dir().join(format!("rk-cross-tested-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let outcome = boot::Outcome {
+            booted: Some("7.4.0-rc2".to_string()),
+            done: true,
+            ..boot::Outcome::default()
+        };
+        let json = serde_json::to_string(&outcome).unwrap();
+        std::fs::write(dir.join("reference-kunit-1.json"), json).unwrap();
+        std::fs::write(
+            dir.join("reference-kunit-1.log"),
+            "RK-MODULE list_test pass\n",
+        )
+        .unwrap();
+        let (units, splats) = tested_reference(&dir, 1).unwrap();
+        assert!(tested_reference(&dir, 2).is_none());
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(units.get("boot"), Some(&Status::Pass));
+        assert!(units.len() > 1, "{units:?}");
+        assert!(splats.is_empty());
+    }
 
     #[test]
     fn a_module_that_matches_the_kernel_has_no_problems() {

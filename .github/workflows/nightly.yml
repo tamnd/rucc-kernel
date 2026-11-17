@@ -340,7 +340,7 @@ jobs:
           left=$(( DEADLINE - $(date +%s) ))
           timeout "$(( left > 60 ? left : 60 ))" \
             target/release/rk cross-modules --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
-            "${boot[@]}" --out "$RUNNER_TEMP/cross"
+            "${boot[@]}" --tested "$RUNNER_TEMP/test" --out "$RUNNER_TEMP/cross"
         env:
           TIMEOUT: ${{ (inputs.row == 'A64' || inputs.row == 'R64') && 2400 || 600 }}
       - name: rk objtool-report
