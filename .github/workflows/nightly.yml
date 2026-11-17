@@ -85,6 +85,10 @@ on:
         description: Whether an X64 run against the first reference builds gcc-16 too, yes or no
         required: false
         default: "yes"
+      mixes:
+        description: Sets of rucc objects to bench in the reference, split by semicolons, as lib/maple_tree.o;mm/
+        required: false
+        default: ""
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
@@ -388,6 +392,30 @@ jobs:
           echo "$verdict" > "$RUNNER_TEMP/checks/bench.status"
           cp "$RUNNER_TEMP/bench/bench.json" "$RUNNER_TEMP/checks/" 2>/dev/null || true
           cat "$RUNNER_TEMP/checks/bench.md"
+      # Each set of the mixes input is linked from the rucc objects into a copy of the reference by
+      # rk mix and benched against the reference, so the part of a gap those objects make shows
+      # apart from the rest of the build. Nothing is graded on it.
+      - name: rk bench of each mix
+        if: always() && inputs.mixes != '' && steps.test.outcome != 'skipped' && inputs.row != 'A64' && inputs.row != 'R64'
+        continue-on-error: true
+        env:
+          MIXES: ${{ inputs.mixes }}
+        run: |
+          IFS=';' read -ra sets <<< "$MIXES"
+          n=0
+          for set in "${sets[@]}"; do
+            n=$((n + 1))
+            echo "### rucc $set in the reference"
+            if ! target/release/rk mix --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/rucc" \
+              --objects "$set" --out "$RUNNER_TEMP/mix-$n" > "$RUNNER_TEMP/mix-$n.txt"; then
+              echo "rk mix failed"
+              continue
+            fi
+            tail -1 "$RUNNER_TEMP/mix-$n.txt"
+            target/release/rk bench --reference "$RUNNER_TEMP/gcc" --other "$RUNNER_TEMP/mix-$n" \
+              --out "$RUNNER_TEMP/bench-mix-$n" || true
+            rm -rf "$RUNNER_TEMP/mix-$n"
+          done
       - name: rk against the second reference
         if: always() && steps.second.outcome == 'success' && steps.test.outcome != 'skipped'
         continue-on-error: true
