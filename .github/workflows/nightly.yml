@@ -81,6 +81,10 @@ on:
         description: The reference rk test grades against, first for the era's GCC or second for gcc-16 on X64
         required: false
         default: first
+      second:
+        description: Whether an X64 run against the first reference builds gcc-16 too, yes or no
+        required: false
+        default: "yes"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
@@ -253,10 +257,12 @@ jobs:
       # build runs in the era container, as in kernel.yml. rucc is graded against it on boot, smoke and
       # KUnit after the main grade, and its .config is not compared, since rucc claims the first GCC.
       # A manual run whose kinds have no KUnit, like the kselftest and LTP half of a distro night,
-      # does not build it, since that grade cannot run and the build takes more than an hour.
+      # does not build it, since that grade cannot run and the build takes more than an hour. A run
+      # with second set to no does not build it either, which leaves rk cross-modules time to finish
+      # on a distro config.
       - name: rk build with the second reference
         id: second
-        if: env.SECOND != '' && env.ROW == 'X64' && env.AGAINST != 'second' && (env.KINDS == '' || contains(env.KINDS, 'kunit'))
+        if: env.SECOND != '' && env.ROW == 'X64' && env.AGAINST != 'second' && inputs.second != 'no' && (env.KINDS == '' || contains(env.KINDS, 'kunit'))
         continue-on-error: true
         run: |
           target/release/rk fetch ${{ matrix.version }} --no-upstream-check
@@ -320,8 +326,11 @@ jobs:
             --kinds "$kinds" "${userland[@]}" "${rucc_userland[@]}" "${boot[@]}" --out "$RUNNER_TEMP/test"
         env:
           TIMEOUT: ${{ (inputs.row == 'A64' || inputs.row == 'R64') && 2400 || 600 }}
+      # Not against gcc-16: its container has no pahole, so that build has no DEBUG_INFO_BTF_MODULES
+      # and its struct module is smaller than the rucc kernel's, and every module is refused both
+      # ways for that alone.
       - name: rk cross-modules
-        if: always() && steps.test.outcome != 'skipped' && (inputs.kinds == '' || contains(inputs.kinds, 'kunit'))
+        if: always() && steps.test.outcome != 'skipped' && env.AGAINST != 'second' && (inputs.kinds == '' || contains(inputs.kinds, 'kunit'))
         continue-on-error: true
         run: |
           boot=(--timeout "$TIMEOUT")
