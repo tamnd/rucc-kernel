@@ -3,35 +3,35 @@
 # Written by `rk sets --write` from the rules in sets.toml and kernel.org's releases.json, with the
 # hashes taken from the sha256sums.asc of each directory. `rk fetch` checks the hash on every use.
 
-default = "7.3.4"
+default = "7.3.5"
 
 [[pin]]
-version = "7.4-rc2"
+version = "7.4-rc3"
 moniker = "mainline"
 sets = ["next"]
-url = "https://git.kernel.org/torvalds/t/linux-7.4-rc2.tar.gz"
-sha256 = "010063d5fc7bb3a5f1fb116cff45abe4977e8a8205b7841773505680c7a014bb"
+url = "https://git.kernel.org/torvalds/t/linux-7.4-rc3.tar.gz"
+sha256 = "95c0eb4a051dd09983d6b7887bdd9d323559fccda163c627d398c0547b89f961"
 
 [[pin]]
-version = "7.3.4"
+version = "7.3.5"
 moniker = "stable"
 sets = ["current"]
-url = "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.3.4.tar.xz"
-sha256 = "b11b6df8295e8e991ff040b71aaa4994a8b55caa23b6b092907f195b5840fd1f"
+url = "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.3.5.tar.xz"
+sha256 = "8f293f83d54f0b7b9be56863ebc5e4ea79d73e530b4ae55c572be97ef39f0990"
 
 [[pin]]
-version = "6.18.63"
+version = "6.18.64"
 moniker = "longterm"
 sets = ["current"]
-url = "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.63.tar.xz"
-sha256 = "81764a545072d160748beff4d9de2e7d95aa9f16e8261110288f067a2cc61d71"
+url = "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.64.tar.xz"
+sha256 = "020d45510c539972e6f14c5c71566878d3b7ef56fb082b3e09134f2ebaade562"
 
 [[pin]]
-version = "6.12.117"
+version = "6.12.118"
 moniker = "longterm"
 sets = ["current"]
-url = "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.117.tar.xz"
-sha256 = "74e99aa5e60e242e0a165fed8cb2ea0d054bf7a401f01861d403d75733456613"
+url = "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.118.tar.xz"
+sha256 = "08308460320e852ac0745b2be3c7ae1cd81bdad713506ed7d817ba1ec9e1a5a5"
 
 [[pin]]
 version = "6.6.162"

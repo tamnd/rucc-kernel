@@ -15,7 +15,7 @@ on:
       version:
         description: The kernel version, from pins.toml
         required: false
-        default: 7.4-rc2
+        default: 7.4-rc3
       config:
         description: The distro config, from configs/distro/distros.toml
         required: false

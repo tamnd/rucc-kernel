@@ -17,7 +17,7 @@
 #   curl -LO https://kojipkgs.fedoraproject.org/packages/kernel/7.2.8/200.fc44/aarch64/kernel-core-7.2.8-200.fc44.aarch64.rpm
 #   curl -LO https://kojipkgs.fedoraproject.org/packages/kernel/7.3.0/65.fc46/x86_64/kernel-core-7.3.0-65.fc46.x86_64.rpm
 #   curl -LO https://kojipkgs.fedoraproject.org/packages/kernel/7.3.0/65.fc46/aarch64/kernel-core-7.3.0-65.fc46.aarch64.rpm
-#   curl -LO https://kojipkgs.fedoraproject.org/packages/kernel/7.4.0/0.rc2.19.fc46/x86_64/kernel-core-7.4.0-0.rc2.19.fc46.x86_64.rpm
+#   curl -LO https://kojipkgs.fedoraproject.org/packages/kernel/7.4.0/0.rc3.26.fc46/x86_64/kernel-core-7.4.0-0.rc3.26.fc46.x86_64.rpm
 #
 # Take the config out of an RPM with: rpm2cpio <rpm> | cpio -i --to-stdout ./lib/modules/<release>/config
 
@@ -100,15 +100,15 @@ overrides = [
   '# CONFIG_UBSAN is not set',
 ]
 
-# Rawhide's build of 7.4-rc2, for the next set. It moves to the 7.4 build once 7.4 is out.
+# Rawhide's build of 7.4-rc3, for the next set. It moves to the 7.4 build once 7.4 is out.
 [[distro]]
 name = "fedora-46-7.4"
 file = "fedora-46-7.4-x86_64.config"
-version = "7.4-rc2"
+version = "7.4-rc3"
 row = "X64"
-package = "kernel-core-7.4.0-0.rc2.19.fc46.x86_64.rpm"
-package_sha256 = "5a2130a07f163c95c5692603ba82f7c85b6056a7813e24a691cf2c16f15ca0c5"
-config_sha256 = "788ba1259fdbc6989c32cb185a01a1c3ab3dad08096d9166299c0c5361bd4a69"
+package = "kernel-core-7.4.0-0.rc3.26.fc46.x86_64.rpm"
+package_sha256 = "d4cf99d5797bb643ebdc20f877bec96d408bfe7b65f74f3862936ae3d44c8cf6"
+config_sha256 = "dd47611e0cdac2349e8f14a0ae1f410764d157a9324d7f28011c05617ffb3e9d"
 compiler = "gcc 16.2.1"
 overrides = [
   'CONFIG_SYSTEM_TRUSTED_KEYS=""',
