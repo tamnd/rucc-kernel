@@ -446,7 +446,13 @@ pub struct Plan {
 /// `drm_crtc_vblank_restore` without `vbl_lock` held, and `assert_spin_locked` in
 /// `drm_vblank_restore` is then a `BUG`. With Fedora's x86-64 config on 7.3 both kernels stopped
 /// there, and the suites that each had not run yet were missing from its boot.
+///
+/// `drm_test_panic_screen_user_map` in `drm_panic_helper_test` draws the panic screen into a
+/// vmalloc'd framebuffer for each mode. On the 7.4-rc3 x86-64 nightly the reference kernel printed
+/// nothing more after its fifth case on one boot and after its fourth on another, and the rucc
+/// kernel stopped after its fourth. Each boot then ran out of time with the suites after it missing.
 const LEFT_OUT: &[&str] = &[
+    "drivers/gpu/drm/tests/drm_panic_helper_test.ko",
     "sound/drivers/snd-mts64.ko",
     "sound/drivers/snd-portman2x4.ko",
     "lib/tests/test_ratelimit.ko",
