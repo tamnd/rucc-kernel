@@ -17,7 +17,8 @@
 //! nothing. For that the make command has to be the reference's exactly, including the path of its
 //! shim, which then logs the few calls the link makes into the reference's `compile.jsonl`. Those
 //! lines are moved into the trial's `relink.jsonl` after every trial, so the reference's log stays
-//! what its build wrote.
+//! what its build wrote. The `.cmd` files of objtool name their targets by absolute path, so the
+//! copy has them moved to its own, or make builds objtool again and with it every object.
 //!
 //! A trial whose link fails is a finding of its own, since a rucc object that cannot be linked
 //! with GCC objects has an ABI or section mismatch. `rk mixed` records it and stops.
@@ -483,6 +484,20 @@ impl Trials<'_> {
                 build::failure_lines(&log, 20),
             ));
         }
+        let again: Vec<String> = recompiled(
+            &self.tree,
+            swapped.iter().map(|(path, bytes)| (path, bytes.as_slice())),
+        )
+        .into_iter()
+        .cloned()
+        .collect();
+        if again.len() > 1 && again.len() == swapped.len() {
+            return Err(Stop::Error(not_mixed(&again)));
+        }
+        for path in again {
+            eprintln!("rk: make built {path} again from what the link made");
+            self.current.remove(&path);
+        }
         let failed = self.boot(&stem)?;
         self.seen.insert(key, failed);
         self.done.push(Trial {
@@ -624,11 +639,14 @@ pub fn mix(
         std::fs::remove_dir_all(out).map_err(|e| format!("clearing {}: {e}", out.display()))?;
     }
     copy_tree(reference, out)?;
+    let mut swapped = Vec::new();
     for path in &chosen {
         let target = out.join(path);
+        let bytes = read(&other.join(path))?;
         let _ = std::fs::remove_file(&target);
-        std::fs::write(&target, read(&other.join(path))?)
+        std::fs::write(&target, &bytes)
             .map_err(|e| format!("writing {}: {e}", target.display()))?;
+        swapped.push((path, bytes));
     }
     let shim = reference.join("rk-bin").join("rk-cc");
     let cc = std::iter::once(shim.display().to_string())
@@ -663,7 +681,25 @@ pub fn mix(
     if !status.success() {
         return Err(format!("the link failed, see {}", log.display()));
     }
-    Ok(chosen)
+    let again: BTreeSet<String> = recompiled(
+        out,
+        swapped
+            .iter()
+            .map(|(path, bytes)| (*path, bytes.as_slice())),
+    )
+    .into_iter()
+    .cloned()
+    .collect();
+    if again.len() == swapped.len() {
+        return Err(not_mixed(&again.into_iter().collect::<Vec<_>>()));
+    }
+    for path in &again {
+        eprintln!("rk: make built {path} again from what the link made, so it is the reference's");
+    }
+    Ok(chosen
+        .into_iter()
+        .filter(|path| !again.contains(path))
+        .collect())
 }
 
 /// Read a file whole.
@@ -906,15 +942,91 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
         .arg(to)
         .status()
         .map_err(|e| format!("running cp: {e}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!(
+    if !status.success() {
+        return Err(format!(
             "copying {} to {} failed",
             from.display(),
             to.display()
-        ))
+        ));
     }
+    rebase_tools(from, to)
+}
+
+/// Point the `.cmd` files of the tools a build made at its copy.
+///
+/// kbuild builds objtool under `tools/` with the tools' own make rules, and their `.cmd` files name
+/// every target by its absolute path. In a copy those are still the paths of the reference, so
+/// make takes each command as changed and builds objtool again. Every object depends on objtool,
+/// so make then compiles every object again with the reference's compiler, over the objects that
+/// were swapped in. The kernel's own `.cmd` files name objects relative to the build and are left
+/// as they are, since the shim path in them has to stay the reference's.
+fn rebase_tools(from: &Path, to: &Path) -> Result<(), String> {
+    let to = std::fs::canonicalize(to).unwrap_or_else(|_| to.to_path_buf());
+    let new = format!("{}/", to.display());
+    let mut olds = vec![format!("{}/", from.display())];
+    if let Ok(real) = std::fs::canonicalize(from) {
+        olds.push(format!("{}/", real.display()));
+    }
+    let mut dirs = vec![to.join("tools")];
+    while let Some(dir) = dirs.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_dir() {
+                dirs.push(path);
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let saved = path
+                .extension()
+                .is_some_and(|ext| ext == "cmd" || ext == "d");
+            if !name.starts_with('.') || !saved {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let mut moved = text.clone();
+            for old in &olds {
+                moved = moved.replace(old.as_str(), &new);
+            }
+            if moved != text {
+                std::fs::write(&path, moved)
+                    .map_err(|e| format!("writing {}: {e}", path.display()))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The swapped objects that make compiled again, so that the link did not use them.
+///
+/// A few objects are built from what the link makes, such as the vDSO image, the realmode blob
+/// and the decompressor's `misc.o` with the offsets of the new `vmlinux`. make builds those again
+/// in any mix and that is right. Every object built again is the sign of a copy make does not take
+/// as its own, which is what happened before the tools were rebased.
+fn recompiled<'a>(
+    tree: &Path,
+    swapped: impl Iterator<Item = (&'a String, &'a [u8])>,
+) -> Vec<&'a String> {
+    swapped
+        .filter(|(path, bytes)| std::fs::read(tree.join(path)).ok().as_deref() != Some(*bytes))
+        .map(|(path, _)| path)
+        .collect()
+}
+
+/// Say that make compiled every swapped object again, as an error.
+fn not_mixed(again: &[String]) -> String {
+    format!(
+        "make compiled all {} rucc objects again, {} first, so the link used none of them",
+        again.len(),
+        again[0]
+    )
 }
 
 /// Write `mixed.json` and `summary.md`.
@@ -1009,6 +1121,40 @@ mod tests {
 
     fn fails_with(culprits: &[u32]) -> impl FnMut(&[u32]) -> Result<bool, ()> + '_ {
         move |set: &[u32]| Ok(culprits.iter().all(|c| set.contains(c)))
+    }
+
+    #[test]
+    fn a_copy_of_a_build_names_its_own_tools() {
+        let dir = std::env::temp_dir().join(format!("rk-mixed-copy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let from = dir.join("gcc");
+        std::fs::create_dir_all(from.join("tools/objtool")).unwrap();
+        std::fs::create_dir_all(from.join("mm")).unwrap();
+        let line = |root: &Path| {
+            format!(
+                "cmd_{0}/tools/objtool/elf.o := gcc -o {0}/tools/objtool/elf.o\n",
+                root.display()
+            )
+        };
+        std::fs::write(from.join("tools/objtool/.elf.o.cmd"), line(&from)).unwrap();
+        let unit = format!(
+            "savedcmd_mm/memory.o := {}/rk-bin/rk-cc -c\n",
+            from.display()
+        );
+        std::fs::write(from.join("mm/.memory.o.cmd"), &unit).unwrap();
+        let to = dir.join("mix");
+        copy_tree(&from, &to).unwrap();
+        let to = std::fs::canonicalize(&to).unwrap();
+        let read = |path: &str| std::fs::read_to_string(to.join(path)).unwrap();
+        assert_eq!(read("tools/objtool/.elf.o.cmd"), line(&to));
+        assert_eq!(read("mm/.memory.o.cmd"), unit);
+        std::fs::write(to.join("mm/memory.o"), b"gcc").unwrap();
+        let path = "mm/memory.o".to_string();
+        let swapped = [(&path, &b"rucc"[..])];
+        assert_eq!(recompiled(&to, swapped.into_iter()), vec![&path]);
+        std::fs::write(to.join("mm/memory.o"), b"rucc").unwrap();
+        assert!(recompiled(&to, swapped.into_iter()).is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
