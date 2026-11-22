@@ -231,10 +231,10 @@ profile)
     echo small > /usr/share/nginx/html/rk/small.html
     systemctl start nginx || exit 1
     ab -q -n 20000 -c 32 http://127.0.0.1/rk/small.html > /dev/null 2>&1
-    perf record -q -a -e cpu-clock -F 4999 -o /tmp/perf.data -- \
+    perf record -q -a -g -e cpu-clock -F 4999 -o /tmp/perf.data -- \
         ab -q -n 200000 -c 32 http://127.0.0.1/rk/small.html > /tmp/ab.out 2>&1 || exit 1
     result nginx-rps "$(awk '/^Requests per second/ { print $4 }' /tmp/ab.out)"
-    report() { perf report -i /tmp/perf.data --stdio -q -n --no-children "$@" 2> /dev/null; }
+    report() { perf report -i /tmp/perf.data --stdio -q -n --no-children -g none "$@" 2> /dev/null; }
     echo "by process"
     report --sort comm | head -12
     echo "by kernel symbol"
@@ -243,6 +243,12 @@ profile)
         echo "by kernel symbol in $comm"
         report --comms "$comm" --sort sym | grep -F '[k]' | head -40
     done
+    # Who calls the library's copy and fill, folded one chain to a line, since a call gcc writes
+    # inline costs the rucc kernel a call and a return thunk each time.
+    echo "callers of the copy and fill routines"
+    perf report -i /tmp/perf.data --stdio -q --no-children --sort sym --max-stack 4 \
+        --symbols memset_orig,__memset,memcpy_orig,__memcpy,__memmove,memmove \
+        -g folded,0.5,callee,function,count 2> /dev/null | head -80
     ;;
 
 stress)
