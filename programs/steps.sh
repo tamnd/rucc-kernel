@@ -17,7 +17,7 @@ GIT_SHA256=f0b0bf89264b9bd2e1c640363e7529643989da76281600473c50745cd34a607f
 # then boot copies of that disk. Git 2.56 builds a part of itself in Rust, hence cargo.
 PACKAGES="gcc make tar xz zlib-devel openssl-devel libcurl-devel expat-devel perl
 perl-Test-Harness diffutils nginx httpd-tools postgresql-server postgresql-contrib stress-ng
-podman e2fsprogs btrfs-progs xfsprogs fio cloud-utils-growpart cargo"
+podman e2fsprogs btrfs-progs xfsprogs fio cloud-utils-growpart cargo perf"
 
 # The container images, none from Docker Hub, whose pull limit hosted runners share.
 ALPINE=quay.io/libpod/alpine:latest
@@ -217,6 +217,23 @@ rates)
         result pgbench-tps "$(sed -n 's/^tps = \([0-9.]*\).*/\1/p' /tmp/pgbench.out)"
     done
     [ "$bad" = 0 ] || { cat /tmp/ab.out /tmp/pgbench.out; exit 1; }
+    ;;
+
+profile)
+    # Where the kernel spends the time of the rates' ab load, so that a rate one kernel loses can
+    # be put down to the functions that cost it. perf samples every CPU on the clock, since a guest
+    # has no counters, and the report lists the symbols by their share of the samples.
+    sysctl -qw kernel.kptr_restrict=0 kernel.perf_event_paranoid=-1
+    mkdir -p /usr/share/nginx/html/rk
+    echo small > /usr/share/nginx/html/rk/small.html
+    systemctl start nginx || exit 1
+    ab -q -n 20000 -c 32 http://127.0.0.1/rk/small.html > /dev/null 2>&1
+    perf record -q -a -e cpu-clock -F 1999 -o /tmp/perf.data -- \
+        ab -q -n 50000 -c 32 http://127.0.0.1/rk/small.html > /tmp/ab.out 2>&1 || exit 1
+    result nginx-rps "$(awk '/^Requests per second/ { print $4 }' /tmp/ab.out)"
+    perf report -i /tmp/perf.data --stdio -q --no-children --sort dso 2> /dev/null | head -20
+    perf report -i /tmp/perf.data --stdio -q --no-children --sort sym --percent-limit 0.2 \
+        2> /dev/null | grep -F '[k]' | head -120
     ;;
 
 stress)
