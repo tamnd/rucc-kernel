@@ -104,7 +104,8 @@ for step in "$@"; do
     done
     kill -0 "$qemu" 2> /dev/null || status=died
     guest "cat /root/rk-$step.log" > "$out/$step.log" 2> /dev/null
-    tail -n 80 "$out/$step.log"
+    # The profile's report is the point of the step, so it goes to the log in full.
+    if [ "$step" = profile ]; then cat "$out/$step.log"; else tail -n 80 "$out/$step.log"; fi
     sed -n 's/^RK-RESULT \([^ ]*\) \(.*\)$/\1\t\2/p' "$out/$step.log" | while IFS=$'\t' read -r k v; do
         record "$step" "$k" "$v"
     done
