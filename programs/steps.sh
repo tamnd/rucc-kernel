@@ -222,18 +222,27 @@ rates)
 profile)
     # Where the kernel spends the time of the rates' ab load, so that a rate one kernel loses can
     # be put down to the functions that cost it. perf samples every CPU on the clock, since a guest
-    # has no counters, and the report lists the symbols by their share of the samples.
+    # has no counters. The number of requests is fixed, so a symbol's count of samples is its CPU
+    # time for the same work, and the counts of two kernels can be compared as they are. The report
+    # gives the counts by process and by kernel symbol, and by kernel symbol for ab and nginx alone,
+    # since ab is one thread and its CPU is the one the rate waits on.
     sysctl -qw kernel.kptr_restrict=0 kernel.perf_event_paranoid=-1
     mkdir -p /usr/share/nginx/html/rk
     echo small > /usr/share/nginx/html/rk/small.html
     systemctl start nginx || exit 1
     ab -q -n 20000 -c 32 http://127.0.0.1/rk/small.html > /dev/null 2>&1
-    perf record -q -a -e cpu-clock -F 1999 -o /tmp/perf.data -- \
-        ab -q -n 50000 -c 32 http://127.0.0.1/rk/small.html > /tmp/ab.out 2>&1 || exit 1
+    perf record -q -a -e cpu-clock -F 4999 -o /tmp/perf.data -- \
+        ab -q -n 200000 -c 32 http://127.0.0.1/rk/small.html > /tmp/ab.out 2>&1 || exit 1
     result nginx-rps "$(awk '/^Requests per second/ { print $4 }' /tmp/ab.out)"
-    perf report -i /tmp/perf.data --stdio -q --no-children --sort dso 2> /dev/null | head -20
-    perf report -i /tmp/perf.data --stdio -q --no-children --sort sym --percent-limit 0.2 \
-        2> /dev/null | grep -F '[k]' | head -120
+    report() { perf report -i /tmp/perf.data --stdio -q -n --no-children "$@" 2> /dev/null; }
+    echo "by process"
+    report --sort comm | head -12
+    echo "by kernel symbol"
+    report --sort sym | grep -F '[k]' | head -80
+    for comm in ab nginx; do
+        echo "by kernel symbol in $comm"
+        report --comms "$comm" --sort sym | grep -F '[k]' | head -40
+    done
     ;;
 
 stress)
