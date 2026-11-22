@@ -25,7 +25,7 @@ on:
         required: false
         default: main
       suites:
-        description: The suites as a JSON list, apps and stress
+        description: The suites as a JSON list, apps, stress and profile
         required: false
         default: '["apps", "stress"]'
       kernels:
@@ -185,6 +185,7 @@ jobs:
           case "$SUITE" in
             apps) steps=(systemd git nginx pgbench fs podman) ;;
             stress) steps=(systemd stress) ;;
+            profile) steps=(profile) ;;
             *) echo "no suite $SUITE" >&2; exit 1 ;;
           esac
           for cc in rucc gcc; do
