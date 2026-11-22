@@ -1,0 +1,116 @@
+# The compile time of rucc against the era's second reference, GCC 16 for E11, with both builds on
+# one runner. The census compares the two builds of its own jobs, which run on two runners of one
+# type, so the CPUs under them may differ. Here one job builds the config with rucc claiming the
+# second reference and then with GCC 16, in the era container that toolchains.toml names, and rk
+# speed reads the two compile.jsonl files the shim wrote. Each tree is removed once its record is
+# saved, so that allmodconfig fits on the runner twice over. The runner's CPU goes into the summary
+# with the table.
+
+name: speed
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The kernel version
+        required: false
+        default: 7.4-rc3
+      config:
+        description: The base config
+        required: false
+        default: allmodconfig
+      rucc:
+        description: A branch, tag or commit of tamnd/rucc to build
+        required: false
+        default: main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RK_CACHE: ${{ github.workspace }}/../rk-cache
+
+jobs:
+  speed:
+    name: ${{ inputs.version }} X64 ${{ inputs.config }}, rucc against the second reference on one runner
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: room for the build tree
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - name: the runner
+        run: |
+          {
+            echo '```'
+            lscpu | grep -E '^(Model name|CPU\(s\)|Thread|Core|Socket|L3)'
+            free -g | head -2
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: rucc ${{ inputs.rucc }} from source
+        run: |
+          git clone -q https://github.com/tamnd/rucc "$RUNNER_TEMP/rucc-src"
+          git -C "$RUNNER_TEMP/rucc-src" checkout -q "$REF"
+          cargo build --release --manifest-path "$RUNNER_TEMP/rucc-src/Cargo.toml" -p rucc
+          echo "$RUNNER_TEMP/rucc-src/target/release" >> "$GITHUB_PATH"
+          echo "rucc built from $(git -C "$RUNNER_TEMP/rucc-src" rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          REF: ${{ inputs.rucc }}
+      - name: build rk
+        run: cargo build --release --workspace
+      - id: era
+        run: target/release/rk personas --for "$VERSION" | tee -a "$GITHUB_OUTPUT"
+        env:
+          VERSION: ${{ inputs.version }}
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ${{ env.RK_CACHE }}/archives
+          key: kernel-archives-${{ inputs.version }}-${{ hashFiles('pins.toml') }}
+          restore-keys: kernel-archives-${{ inputs.version }}-
+      # rucc goes first and GCC second, each in the same container with the same fragment the census
+      # uses, and only compile.jsonl is kept from each tree.
+      - name: rk build with rucc and then with ${{ steps.era.outputs.second-gcc }}
+        run: |
+          if [ -z "$GCC" ]; then
+            echo "::error::$VERSION has no second reference in personas.toml"
+            exit 1
+          fi
+          target/release/rk fetch "$VERSION" --no-upstream-check
+          work="$(dirname "$(dirname "$GITHUB_WORKSPACE")")"
+          mkdir -p records/rucc records/gcc
+          for cc in rucc gcc; do
+            out="$work/speed-$cc"
+            args=("$GCC")
+            if [ "$cc" = rucc ]; then args=("$(command -v rucc)" --persona second); fi
+            start=$(date +%s)
+            docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e RK_CACHE \
+              -v "$work:$work" -w "$GITHUB_WORKSPACE" "$IMAGE" \
+              target/release/rk build "$VERSION" --row X64 --config "$CONFIG" --fragment "$FRAGMENT" \
+              --cc "${args[@]}" --out "$out" --keep-going --no-upstream-check --targets bzImage || true
+            echo "$cc took $(( $(date +%s) - start )) s of wall time" | tee -a "$GITHUB_STEP_SUMMARY"
+            cp "$out/compile.jsonl" "records/$cc/"
+            rm -rf "$out"
+            df -h /
+          done
+        env:
+          VERSION: ${{ inputs.version }}
+          CONFIG: ${{ inputs.config }}
+          FRAGMENT: ${{ inputs.config == 'allmodconfig' && 'census' || 'test' }}
+          GCC: ${{ steps.era.outputs.second-gcc }}
+          IMAGE: ${{ steps.era.outputs.second-image }}
+      - name: rk speed
+        run: target/release/rk speed --reference records/gcc --other records/rucc | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: speed-${{ inputs.version }}-X64-${{ inputs.config }}
+          path: records
+          retention-days: 30
