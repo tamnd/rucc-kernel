@@ -21,4 +21,4 @@ include-rc = true
 # The versions a pinned distribution config in configs/distro/distros.toml belongs to. They stay pinned after their line moves on, so the distribution builds can still be repeated.
 [[set]]
 name = "distro"
-versions = ["7.3", "7.2.8", "6.12.111"]
+versions = ["7.4-rc3", "7.3", "7.2.8", "6.12.111"]

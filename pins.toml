@@ -6,11 +6,11 @@
 default = "7.3.5"
 
 [[pin]]
-version = "7.4-rc3"
+version = "7.4-rc4"
 moniker = "mainline"
 sets = ["next"]
-url = "https://git.kernel.org/torvalds/t/linux-7.4-rc3.tar.gz"
-sha256 = "95c0eb4a051dd09983d6b7887bdd9d323559fccda163c627d398c0547b89f961"
+url = "https://git.kernel.org/torvalds/t/linux-7.4-rc4.tar.gz"
+sha256 = "9f13091e6dd2d3576ad86e0c42ffa76b9993805a3f3a00f06981b242ea48aef9"
 
 [[pin]]
 version = "7.3.5"
@@ -60,6 +60,13 @@ moniker = "longterm"
 sets = ["current"]
 url = "https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-5.10.274.tar.xz"
 sha256 = "9f87a8b523560ca7740ea4a149c6dc0dab7814c2a41bccdb739b291a7e120b8c"
+
+[[pin]]
+version = "7.4-rc3"
+moniker = "kept"
+sets = ["distro"]
+url = "https://git.kernel.org/torvalds/t/linux-7.4-rc3.tar.gz"
+sha256 = "95c0eb4a051dd09983d6b7887bdd9d323559fccda163c627d398c0547b89f961"
 
 [[pin]]
 version = "7.3"
