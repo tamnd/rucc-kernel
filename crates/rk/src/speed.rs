@@ -17,6 +17,8 @@ use std::path::Path;
 pub struct Cost {
     /// User and system CPU seconds.
     pub cpu: f64,
+    /// The system part of `cpu`, mostly page faults.
+    pub system: f64,
     /// Wall clock seconds.
     pub wall: f64,
     /// Peak resident set in KiB.
@@ -41,11 +43,13 @@ pub fn units(records: &[CompileRecord]) -> Units {
         else {
             continue;
         };
-        let cpu = r.user_seconds.unwrap_or(0.0) + r.system_seconds.unwrap_or(0.0);
+        let system = r.system_seconds.unwrap_or(0.0);
+        let cpu = r.user_seconds.unwrap_or(0.0) + system;
         units.insert(
             object.to_string(),
             Cost {
                 cpu,
+                system,
                 wall: r.wall_seconds,
                 rss_kb: r.peak_rss_kb.unwrap_or(0),
             },
@@ -66,6 +70,7 @@ pub fn load(dir: &Path) -> Result<Units, String> {
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Totals {
     pub cpu: f64,
+    pub system: f64,
     pub wall: f64,
     /// The largest peak resident set of any unit.
     pub rss_max_kb: u64,
@@ -112,6 +117,7 @@ fn totals<'a>(costs: impl Iterator<Item = &'a Cost>) -> Totals {
     let mut rss = Vec::new();
     for c in costs {
         t.cpu += c.cpu;
+        t.system += c.system;
         t.wall += c.wall;
         rss.push(c.rss_kb);
     }
@@ -164,6 +170,11 @@ pub fn report(c: &Comparison, reference: &str, other: &str, top: usize) -> Strin
         s,
         "| CPU seconds | {:.1} | {:.1} |",
         c.reference.cpu, c.other.cpu
+    );
+    let _ = writeln!(
+        s,
+        "| of which system | {:.1} | {:.1} |",
+        c.reference.system, c.other.system
     );
     let _ = writeln!(
         s,
@@ -272,6 +283,7 @@ mod tests {
         let text = report(&c, "gcc-16", "rucc", 5);
         assert!(text.contains("rucc uses 3.00x less CPU time than gcc-16."));
         assert!(text.contains("| CPU seconds | 3.0 | 1.0 |"));
+        assert!(text.contains("| of which system | 0.7 | 0.2 |"));
         assert!(text.contains("| `mm/slub.o` | 1.00 | 0.50 | 0.50 |"));
     }
 }
