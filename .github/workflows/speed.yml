@@ -41,8 +41,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 355
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2.9.3
       - name: room for the build tree
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
@@ -108,7 +108,7 @@ jobs:
           IMAGE: ${{ steps.era.outputs.second-image }}
       - name: rk speed
         run: target/release/rk speed --reference records/gcc --other records/rucc | tee -a "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: speed-${{ inputs.version }}-X64-${{ inputs.config }}

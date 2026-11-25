@@ -56,8 +56,8 @@ jobs:
       second-gcc: ${{ steps.era.outputs.second-gcc }}
       second-image: ${{ steps.era.outputs.second-image }}
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2.9.3
       - id: era
         run: |
           cargo run -q --release -p rk -- personas --for "$VERSION" | tee -a "$GITHUB_OUTPUT" > "$RUNNER_TEMP/era"
@@ -78,8 +78,8 @@ jobs:
       matrix:
         cc: [gcc, rucc]
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2.9.3
       - name: room for the build tree
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
@@ -123,7 +123,7 @@ jobs:
           COMPILER: ${{ matrix.cc }}
           SECOND: ${{ needs.era.outputs.second-gcc }}
           IMAGE: ${{ needs.era.outputs.second-image }}
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: programs-kernel-${{ matrix.cc }}
           path: ${{ runner.temp }}/kernel
@@ -140,7 +140,7 @@ jobs:
       matrix:
         suite: ${{ fromJSON(inputs.suites) }}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
       - name: QEMU, busybox and ab
         run: |
           sudo apt-get update -q
@@ -152,7 +152,7 @@ jobs:
             | sudo tee /etc/udev/rules.d/99-kvm.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm || true
-      - uses: actions/download-artifact@v8.0.1
+      - uses: actions/download-artifact@v8.0.2
         with:
           pattern: programs-kernel-*
           path: ${{ runner.temp }}/kernels
@@ -219,7 +219,7 @@ jobs:
           exit "${PIPESTATUS[0]}"
         env:
           SUITE: ${{ matrix.suite }}
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: programs-${{ matrix.suite }}
